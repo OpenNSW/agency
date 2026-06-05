@@ -118,6 +118,12 @@ const en = {
 
   // ConsignmentListScreen.tsx, ConsignmentTasksScreen.tsx
   common: {
+    status: {
+      approved: 'approved',
+      rejected: 'rejected',
+      pending: 'pending',
+      feedback_requested: 'sent back for feedback',
+    },
     pagination: {
       info: 'Page {{page}} of {{totalPages}} ({{total}} results)',
     },
