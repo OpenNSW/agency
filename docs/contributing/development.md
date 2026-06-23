@@ -9,7 +9,7 @@ Before you begin, ensure you have the following installed:
 -   [Go](https://go.dev/dl/) (1.24 or later)
 -   [Node.js](https://nodejs.org/) (20 or later, with pnpm)
 -   [GCC](https://gcc.gnu.org/) (required by `go-sqlite3` CGO dependency)
--   [Docker](https://www.docker.com/products/docker-desktop/) and Docker Compose
+-   [Docker Daemon](https://docs.docker.com/get-docker/) and Docker Compose
 -   [Git](https://git-scm.com/downloads)
 
 ## Initial Setup
