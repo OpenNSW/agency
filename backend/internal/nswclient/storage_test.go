@@ -1,7 +1,10 @@
 package nswclient
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +12,21 @@ import (
 
 	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
 )
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+	})
+
+	return &output
+}
 
 func TestClient_CreateUploadURL(t *testing.T) {
 	mux := http.NewServeMux()
@@ -49,6 +67,143 @@ func TestClient_CreateUploadURL_InvalidRequest(t *testing.T) {
 
 	if _, err := client.CreateUploadURL(context.Background(), UploadRequest{}); err == nil {
 		t.Fatal("expected error for missing required fields, got nil")
+	}
+}
+
+func TestCleanFilename(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+		wantErr  bool
+	}{
+		{"document.pdf", "document.pdf", false},
+		{"../../etc/passwd.pdf", "passwd.pdf", false},
+		{"malware.exe", "", true},
+		{"script.sh", "", true},
+		{"shell.php", "", true},
+		{"page.html", "", true},
+		{"vector.svg", "", true},
+		{"macro.xls", "macro.xls", false},
+		{"file\x00name.pdf", "", true},
+	}
+
+	for _, tt := range tests {
+		res, err := CleanFilename(tt.input)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("CleanFilename(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+		}
+		if !tt.wantErr && res != tt.expected {
+			t.Errorf("CleanFilename(%q) = %q, expected %q", tt.input, res, tt.expected)
+		}
+	}
+}
+
+func TestValidateUploadRequest(t *testing.T) {
+	tests := []struct {
+		name      string
+		req       UploadRequest
+		targetErr error
+		wantErr   bool
+	}{
+		{
+			name: "valid PDF upload",
+			req: UploadRequest{
+				Filename: "document.pdf",
+				MimeType: "application/pdf",
+				Size:     1024,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid PNG image upload",
+			req: UploadRequest{
+				Filename: "image.png",
+				MimeType: "image/png",
+				Size:     2048,
+			},
+			wantErr: false,
+		},
+		{
+			name: "disallowed executable extension .exe",
+			req: UploadRequest{
+				Filename: "malware.exe",
+				MimeType: "application/octet-stream",
+				Size:     1024,
+			},
+			targetErr: ErrProhibitedFileType,
+			wantErr:   true,
+		},
+		{
+			name: "disallowed script extension .php",
+			req: UploadRequest{
+				Filename: "shell.php",
+				MimeType: "text/plain",
+				Size:     512,
+			},
+			targetErr: ErrProhibitedFileType,
+			wantErr:   true,
+		},
+		{
+			name: "disallowed script extension .sh",
+			req: UploadRequest{
+				Filename: "script.sh",
+				MimeType: "text/plain",
+				Size:     256,
+			},
+			targetErr: ErrProhibitedFileType,
+			wantErr:   true,
+		},
+		{
+			name: "disallowed HTML extension",
+			req: UploadRequest{
+				Filename: "phish.html",
+				MimeType: "text/plain",
+				Size:     1024,
+			},
+			targetErr: ErrProhibitedFileType,
+			wantErr:   true,
+		},
+		{
+			name: "disallowed MIME type",
+			req: UploadRequest{
+				Filename: "document.pdf",
+				MimeType: "audio/mpeg",
+				Size:     1024,
+			},
+			targetErr: ErrDisallowedMimeType,
+			wantErr:   true,
+		},
+		{
+			name: "exceeds maximum size limit",
+			req: UploadRequest{
+				Filename: "huge.pdf",
+				MimeType: "application/pdf",
+				Size:     100 << 20, // 100MB > 50MB
+			},
+			targetErr: ErrFileSizeExceeded,
+			wantErr:   true,
+		},
+		{
+			name: "missing filename",
+			req: UploadRequest{
+				Filename: "",
+				MimeType: "application/pdf",
+				Size:     1024,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateUploadRequest(&tt.req)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateUploadRequest() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.targetErr != nil && !errors.Is(err, tt.targetErr) {
+				t.Errorf("validateUploadRequest() error = %v, expected target error %v", err, tt.targetErr)
+			}
+		})
 	}
 }
 
