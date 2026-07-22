@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -40,6 +41,8 @@ func (h *Handler) HandleGetUploadURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
 	httputil.WriteJSONResponse(w, http.StatusOK, metadata)
 }
 
@@ -59,10 +62,20 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.service.CreateUploadURL(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, ErrInvalidUploadRequest) ||
+			errors.Is(err, ErrProhibitedFileType) ||
+			errors.Is(err, ErrDisallowedMimeType) ||
+			errors.Is(err, ErrInvalidFilename) ||
+			errors.Is(err, ErrFileSizeExceeded) {
+			httputil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		slog.ErrorContext(r.Context(), "failed to create upload URL", "error", err)
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create upload URL")
 		return
 	}
 
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
 	httputil.WriteJSONResponse(w, http.StatusOK, result)
 }

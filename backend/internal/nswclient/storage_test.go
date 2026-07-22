@@ -78,6 +78,7 @@ func TestCleanFilename(t *testing.T) {
 	}{
 		{"document.pdf", "document.pdf", false},
 		{"../../etc/passwd.pdf", "passwd.pdf", false},
+		{"..\\..\\passwd.pdf", "passwd.pdf", false},
 		{"malware.exe", "", true},
 		{"script.sh", "", true},
 		{"shell.php", "", true},
@@ -111,6 +112,15 @@ func TestValidateUploadRequest(t *testing.T) {
 				Filename: "document.pdf",
 				MimeType: "application/pdf",
 				Size:     1024,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid XLS upload with application/vnd.ms-excel",
+			req: UploadRequest{
+				Filename: "spreadsheet.xls",
+				MimeType: "application/vnd.ms-excel",
+				Size:     2048,
 			},
 			wantErr: false,
 		},
@@ -190,7 +200,8 @@ func TestValidateUploadRequest(t *testing.T) {
 				MimeType: "application/pdf",
 				Size:     1024,
 			},
-			wantErr: true,
+			targetErr: ErrInvalidUploadRequest,
+			wantErr:   true,
 		},
 	}
 

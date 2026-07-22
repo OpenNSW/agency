@@ -40,23 +40,25 @@ type DownloadMetadata struct {
 const storageBasePath = "storage"
 
 var (
-	ErrProhibitedFileType = errors.New("prohibited file type or extension")
-	ErrDisallowedMimeType = errors.New("disallowed MIME type")
-	ErrInvalidFilename    = errors.New("invalid or unsafe filename")
-	ErrFileSizeExceeded   = errors.New("file size exceeds maximum allowed limit")
+	ErrInvalidUploadRequest = errors.New("invalid upload request: missing required fields")
+	ErrProhibitedFileType   = errors.New("prohibited file type or extension")
+	ErrDisallowedMimeType   = errors.New("disallowed MIME type")
+	ErrInvalidFilename      = errors.New("invalid or unsafe filename")
+	ErrFileSizeExceeded     = errors.New("file size exceeds maximum allowed limit")
 )
 
 // Allowed MIME types whitelist for customs documents and attachments.
 var allowedMimeTypes = map[string]struct{}{
-	"application/pdf":    {},
-	"image/jpeg":         {},
-	"image/jpg":          {},
-	"image/png":          {},
-	"image/tiff":         {},
-	"text/csv":           {},
-	"text/plain":         {},
-	"application/json":   {},
-	"application/msword": {},
+	"application/pdf":          {},
+	"image/jpeg":               {},
+	"image/jpg":                {},
+	"image/png":                {},
+	"image/tiff":               {},
+	"text/csv":                 {},
+	"text/plain":               {},
+	"application/json":         {},
+	"application/msword":       {},
+	"application/vnd.ms-excel": {},
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":       {},
 }
@@ -84,8 +86,11 @@ func CleanFilename(filename string) (string, error) {
 		return "", fmt.Errorf("%w: filename contains null byte", ErrInvalidFilename)
 	}
 
-	cleanName := filepath.Base(filepath.Clean(filename))
-	if cleanName == "." || cleanName == "/" || cleanName == "\\" || cleanName == "" {
+	// Normalize Windows-style backslashes to forward slashes before path cleaning
+	normalized := strings.ReplaceAll(filename, "\\", "/")
+
+	cleanName := filepath.Base(filepath.Clean(normalized))
+	if cleanName == "." || cleanName == "/" || cleanName == "" {
 		return "", fmt.Errorf("%w: unsafe or empty filename", ErrInvalidFilename)
 	}
 
@@ -104,7 +109,7 @@ func CleanFilename(filename string) (string, error) {
 // validateUploadRequest performs multi-layered security validation on upload requests.
 func validateUploadRequest(req *UploadRequest) error {
 	if req.Filename == "" || req.MimeType == "" || req.Size <= 0 {
-		return fmt.Errorf("invalid upload request: missing required fields")
+		return fmt.Errorf("%w", ErrInvalidUploadRequest)
 	}
 
 	cleanName, err := CleanFilename(req.Filename)
@@ -130,8 +135,6 @@ func validateUploadRequest(req *UploadRequest) error {
 // GetDownloadURL fetches a (possibly presigned) download URL for a key from the
 // NSW backend's storage metadata endpoint.
 func (c *Client) GetDownloadURL(ctx context.Context, key string) (*DownloadMetadata, error) {
-	// JoinPath treats its arguments as already-escaped path elements, so escape
-	// key first to keep a slash-containing key within one segment.
 	apiURL, err := url.JoinPath(storageBasePath, url.PathEscape(key))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build storage metadata URL: %w", err)
@@ -158,7 +161,6 @@ func (c *Client) GetDownloadURL(ctx context.Context, key string) (*DownloadMetad
 		return nil, fmt.Errorf("metadata response missing download_url")
 	}
 
-	// The download URL is presigned and may embed credentials, so it is not logged.
 	slog.InfoContext(ctx, "resolved download URL from metadata", "key", key)
 	return &metadata, nil
 }
