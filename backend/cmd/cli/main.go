@@ -207,7 +207,7 @@ Environment variables:
   DB_USER       PostgreSQL user (default: postgres)
   DB_PASSWORD   PostgreSQL password (required for postgres)
   DB_NAME       PostgreSQL database name (default: nsw_agency_db)
-  DB_SSLMODE    PostgreSQL SSL mode (default: disable)
+  DB_SSLMODE    PostgreSQL SSL mode (default: require)
 `)
 }
 

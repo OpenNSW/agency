@@ -79,6 +79,20 @@ func TestCLILoadConfig_Postgres_RequiresPassword(t *testing.T) {
 	}
 }
 
+func TestCLILoadConfig_Postgres_DefaultSSLModeRequire(t *testing.T) {
+	t.Setenv("DB_DRIVER", "postgres")
+	t.Setenv("DB_PASSWORD", "secret")
+	t.Setenv("DB_SSLMODE", "") // Unset -> should default to require
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.DB.Postgres.SSLMode != "require" {
+		t.Errorf("DB.Postgres.SSLMode = %q, want require when unset", cfg.DB.Postgres.SSLMode)
+	}
+}
+
 func TestCLILoadConfig_UnsupportedDriver(t *testing.T) {
 	t.Setenv("DB_DRIVER", "mysql")
 

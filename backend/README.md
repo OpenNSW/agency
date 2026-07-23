@@ -100,7 +100,7 @@ All configuration is via environment variables:
 | `DB_USER`                        | PostgreSQL user                                                                       | `postgres`                     |
 | `DB_PASSWORD`                    | PostgreSQL password                                                                   | `changeme`                     |
 | `DB_NAME`                        | PostgreSQL database name                                                              | `agency_db`                    |
-| `DB_SSLMODE`                     | PostgreSQL SSL mode                                                                   | `disable`                      |
+| `DB_SSLMODE`                     | PostgreSQL SSL mode                                                                   | `require`                      |
 | `ARTIFACT_LOADER_TYPE`           | Artifact source backend: `local`, `github`, or `s3`                                   | `local`                        |
 | `ARTIFACT_LOCAL_ROOT`            | Root dir the `local` loader resolves task configs, forms, and `manifest.json` against | required for `local`           |
 | `ALLOWED_ORIGINS`                | Comma-separated CORS origins (`*` to allow all)                                       | `*`                            |

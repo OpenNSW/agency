@@ -56,6 +56,7 @@ services:
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       DB_NAME: ${DB_NAME:-nsw_agency_db}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
       MIGRATION_DIR: /app/migrations
     depends_on:
       db:
@@ -88,6 +89,7 @@ services:
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       DB_NAME: ${DB_NAME:-nsw_agency_db}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
       PORT: ${AGENCY_PORT:-8081}
       # The portal and API share one origin now, so the browser's API base URL
       # is just this server's host-reachable address. Overrides .env.

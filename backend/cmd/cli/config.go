@@ -28,7 +28,7 @@ func LoadConfig() (Config, error) {
 				User:     envOrDefault("DB_USER", "postgres"),
 				Password: os.Getenv("DB_PASSWORD"),
 				Name:     envOrDefault("DB_NAME", "nsw_agency_db"),
-				SSLMode:  envOrDefault("DB_SSLMODE", "disable"),
+				SSLMode:  envOrDefault("DB_SSLMODE", "require"),
 			},
 		},
 	}

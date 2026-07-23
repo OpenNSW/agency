@@ -22,56 +22,79 @@ func main() {
 
 	cmd := os.Args[1]
 	switch cmd {
-	case "up", "down", "status", "generate":
+	case "up":
+		if err := runMigrateUp(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "down":
+		if err := runMigrateDown(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "status":
+		if err := runMigrateStatus(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "migrate: unknown command %q\n\n", cmd)
 		usage()
 		os.Exit(1)
 	}
+}
 
+func runMigrateUp() error {
 	cfg, err := LoadConfig()
 	if err != nil {
-		fatalf("config: %v", err)
+		return err
 	}
-
-	// generate only needs the dir, no DB connection required.
-	if cmd == "generate" {
-		if len(os.Args) < 3 {
-			fatalf("generate requires a migration name, e.g: migrate generate create_users")
-		}
-		m, err := migrator.New(nil, cfg.Dir, cfg.DB.Driver)
-		if err != nil {
-			fatalf("%v", err)
-		}
-		if err := m.Generate(os.Args[2]); err != nil {
-			fatalf("%v", err)
-		}
-		return
-	}
-
 	db, err := openDB(cfg.DB)
 	if err != nil {
-		fatalf("open database: %v", err)
+		return err
 	}
-	defer db.Close() //nolint:errcheck
+	defer db.Close()
 
 	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
 	if err != nil {
-		fatalf("%v", err)
+		return err
 	}
+	return m.Up()
+}
 
-	switch cmd {
-	case "up":
-		err = m.Up()
-	case "down":
-		err = m.Down()
-	case "status":
-		err = m.Status()
-	}
-
+func runMigrateDown() error {
+	cfg, err := LoadConfig()
 	if err != nil {
-		fatalf("%v", err)
+		return err
 	}
+	db, err := openDB(cfg.DB)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
+	if err != nil {
+		return err
+	}
+	return m.Down()
+}
+
+func runMigrateStatus() error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	db, err := openDB(cfg.DB)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
+	if err != nil {
+		return err
+	}
+	return m.Status()
 }
 
 func openDB(cfg database.Config) (*sql.DB, error) {
@@ -96,11 +119,11 @@ func openDB(cfg database.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("unsupported driver %q", cfg.Driver)
 	}
 	if err != nil {
-		return nil, err
+		return nil, database.SanitizeError(err, cfg.Postgres.Password)
 	}
 	if err := db.Ping(); err != nil {
 		db.Close() //nolint:errcheck
-		return nil, fmt.Errorf("database unreachable: %w", err)
+		return nil, database.SanitizeError(fmt.Errorf("database unreachable: %w", err), cfg.Postgres.Password)
 	}
 	return db, nil
 }
@@ -123,7 +146,7 @@ Environment variables:
   DB_USER         PostgreSQL user (default: postgres)
   DB_PASSWORD     PostgreSQL password (required for postgres)
   DB_NAME         PostgreSQL database name (default: nsw_agency_db)
-  DB_SSLMODE      PostgreSQL SSL mode (default: disable)
+  DB_SSLMODE      PostgreSQL SSL mode (default: require)
 `)
 }
 
