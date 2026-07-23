@@ -2,18 +2,13 @@ package database
 
 import (
 	"fmt"
-	"net/url"
 	"os"
-	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
-
-var dsnPasswordRegex = regexp.MustCompile(`(?i)(password=)[^\s&]+|(://[^:]+:)[^@]+(@)`)
 
 // PostgresConnector implements DBConnector for PostgreSQL.
 type PostgresConnector struct {
@@ -37,13 +32,13 @@ func (c *PostgresConnector) Open() (*gorm.DB, error) {
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		return nil, SanitizeError(err, c.Password)
+		return nil, err
 	}
 
 	// Configuring Connection Pooling for Production
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get database instance for pooling: %w", SanitizeError(err, c.Password))
+		return nil, fmt.Errorf("failed to get database instance for pooling: %w", err)
 	}
 
 	// Dynamically configure connection pool settings
@@ -56,18 +51,4 @@ func (c *PostgresConnector) Open() (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(time.Duration(maxLifetimeMin) * time.Minute)
 
 	return db, nil
-}
-
-// SanitizeError redacts sensitive credential information (passwords and DSN credentials) from database connection errors.
-func SanitizeError(err error, password string) error {
-	if err == nil {
-		return nil
-	}
-	errStr := err.Error()
-	if password != "" {
-		errStr = strings.ReplaceAll(errStr, password, "[REDACTED]")
-		errStr = strings.ReplaceAll(errStr, url.QueryEscape(password), "[REDACTED]")
-	}
-	errStr = dsnPasswordRegex.ReplaceAllString(errStr, "${1}${2}[REDACTED]${3}")
-	return fmt.Errorf("database connection failed: %s", errStr)
 }

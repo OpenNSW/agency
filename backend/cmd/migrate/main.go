@@ -52,7 +52,7 @@ func runMigrateUp() error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
 	if err != nil {
@@ -70,7 +70,7 @@ func runMigrateDown() error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
 	if err != nil {
@@ -88,7 +88,7 @@ func runMigrateStatus() error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
 	if err != nil {
@@ -119,11 +119,11 @@ func openDB(cfg database.Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("unsupported driver %q", cfg.Driver)
 	}
 	if err != nil {
-		return nil, database.SanitizeError(err, cfg.Postgres.Password)
+		return nil, err
 	}
 	if err := db.Ping(); err != nil {
 		db.Close() //nolint:errcheck
-		return nil, database.SanitizeError(fmt.Errorf("database unreachable: %w", err), cfg.Postgres.Password)
+		return nil, fmt.Errorf("database unreachable: %w", err)
 	}
 	return db, nil
 }
@@ -148,9 +148,4 @@ Environment variables:
   DB_NAME         PostgreSQL database name (default: nsw_agency_db)
   DB_SSLMODE      PostgreSQL SSL mode (default: require)
 `)
-}
-
-func fatalf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "migrate: "+format+"\n", args...)
-	os.Exit(1)
 }

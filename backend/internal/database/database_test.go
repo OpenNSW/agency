@@ -157,24 +157,3 @@ var (
 	_ DBConnector = (*SQLiteConnector)(nil)
 	_ DBConnector = (*PostgresConnector)(nil)
 )
-
-func TestSanitizeError(t *testing.T) {
-	if err := SanitizeError(nil, "secret"); err != nil {
-		t.Errorf("expected nil for nil error, got %v", err)
-	}
-
-	rawErr := fmt.Errorf("failed to connect using postgres://user:secret123@localhost:5432/db?password=secret123")
-	sanitized := SanitizeError(rawErr, "secret123")
-
-	if sanitized == nil {
-		t.Fatal("expected non-nil error")
-	}
-
-	if strings.Contains(sanitized.Error(), "secret123") {
-		t.Errorf("sanitized error leaked plaintext password: %s", sanitized.Error())
-	}
-
-	if !strings.Contains(sanitized.Error(), "[REDACTED]") {
-		t.Errorf("sanitized error missing [REDACTED] tag: %s", sanitized.Error())
-	}
-}
