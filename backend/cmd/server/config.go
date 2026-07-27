@@ -119,11 +119,17 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if tokenInsecureSkipVerify && !isDevEnvironment() {
+		return Config{}, fmt.Errorf("NSW_TOKEN_INSECURE_SKIP_VERIFY: insecure TLS verification requested but APP_ENV is not \"development\" (unset or any other value is treated as production); refusing to start — provide a trusted certificate chain, or set APP_ENV=development for a non-production run")
+	}
 	cfg.NSW.TokenInsecureSkipVerify = tokenInsecureSkipVerify
 
 	authInsecureSkipTLSVerify, err := parseBoolEnv("AUTH_JWKS_INSECURE_SKIP_VERIFY", false)
 	if err != nil {
 		return Config{}, err
+	}
+	if authInsecureSkipTLSVerify && !isDevEnvironment() {
+		return Config{}, fmt.Errorf("AUTH_JWKS_INSECURE_SKIP_VERIFY: insecure TLS verification requested but APP_ENV is not \"development\" (unset or any other value is treated as production); refusing to start — provide a trusted certificate chain, or set APP_ENV=development for a non-production run")
 	}
 	cfg.Auth.InsecureSkipTLSVerify = authInsecureSkipTLSVerify
 
@@ -199,4 +205,13 @@ func getBoolOrDefault(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+// isDevEnvironment reports whether APP_ENV explicitly designates a development
+// run (case-insensitive "development"). Unset or any other value is treated as
+// production. This is the only place APP_ENV is read; it exists solely to gate
+// the insecure-TLS escape hatches above, which must never be honored outside
+// an explicit development run.
+func isDevEnvironment() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "development")
 }

@@ -318,6 +318,10 @@ start_backend() {
     # ${VAR:-…} preserves a parent-shell override.
     # Final precedence: parent env > script per-agency > .env > Go-side fallback.
     export PORT="${PORT:-$BE_PORT}"
+    # Native dev runs against a self-signed local IdP, so the AUTH_JWKS/NSW_TOKEN
+    # insecure-TLS flags are used; those are honored only in development, so mark
+    # this run as such. Outside development the backend fails closed on them.
+    export APP_ENV="${APP_ENV:-development}"
     # Native dev serves the frontend via Vite (start_frontend), so the backend
     # must stay API-only. Point WEB_DIR at a path that won't exist so a stray
     # backend/web/ (e.g. from a `pnpm build --outDir ../backend/web` test) can't

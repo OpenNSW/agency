@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func setBaseConfigEnv(t *testing.T) {
 	t.Helper()
@@ -130,6 +133,7 @@ func TestLoadConfig_ParsesTokenInsecureSkipVerify(t *testing.T) {
 	setBaseConfigEnv(t)
 	setRequiredNSWOAuth2Env(t)
 	setRequiredAuthEnv(t)
+	t.Setenv("APP_ENV", "development") // insecure TLS is only honored in development
 	t.Setenv("NSW_TOKEN_INSECURE_SKIP_VERIFY", "true")
 
 	cfg, err := LoadConfig()
@@ -153,5 +157,75 @@ func TestLoadConfig_RejectsInvalidTokenInsecureSkipVerify(t *testing.T) {
 	}
 	if err.Error() != "invalid value for NSW_TOKEN_INSECURE_SKIP_VERIFY: \"not-a-bool\"" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// --- insecure-TLS guard (APP_ENV) ---
+//
+// AUTH_JWKS_INSECURE_SKIP_VERIFY and NSW_TOKEN_INSECURE_SKIP_VERIFY are only
+// honored when APP_ENV=development; LoadConfig is the sole place APP_ENV is
+// read (isDevEnvironment, below), so it is also the sole enforcement point —
+// downstream (auth, nswclient, pkg/httpclient) simply trusts the flag it's
+// handed. Unset/any other value is treated as production and fails closed.
+
+func TestLoadConfig_NSWInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+	t.Setenv("NSW_TOKEN_INSECURE_SKIP_VERIFY", "true")
+
+	_, err := LoadConfig()
+	if err == nil || !strings.Contains(err.Error(), "NSW_TOKEN_INSECURE_SKIP_VERIFY") {
+		t.Fatalf("expected LoadConfig to fail closed with an NSW_TOKEN_INSECURE_SKIP_VERIFY guard error, got: %v", err)
+	}
+}
+
+func TestLoadConfig_AuthJWKSInsecureSkipVerify_AllowedInDev(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("AUTH_JWKS_INSECURE_SKIP_VERIFY", "true")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !cfg.Auth.InsecureSkipTLSVerify {
+		t.Fatalf("expected InsecureSkipTLSVerify to be true")
+	}
+}
+
+func TestLoadConfig_AuthJWKSInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+	t.Setenv("AUTH_JWKS_INSECURE_SKIP_VERIFY", "true")
+
+	_, err := LoadConfig()
+	if err == nil || !strings.Contains(err.Error(), "AUTH_JWKS_INSECURE_SKIP_VERIFY") {
+		t.Fatalf("expected LoadConfig to fail closed with an AUTH_JWKS_INSECURE_SKIP_VERIFY guard error, got: %v", err)
+	}
+}
+
+func TestIsDevEnvironment(t *testing.T) {
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"development", true},
+		{"Development", true},
+		{" development ", true},
+		{"production", false},
+		{"", false},
+		{"staging", false},
+	}
+	for _, c := range cases {
+		t.Run(c.val, func(t *testing.T) {
+			t.Setenv("APP_ENV", c.val)
+			if got := isDevEnvironment(); got != c.want {
+				t.Fatalf("isDevEnvironment() with APP_ENV=%q = %v, want %v", c.val, got, c.want)
+			}
+		})
 	}
 }

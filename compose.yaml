@@ -78,6 +78,10 @@ services:
     # env_file), so the host mapping below and the container's runtime config
     # share one source and cannot drift.
     environment:
+      # Dev quickstart only. Required for the AUTH_JWKS/NSW_TOKEN insecure-TLS
+      # flags (self-signed local IdP) to be honored; outside development those
+      # flags fail closed at startup. Never set this in a real deployment.
+      APP_ENV: development
       DB_DRIVER: postgres
       DB_HOST: db
       DB_PORT: "5432"

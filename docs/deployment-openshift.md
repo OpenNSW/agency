@@ -160,7 +160,10 @@ data:
 
 > Do **not** set `AUTH_JWKS_INSECURE_SKIP_VERIFY` / `NSW_TOKEN_INSECURE_SKIP_VERIFY` in
 > production — those are dev-only TLS-skip flags. Make sure the cluster trusts the IdP/NSW
-> certificate chain instead.
+> certificate chain instead. These flags are now **enforced**: the backend refuses to start
+> if either is `true` unless `APP_ENV=development`, so a stray insecure flag fails closed in
+> production rather than silently trusting an unverified certificate. Do **not** set
+> `APP_ENV=development` in a deployment.
 
 ---
 
