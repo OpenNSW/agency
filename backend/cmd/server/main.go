@@ -16,6 +16,7 @@ import (
 	"github.com/OpenNSW/core/artifact/loaders"
 	"github.com/OpenNSW/nsw-agency/backend/internal/application"
 	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
@@ -97,6 +98,10 @@ func main() {
 	roleService := rbac.NewRoleService(store.DB())
 	rbacMiddleware := rbac.NewMiddleware(roleService, store, artifactRegistry)
 
+	// Initialize consignment service (read-only summaries over the shared DB connection)
+	consignmentStore := consignment.NewConsignmentStore(store.DB())
+	consignmentHandler := consignment.NewHandler(consignment.NewService(consignmentStore))
+
 	// Initialize Agency service
 	service := application.NewService(store, artifactRegistry, nswClient, roleService)
 	defer func() {
@@ -136,7 +141,7 @@ func main() {
 	mux.Handle("POST /api/v1/inject", protect(http.HandlerFunc(handler.HandleInjectData)))
 
 	// Endpoints for UI to fetch and manage applications (protected by JIT user auth)
-	mux.Handle("GET /api/v1/consignments", protect(http.HandlerFunc(handler.HandleGetConsignments)))
+	mux.Handle("GET /api/v1/consignments", protect(http.HandlerFunc(consignmentHandler.HandleGetConsignments)))
 	mux.Handle("GET /api/v1/applications", protect(http.HandlerFunc(handler.HandleGetApplications)))
 	mux.Handle("GET /api/v1/users/me", protect(http.HandlerFunc(profileHandler.HandleMe)))
 	mux.Handle("GET /api/v1/applications/{taskId}", protect(rbacMiddleware.RequireAction("VIEW")(http.HandlerFunc(handler.HandleGetApplication))))

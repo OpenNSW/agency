@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
@@ -54,7 +55,7 @@ func newTestStore(t *testing.T) *ApplicationStore {
 		t.Fatalf("failed to create store (driver=%s): %v", dbCfg.Driver, err)
 	}
 
-	if err := store.db.AutoMigrate(&ConsignmentRecord{}, &ApplicationRecord{}, &rbac.RoleRecord{}, &rbac.UserRoleRecord{}); err != nil {
+	if err := store.db.AutoMigrate(&consignment.ConsignmentRecord{}, &ApplicationRecord{}, &rbac.RoleRecord{}, &rbac.UserRoleRecord{}); err != nil {
 		t.Fatalf("failed to migrate schema: %v", err)
 	}
 
@@ -374,69 +375,6 @@ func TestApplicationStore_List_ConsignmentFilter(t *testing.T) {
 	}
 }
 
-func TestApplicationStore_ListConsignments(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	// Seed records across 3 consignments
-	// WF1: 2 tasks
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "wf1-t1", TaskCode: "test", ConsignmentID: "wf1", ServiceURL: "http://test", Status: "PENDING"})
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "wf1-t2", TaskCode: "test", ConsignmentID: "wf1", ServiceURL: "http://test", Status: "APPROVED"})
-
-	// WF2: 1 task
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "wf2-t1", TaskCode: "test", ConsignmentID: "wf2", ServiceURL: "http://test", Status: "PENDING"})
-
-	// WF3: 1 task
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "wf3-t1", TaskCode: "test", ConsignmentID: "wf3", ServiceURL: "http://test", Status: "REJECTED"})
-
-	// List consignments
-	summaries, total, err := store.ListConsignments(ctx, "", 0, 10)
-	if err != nil {
-		t.Fatalf("ListConsignments failed: %v", err)
-	}
-
-	if total != 3 {
-		t.Errorf("expected 3 unique consignments, got %d", total)
-	}
-	if len(summaries) != 3 {
-		t.Errorf("expected 3 summaries returned, got %d", len(summaries))
-	}
-
-	// Verify task counts
-	foundWF1 := false
-	for _, s := range summaries {
-		if s.ConsignmentID == "wf1" {
-			foundWF1 = true
-			if s.TaskCount != 2 {
-				t.Errorf("expected 2 tasks for wf1, got %d", s.TaskCount)
-			}
-		}
-	}
-	if !foundWF1 {
-		t.Error("wf1 not found in summaries")
-	}
-}
-
-func TestApplicationStore_ListConsignments_Search(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "t1", ConsignmentID: "alpha-wf", Status: "PENDING"})
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "t2", ConsignmentID: "beta-wf", Status: "PENDING"})
-
-	summaries, total, err := store.ListConsignments(ctx, "alpha", 0, 10)
-	if err != nil {
-		t.Fatalf("ListConsignments failed: %v", err)
-	}
-
-	if total != 1 {
-		t.Errorf("expected total 1, got %d", total)
-	}
-	if summaries[0].ConsignmentID != "alpha-wf" {
-		t.Errorf("expected alpha-wf, got %s", summaries[0].ConsignmentID)
-	}
-}
-
 // ---------- 5. Functional Testing: Feedback & Transactions ----------
 
 func TestApplicationStore_AppendFeedback(t *testing.T) {
@@ -535,7 +473,7 @@ func TestApplicationStore_ConsignmentUpsert(t *testing.T) {
 	}
 
 	var count int64
-	if err := store.db.Model(&ConsignmentRecord{}).Where("id = ?", "dup-wf").Count(&count).Error; err != nil {
+	if err := store.db.Model(&consignment.ConsignmentRecord{}).Where("id = ?", "dup-wf").Count(&count).Error; err != nil {
 		t.Fatalf("count query failed: %v", err)
 	}
 	if count != 1 {
@@ -551,7 +489,7 @@ func TestApplicationStore_UpdateStatus_PropagatesConsignment(t *testing.T) {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 
-	var cr ConsignmentRecord
+	var cr consignment.ConsignmentRecord
 	if err := store.db.First(&cr, "id = ?", "wf-seed").Error; err != nil {
 		t.Fatalf("failed to fetch consignment: %v", err)
 	}

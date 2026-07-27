@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
 	"gorm.io/gorm"
@@ -43,34 +44,20 @@ func (j *JSONB) Scan(value any) error {
 	return json.Unmarshal(bytes, j)
 }
 
-// ConsignmentRecord represents a consignment (workflow) in the Agency database.
-// Each consignment groups one or more ApplicationRecords.
-type ConsignmentRecord struct {
-	ID        string    `gorm:"type:text;primaryKey"`
-	Status    string    `gorm:"type:varchar(50);not null;default:'PENDING'"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
-}
-
-// TableName returns the table name for ConsignmentRecord
-func (ConsignmentRecord) TableName() string {
-	return "consignments"
-}
-
 // ApplicationRecord represents an application (task) in the Agency database
 type ApplicationRecord struct {
-	TaskID                string            `gorm:"type:text;primaryKey"`
-	TaskCode              string            `gorm:"type:varchar(100);not null"`
-	ConsignmentID         string            `gorm:"type:text;index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	Consignment           ConsignmentRecord `gorm:"foreignKey:ConsignmentID;references:ID"`
-	ServiceURL            string            `gorm:"type:varchar(512);not null"`                  // URL to send response back to
-	Data                  JSONB             `gorm:"type:text"`                                   // Injected data from service
-	ReviewerResponse      JSONB             `gorm:"type:text"`                                   // Response from reviewer
-	Status                string            `gorm:"type:varchar(50);not null;default:'PENDING'"` // PENDING, FEEDBACK_REQUESTED, DONE
-	AgencyFeedbackHistory []feedback.Entry  `gorm:"type:text;serializer:json"`
-	ReviewedAt            *time.Time        // When it was reviewed
-	CreatedAt             time.Time         `gorm:"autoCreateTime"`
-	UpdatedAt             time.Time         `gorm:"autoUpdateTime"`
+	TaskID                string                        `gorm:"type:text;primaryKey"`
+	TaskCode              string                        `gorm:"type:varchar(100);not null"`
+	ConsignmentID         string                        `gorm:"type:text;index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	Consignment           consignment.ConsignmentRecord `gorm:"foreignKey:ConsignmentID;references:ID"`
+	ServiceURL            string                        `gorm:"type:varchar(512);not null"`                  // URL to send response back to
+	Data                  JSONB                         `gorm:"type:text"`                                   // Injected data from service
+	ReviewerResponse      JSONB                         `gorm:"type:text"`                                   // Response from reviewer
+	Status                string                        `gorm:"type:varchar(50);not null;default:'PENDING'"` // PENDING, FEEDBACK_REQUESTED, DONE
+	AgencyFeedbackHistory []feedback.Entry              `gorm:"type:text;serializer:json"`
+	ReviewedAt            *time.Time                    // When it was reviewed
+	CreatedAt             time.Time                     `gorm:"autoCreateTime"`
+	UpdatedAt             time.Time                     `gorm:"autoUpdateTime"`
 }
 
 // TableName returns the table name for ApplicationRecord
@@ -80,7 +67,8 @@ func (ApplicationRecord) TableName() string {
 
 // ApplicationStore handles database operations for Agency applications
 type ApplicationStore struct {
-	db *gorm.DB
+	db               *gorm.DB
+	consignmentStore *consignment.Store
 }
 
 // NewApplicationStore creates a new ApplicationStore with configured database.
@@ -96,15 +84,14 @@ func NewApplicationStore(cfg database.Config) (*ApplicationStore, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	return &ApplicationStore{db: db}, nil
+	return &ApplicationStore{db: db, consignmentStore: consignment.NewConsignmentStore(db)}, nil
 }
 
 // CreateOrUpdate creates or updates an application record and its parent consignment.
 func (s *ApplicationStore) CreateOrUpdate(app *ApplicationRecord) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Upsert the consignment first so the FK reference exists.
-		consignment := ConsignmentRecord{ID: app.ConsignmentID, Status: app.Status}
-		if err := tx.Save(&consignment).Error; err != nil {
+		if err := s.consignmentStore.Upsert(tx, app.ConsignmentID, app.Status); err != nil {
 			return fmt.Errorf("failed to upsert consignment: %w", err)
 		}
 		return tx.Save(app).Error
@@ -147,46 +134,6 @@ func (s *ApplicationStore) List(ctx context.Context, status string, consignmentI
 	return apps, total, nil
 }
 
-// ConsignmentSummary represents a unique consignment with its most recent activity.
-type ConsignmentSummary struct {
-	ConsignmentID string    `json:"consignmentId"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	Status        string    `json:"status"`    // Status of the most recent application
-	TaskCount     int       `json:"taskCount"` // Total number of applications in this consignment
-}
-
-// ListConsignments returns a paginated list of consignments with task count and optional search.
-func (s *ApplicationStore) ListConsignments(ctx context.Context, search string, offset, limit int) ([]ConsignmentSummary, int64, error) {
-	var summaries []ConsignmentSummary
-	var total int64
-
-	countQ := s.db.WithContext(ctx).Model(&ConsignmentRecord{})
-	if search != "" {
-		countQ = countQ.Where("id LIKE ?", "%"+search+"%")
-	}
-	if err := countQ.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	dataQ := s.db.WithContext(ctx).Model(&ConsignmentRecord{}).
-		Select("consignments.id AS consignment_id, consignments.status, consignments.updated_at, COUNT(applications.task_id) AS task_count").
-		Joins("LEFT JOIN applications ON applications.consignment_id = consignments.id").
-		Group("consignments.id, consignments.status, consignments.updated_at").
-		Order("consignments.updated_at DESC").
-		Offset(offset).
-		Limit(limit)
-
-	if search != "" {
-		dataQ = dataQ.Where("consignments.id LIKE ?", "%"+search+"%")
-	}
-
-	if err := dataQ.Scan(&summaries).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return summaries, total, nil
-}
-
 // UpdateStatus updates the status of an application and propagates it to the parent consignment.
 func (s *ApplicationStore) UpdateStatus(taskID string, status string, reviewerResponse map[string]any) error {
 	now := time.Now()
@@ -217,12 +164,7 @@ func (s *ApplicationStore) UpdateStatus(taskID string, status string, reviewerRe
 			return fmt.Errorf("failed to fetch consignment_id: %w", err)
 		}
 
-		return tx.Model(&ConsignmentRecord{}).
-			Where("id = ?", app.ConsignmentID).
-			Updates(map[string]any{
-				"status":     status,
-				"updated_at": now,
-			}).Error
+		return s.consignmentStore.UpdateStatus(tx, app.ConsignmentID, status, now)
 	})
 }
 
@@ -252,12 +194,7 @@ func (s *ApplicationStore) AppendFeedback(taskID string, entry feedback.Entry) e
 			return err
 		}
 
-		return tx.Model(&ConsignmentRecord{}).
-			Where("id = ?", app.ConsignmentID).
-			Updates(map[string]any{
-				"status":     "FEEDBACK_REQUESTED",
-				"updated_at": now,
-			}).Error
+		return s.consignmentStore.UpdateStatus(tx, app.ConsignmentID, "FEEDBACK_REQUESTED", now)
 	})
 }
 
@@ -287,12 +224,7 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 			return err
 		}
 
-		return tx.Model(&ConsignmentRecord{}).
-			Where("id = ?", app.ConsignmentID).
-			Updates(map[string]any{
-				"status":     "PENDING",
-				"updated_at": now,
-			}).Error
+		return s.consignmentStore.UpdateStatus(tx, app.ConsignmentID, "PENDING", now)
 	})
 }
 

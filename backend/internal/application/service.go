@@ -15,6 +15,7 @@ import (
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
+	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
 	"gorm.io/gorm"
 )
 
@@ -27,10 +28,7 @@ type Service interface {
 	CreateApplication(ctx context.Context, req *InjectRequest) error
 
 	// GetApplications returns a paginated list of applications (optionally filtered by status, consignment, or search)
-	GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*PagedResponse[Application], error)
-
-	// GetConsignments returns a paginated list of unique consignments with their latest status (optionally filtered by search)
-	GetConsignments(ctx context.Context, search string, page, pageSize int) (*PagedResponse[ConsignmentSummary], error)
+	GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error)
 
 	// GetApplication returns a specific application by task ID
 	GetApplication(ctx context.Context, taskID string) (*Application, error)
@@ -79,14 +77,6 @@ type Application struct {
 	ReviewedAt      *time.Time       `json:"reviewedAt,omitempty"`
 	CreatedAt       time.Time        `json:"createdAt"`
 	UpdatedAt       time.Time        `json:"updatedAt"`
-}
-
-// PagedResponse is a generic paginated response wrapper.
-type PagedResponse[T any] struct {
-	Items    []T   `json:"items"`
-	Total    int64 `json:"total"`
-	Page     int   `json:"page"`
-	PageSize int   `json:"pageSize"`
 }
 
 // NSWClient sends task outcomes and amendment requests back to the originating
@@ -149,7 +139,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 }
 
 // GetApplications returns a paginated list of applications
-func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*PagedResponse[Application], error) {
+func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error) {
 	if page < 1 {
 		page = 1
 	}
@@ -203,31 +193,8 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 		applications = append(applications, app)
 	}
 
-	return &PagedResponse[Application]{
+	return &httputil.PagedResponse[Application]{
 		Items:    applications,
-		Total:    total,
-		Page:     page,
-		PageSize: pageSize,
-	}, nil
-}
-
-// GetConsignments returns a paginated list of unique consignments
-func (s *service) GetConsignments(ctx context.Context, search string, page, pageSize int) (*PagedResponse[ConsignmentSummary], error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-
-	offset := (page - 1) * pageSize
-	summaries, total, err := s.store.ListConsignments(ctx, search, offset, pageSize)
-	if err != nil {
-		return nil, err
-	}
-
-	return &PagedResponse[ConsignmentSummary]{
-		Items:    summaries,
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
