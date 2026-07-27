@@ -7,17 +7,24 @@ Forms are [JSON Forms](https://jsonforms.io/) definitions (`schema` + `uiSchema`
 
 A form file is purpose-agnostic: the same file can be referenced as a view form by one task and a review form by another. Forms are referenced by ID from [task configs](./task-configs.md) — they are not bound to a `taskCode` themselves.
 
-## File Location
+## Storage and Loading
 
-All form files live in `<CONFIG_DIR>/forms/` (default: `./data/forms/`). The form ID is the filename without the `.json` extension:
+Forms are **not** stored in this repo. Like [task configs](./task-configs.md), they are
+loaded through the [`core/artifact`](https://github.com/OpenNSW/core/tree/main/artifact)
+registry from the single source configured at startup — a local directory, a GitHub repo,
+or an S3 bucket (see [Configuration](./task-configs.md#configuration)).
 
+Forms use artifact kind `generic_template`; the form ID is the manifest row's `id`. Example
+manifest row:
+
+```json
+{ "id": "moh_fcau_health_cert_v1_review", "kind": "generic_template", "version": "", "path": "forms/moh_fcau_health_cert_v1_review.json" }
 ```
-data/forms/
-├── default_review.json                       # form ID: "default_review"
-└── moh_fcau_health_cert_v1_review.json       # form ID: "moh_fcau_health_cert_v1_review"
-```
 
-At startup, the `FormStore` reads every `.json` file in the directory, validates that it parses as JSON, and caches the raw bytes in memory. The forms are then resolvable by ID from task configs.
+The registry fetches a form by ID on demand: it looks up the path in the manifest and loads
+the raw JSON bytes through the loader. Forms are resolved by the ID(s) referenced from a
+[task config's](./task-configs.md) `forms.view` / `forms.review` fields, not read in bulk at
+startup.
 
 ## File Structure
 
@@ -57,15 +64,19 @@ No fields are required by the Agency service itself — the form is forwarded to
 
 ## Adding a New Form
 
-1. Create a `.json` file in `data/forms/`. The basename becomes the form ID. Use any naming convention you like; a useful one is `<taskCode>_view` or `<taskCode>_review` to make the relationship obvious.
+These steps happen in the **artifacts source** (the local dir / GitHub repo / S3 bucket the loader points at), not in this repo.
 
-   ```bash
-   touch data/forms/moh_fcau_health_cert_v1_review.json
+1. Create a `.json` file, e.g. `forms/moh_fcau_health_cert_v1_review.json`. Use any naming convention you like; a useful one is `<taskCode>_view` or `<taskCode>_review` to make the relationship obvious.
+
+2. Populate it with `schema` and `uiSchema`. Validate by running `jq . forms/<file>.json` or pasting into any JSON Forms playground.
+
+3. Add a `generic_template` row for it to `manifest.json`:
+
+   ```json
+   { "id": "moh_fcau_health_cert_v1_review", "kind": "generic_template", "version": "", "path": "forms/moh_fcau_health_cert_v1_review.json" }
    ```
 
-2. Populate it with `schema` and `uiSchema`. Validate by running `jq . data/forms/<file>.json` or pasting into any JSON Forms playground.
-
-3. Reference it from a task config (see [`task-configs.md`](./task-configs.md)):
+4. Reference it from a task config (see [`task-configs.md`](./task-configs.md)):
 
    ```json
    {
@@ -73,8 +84,4 @@ No fields are required by the Agency service itself — the form is forwarded to
    }
    ```
 
-4. Restart the Agency service — forms are loaded once at startup.
-
-## Per-Deployment Forms
-
-Only `default_review.json` ships in the repo. Agency-specific forms live outside version control and are provided per deployment by pointing `CONFIG_DIR` at a directory containing your `forms/` (and `task-configs/`) subdirs.
+5. Restart the Agency service — the manifest is read once at startup, then artifacts are fetched on demand.
