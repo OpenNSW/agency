@@ -57,7 +57,9 @@ func (c *Client) postEnvelope(ctx context.Context, url string, body any) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	slog.Log(ctx, slog.LevelDebug, "nswclient: sending request", "url", url, "payload", string(data))
+	// The URL may carry callback credentials in its query string and the payload
+	// may carry reviewer responses, so neither is logged.
+	slog.Log(ctx, slog.LevelDebug, "nswclient: sending callback request")
 
 	resp, err := c.http.Post(url, "application/json", data)
 	if err != nil {

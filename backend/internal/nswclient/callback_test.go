@@ -49,6 +49,18 @@ func TestBuildCallbackURL(t *testing.T) {
 			want:       "http://example.com/callback/task-123?token=xyz",
 		},
 		{
+			name:       "task ID containing a slash stays one segment",
+			serviceURL: "http://example.com/callback",
+			taskID:     "tenant/task-123",
+			want:       "http://example.com/callback/tenant%2Ftask-123",
+		},
+		{
+			name:       "task ID containing a slash with placeholder",
+			serviceURL: "http://example.com/callback/{id}/submit",
+			taskID:     "tenant/task-123",
+			want:       "http://example.com/callback/tenant%2Ftask-123/submit",
+		},
+		{
 			name:       "invalid URL fallback",
 			serviceURL: ":invalid-url",
 			taskID:     "task-123",

@@ -39,8 +39,13 @@ const storageBasePath = "storage"
 // GetDownloadURL fetches a (possibly presigned) download URL for a key from the
 // NSW backend's storage metadata endpoint.
 func (c *Client) GetDownloadURL(ctx context.Context, key string) (*DownloadMetadata, error) {
-	u, _ := url.Parse(storageBasePath)
-	apiURL := u.JoinPath(key).String()
+	// JoinPath treats its arguments as already-escaped path elements, so escape
+	// key first to keep a slash-containing key within one segment.
+	apiURL, err := url.JoinPath(storageBasePath, url.PathEscape(key))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build storage metadata URL: %w", err)
+	}
+
 	resp, err := c.http.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch upload metadata: %w", err)
@@ -62,7 +67,8 @@ func (c *Client) GetDownloadURL(ctx context.Context, key string) (*DownloadMetad
 		return nil, fmt.Errorf("metadata response missing download_url")
 	}
 
-	slog.InfoContext(ctx, "resolved download URL from metadata", "key", key, "downloadURL", metadata.DownloadURL)
+	// The download URL is presigned and may embed credentials, so it is not logged.
+	slog.InfoContext(ctx, "resolved download URL from metadata", "key", key)
 	return &metadata, nil
 }
 

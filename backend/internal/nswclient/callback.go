@@ -42,7 +42,7 @@ func (c *Client) RequestAmendment(ctx context.Context, serviceURL, taskID string
 
 // buildCallbackURL constructs the callback URL target. If serviceURL contains a
 // "{id}" placeholder it is substituted; otherwise the taskID is appended as a
-// path segment, preserving any query string.
+// single path segment, preserving any query string.
 func buildCallbackURL(serviceURL, taskID string) string {
 	if strings.Contains(serviceURL, "{id}") {
 		return strings.ReplaceAll(serviceURL, "{id}", url.PathEscape(taskID))
@@ -51,5 +51,7 @@ func buildCallbackURL(serviceURL, taskID string) string {
 	if err != nil {
 		return fmt.Sprintf("%s/%s", strings.TrimSuffix(serviceURL, "/"), url.PathEscape(taskID))
 	}
-	return u.JoinPath(taskID).String()
+	// JoinPath treats its arguments as already-escaped path elements, so escape
+	// taskID first to keep a slash-containing ID within one segment.
+	return u.JoinPath(url.PathEscape(taskID)).String()
 }
