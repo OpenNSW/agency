@@ -140,14 +140,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 
 // GetApplications returns a paginated list of applications
 func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-
-	offset := (page - 1) * pageSize
+	page, pageSize, offset := httputil.NormalizePage(page, pageSize)
 	records, total, err := s.store.List(ctx, status, consignmentID, search, offset, pageSize)
 	if err != nil {
 		return nil, err

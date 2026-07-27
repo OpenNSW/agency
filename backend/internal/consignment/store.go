@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
@@ -43,8 +44,15 @@ func NewConsignmentStore(db *gorm.DB) *Store {
 // transaction. Callers that also write a child application record (e.g.
 // internal/application) should pass a transaction so the FK reference exists
 // atomically.
+//
+// Only status and updated_at are touched on conflict — created_at must
+// survive every later upsert of an already-existing consignment (e.g. when a
+// second application is injected into the same consignment).
 func (s *Store) Upsert(tx *gorm.DB, id, status string) error {
-	return tx.Save(&ConsignmentRecord{ID: id, Status: status}).Error
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"status", "updated_at"}),
+	}).Create(&ConsignmentRecord{ID: id, Status: status}).Error
 }
 
 // UpdateStatus updates a consignment's status using the given connection or transaction.

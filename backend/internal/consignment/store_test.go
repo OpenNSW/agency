@@ -3,6 +3,7 @@ package consignment
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
 )
@@ -85,6 +86,39 @@ func TestConsignmentStore_List(t *testing.T) {
 	}
 	if !foundWF1 {
 		t.Error("wf1 not found in summaries")
+	}
+}
+
+func TestConsignmentStore_Upsert_PreservesCreatedAt(t *testing.T) {
+	store := newTestStore(t)
+
+	// Seed directly with a fixed, distinctive CreatedAt so the assertion below
+	// doesn't depend on two time.Now() calls happening to land on different
+	// clock ticks.
+	fixedCreatedAt := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.db.Create(&ConsignmentRecord{ID: "wf-created", Status: "PENDING", CreatedAt: fixedCreatedAt}).Error; err != nil {
+		t.Fatalf("failed to seed consignment: %v", err)
+	}
+
+	// Re-upsert as if a second application landed in the same consignment.
+	tx := store.db.Begin()
+	if err := store.Upsert(tx, "wf-created", "APPROVED"); err != nil {
+		t.Fatalf("Upsert failed: %v", err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+
+	var got ConsignmentRecord
+	if err := store.db.First(&got, "id = ?", "wf-created").Error; err != nil {
+		t.Fatalf("failed to fetch consignment: %v", err)
+	}
+
+	if !got.CreatedAt.Equal(fixedCreatedAt) {
+		t.Errorf("expected CreatedAt to be preserved as %v, got %v", fixedCreatedAt, got.CreatedAt)
+	}
+	if got.Status != "APPROVED" {
+		t.Errorf("expected Status to be updated to APPROVED, got %q", got.Status)
 	}
 }
 

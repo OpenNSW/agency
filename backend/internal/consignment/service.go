@@ -26,14 +26,7 @@ func NewService(store *Store) Service {
 
 // GetConsignments returns a paginated list of unique consignments
 func (s *service) GetConsignments(ctx context.Context, search string, page, pageSize int) (*httputil.PagedResponse[Summary], error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-
-	offset := (page - 1) * pageSize
+	page, pageSize, offset := httputil.NormalizePage(page, pageSize)
 	summaries, total, err := s.store.List(ctx, search, offset, pageSize)
 	if err != nil {
 		return nil, err
