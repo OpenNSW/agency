@@ -22,79 +22,56 @@ func main() {
 
 	cmd := os.Args[1]
 	switch cmd {
-	case "up":
-		if err := runMigrateUp(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "down":
-		if err := runMigrateDown(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-	case "status":
-		if err := runMigrateStatus(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
+	case "up", "down", "status", "generate":
 	default:
+		fmt.Fprintf(os.Stderr, "migrate: unknown command %q\n\n", cmd)
 		usage()
 		os.Exit(1)
 	}
-}
 
-func runMigrateUp() error {
 	cfg, err := LoadConfig()
 	if err != nil {
-		return err
+		fatalf("config: %v", err)
 	}
+
+	// generate only needs the dir, no DB connection required.
+	if cmd == "generate" {
+		if len(os.Args) < 3 {
+			fatalf("generate requires a migration name, e.g: migrate generate create_users")
+		}
+		m, err := migrator.New(nil, cfg.Dir, cfg.DB.Driver)
+		if err != nil {
+			fatalf("%v", err)
+		}
+		if err := m.Generate(os.Args[2]); err != nil {
+			fatalf("%v", err)
+		}
+		return
+	}
+
 	db, err := openDB(cfg.DB)
 	if err != nil {
-		return err
+		fatalf("open database: %v", err)
 	}
 	defer db.Close() //nolint:errcheck
 
 	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
 	if err != nil {
-		return err
+		fatalf("%v", err)
 	}
-	return m.Up()
-}
 
-func runMigrateDown() error {
-	cfg, err := LoadConfig()
-	if err != nil {
-		return err
+	switch cmd {
+	case "up":
+		err = m.Up()
+	case "down":
+		err = m.Down()
+	case "status":
+		err = m.Status()
 	}
-	db, err := openDB(cfg.DB)
-	if err != nil {
-		return err
-	}
-	defer db.Close() //nolint:errcheck
 
-	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
 	if err != nil {
-		return err
+		fatalf("%v", err)
 	}
-	return m.Down()
-}
-
-func runMigrateStatus() error {
-	cfg, err := LoadConfig()
-	if err != nil {
-		return err
-	}
-	db, err := openDB(cfg.DB)
-	if err != nil {
-		return err
-	}
-	defer db.Close() //nolint:errcheck
-
-	m, err := migrator.New(db, cfg.Dir, cfg.DB.Driver)
-	if err != nil {
-		return err
-	}
-	return m.Status()
 }
 
 func openDB(cfg database.Config) (*sql.DB, error) {
@@ -148,4 +125,9 @@ Environment variables:
   DB_NAME         PostgreSQL database name (default: nsw_agency_db)
   DB_SSLMODE      PostgreSQL SSL mode (default: require)
 `)
+}
+
+func fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "migrate: "+format+"\n", args...)
+	os.Exit(1)
 }
