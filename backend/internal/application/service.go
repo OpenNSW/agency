@@ -56,13 +56,15 @@ type InjectRequest struct {
 
 // Application represents an application for display in the UI
 type Application struct {
-	TaskID           string         `json:"taskId"`
-	TaskCode         string         `json:"taskCode"`
-	ConsignmentID    string         `json:"consignmentId"`
-	ServiceURL       string         `json:"serviceUrl"`
-	Data             map[string]any `json:"data"`                       // Data from NSW service to be rendered in the UI
-	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
-	AllowedActions   []string       `json:"allowedActions,omitempty"`
+	TaskID               string         `json:"taskId"`
+	TaskCode             string         `json:"taskCode"`
+	ConsignmentID        string         `json:"consignmentId"`
+	ReferenceNumber      string         `json:"referenceNumber,omitempty"`      // Server-generated reference number, absent unless the task config asks for one
+	ReferenceNumberField string         `json:"referenceNumberField,omitempty"` // Review-form field that ReferenceNumber prefills
+	ServiceURL           string         `json:"serviceUrl"`
+	Data                 map[string]any `json:"data"`                       // Data from NSW service to be rendered in the UI
+	AgencyActionData     map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
+	AllowedActions       []string       `json:"allowedActions,omitempty"`
 
 	// Task metadata from config
 	Title       string `json:"title,omitempty"`
@@ -160,15 +162,16 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 	for _, record := range records {
 		var permissions []taskconfig.Permission
 		app := Application{
-			TaskID:        record.TaskID,
-			TaskCode:      record.TaskCode,
-			ConsignmentID: record.ConsignmentID,
-			ServiceURL:    record.ServiceURL,
-			Data:          record.Data,
-			Status:        record.Status,
-			ReviewedAt:    record.ReviewedAt,
-			CreatedAt:     record.CreatedAt,
-			UpdatedAt:     record.UpdatedAt,
+			TaskID:          record.TaskID,
+			TaskCode:        record.TaskCode,
+			ConsignmentID:   record.ConsignmentID,
+			ReferenceNumber: record.ReferenceNumber,
+			ServiceURL:      record.ServiceURL,
+			Data:            record.Data,
+			Status:          record.Status,
+			ReviewedAt:      record.ReviewedAt,
+			CreatedAt:       record.CreatedAt,
+			UpdatedAt:       record.UpdatedAt,
 		}
 
 		if config, err := taskconfigart.Load(ctx, s.artifactRegistry, record.TaskCode); err == nil {
@@ -218,6 +221,7 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		TaskID:           record.TaskID,
 		TaskCode:         record.TaskCode,
 		ConsignmentID:    record.ConsignmentID,
+		ReferenceNumber:  record.ReferenceNumber,
 		ServiceURL:       record.ServiceURL,
 		Data:             record.Data,
 		AgencyActionData: record.ReviewerResponse,
@@ -249,6 +253,15 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 
 		_, app.AllowedActions = resolveAccess(roles, config.Permissions)
 
+		if config.ReferenceNumber != nil {
+			reference, err := s.ensureReferenceNumber(ctx, record, *config.ReferenceNumber)
+			if err != nil {
+				return nil, err
+			}
+			app.ReferenceNumber = reference
+			app.ReferenceNumberField = config.ReferenceNumber.FieldName()
+		}
+
 		if config.Forms.View != "" {
 			if form, err := generictemplate.Load(ctx, s.artifactRegistry, config.Forms.View); err == nil {
 				app.DataForm = form
@@ -268,6 +281,27 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 	return app, nil
 }
 
+// ensureReferenceNumber returns the application's reference number, allocating
+// and persisting one from the configured sequence the first time it is needed.
+// The value is minted once and then read back on every later call.
+func (s *service) ensureReferenceNumber(ctx context.Context, record *ApplicationRecord, cfg taskconfig.ReferenceNumber) (string, error) {
+	if record.ReferenceNumber != "" {
+		return record.ReferenceNumber, nil
+	}
+
+	seq, err := s.store.GetNextSequence(ctx, cfg.SequenceKey(record.TaskCode), cfg.Prefix)
+	if err != nil {
+		return "", fmt.Errorf("failed to allocate reference number for task %s: %w", record.TaskID, err)
+	}
+
+	reference, err := s.store.AssignReferenceNumber(ctx, record.TaskID, cfg.Format(seq))
+	if err != nil {
+		return "", fmt.Errorf("failed to persist reference number for task %s: %w", record.TaskID, err)
+	}
+	record.ReferenceNumber = reference
+	return reference, nil
+}
+
 // ReviewApplication approves or rejects an application
 func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewerResponse map[string]any) error {
 	app, err := s.GetApplication(ctx, taskID)
@@ -275,19 +309,22 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 		return err
 	}
 
+	config, configErr := taskconfigart.Load(ctx, s.artifactRegistry, app.TaskCode)
+
+	outcomeField := taskconfig.DefaultOutcomeField
+	if configErr == nil {
+		if config.Behavior != nil && config.Behavior.OutcomeField != "" {
+			outcomeField = config.Behavior.OutcomeField
+		}
+		if config.ReferenceNumber != nil {
+			// The server-owned value wins even if a client bypasses the readonly UI.
+			reviewerResponse[config.ReferenceNumber.FieldName()] = app.ReferenceNumber
+		}
+	}
+
 	command := "approve"
-	if config, err := taskconfigart.Load(ctx, s.artifactRegistry, app.TaskCode); err == nil && config.Behavior != nil {
-		outcomeField := config.Behavior.OutcomeField
-		if outcomeField == "" {
-			outcomeField = taskconfig.DefaultOutcomeField
-		}
-		if outcome, ok := reviewerResponse[outcomeField].(string); ok && outcome != "" {
-			command = outcome
-		}
-	} else {
-		if outcome, ok := reviewerResponse[taskconfig.DefaultOutcomeField].(string); ok && outcome != "" {
-			command = outcome
-		}
+	if outcome, ok := reviewerResponse[outcomeField].(string); ok && outcome != "" {
+		command = outcome
 	}
 
 	if err := s.nsw.SendOutcome(ctx, app.ServiceURL, app.TaskID, command, reviewerResponse); err != nil {
@@ -295,11 +332,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 	}
 
 	status := "DONE"
-	if config, err := taskconfigart.Load(ctx, s.artifactRegistry, app.TaskCode); err == nil && config.Behavior != nil && config.Behavior.StatusMap != nil {
-		outcomeField := config.Behavior.OutcomeField
-		if outcomeField == "" {
-			outcomeField = taskconfig.DefaultOutcomeField
-		}
+	if configErr == nil && config.Behavior != nil && config.Behavior.StatusMap != nil {
 		if outcome, ok := reviewerResponse[outcomeField].(string); ok {
 			if mappedStatus, ok := config.Behavior.StatusMap[outcome]; ok {
 				status = mappedStatus

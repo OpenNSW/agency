@@ -114,7 +114,12 @@ export function ApplicationDetailScreen() {
         } else {
           setAgencyFormConfig(null)
         }
-        setAgencyFormData(data.agencyActionData || {})
+        // The server owns the reference number, so it is applied last and
+        // overrides anything the review form may already carry.
+        setAgencyFormData({
+          ...(data.agencyActionData || {}),
+          ...(data.referenceNumber ? { [data.referenceNumberField || 'reference_number']: data.referenceNumber } : {}),
+        })
         setShowErrors(false)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return

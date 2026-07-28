@@ -589,6 +589,17 @@ components:
         consignmentId:
           type: string
           example: cefda05e-3071-4e94-b001-328094e570a7
+        referenceNumber:
+          type: string
+          example: 034/00001
+          description: >-
+            Server-generated reference number. Present only for tasks whose
+            config declares a referenceNumber block; the format comes from that
+            config.
+        referenceNumberField:
+          type: string
+          example: reference_number
+          description: Review-form field that referenceNumber prefills
         serviceUrl:
           type: string
           format: uri

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
@@ -55,7 +57,7 @@ func newTestStore(t *testing.T) *ApplicationStore {
 		t.Fatalf("failed to create store (driver=%s): %v", dbCfg.Driver, err)
 	}
 
-	if err := store.db.AutoMigrate(&consignment.ConsignmentRecord{}, &ApplicationRecord{}, &rbac.RoleRecord{}, &rbac.UserRoleRecord{}); err != nil {
+	if err := store.db.AutoMigrate(&consignment.ConsignmentRecord{}, &ApplicationRecord{}, &ReferenceSequence{}, &rbac.RoleRecord{}, &rbac.UserRoleRecord{}); err != nil {
 		t.Fatalf("failed to migrate schema: %v", err)
 	}
 
@@ -66,6 +68,9 @@ func newTestStore(t *testing.T) *ApplicationStore {
 		}
 		if err := store.db.Exec("TRUNCATE TABLE consignments CASCADE").Error; err != nil {
 			t.Fatalf("failed to truncate consignments table: %v", err)
+		}
+		if err := store.db.Exec("TRUNCATE TABLE reference_sequences").Error; err != nil {
+			t.Fatalf("failed to truncate reference_sequences table: %v", err)
 		}
 	}
 
@@ -444,6 +449,164 @@ func TestApplicationStore_UpdateDataAndResetStatus(t *testing.T) {
 	}
 	if app.Data["new"] != "data" {
 		t.Errorf("expected updated data, got %v", app.Data)
+	}
+}
+
+// ---------- 6b. Functional Testing: Reference Sequences ----------
+
+func TestApplicationStore_GetNextSequence_IncrementsFromOne(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for want := int64(1); want <= 3; want++ {
+		got, err := store.GetNextSequence(ctx, "agency-a", "034/")
+		if err != nil {
+			t.Fatalf("GetNextSequence failed: %v", err)
+		}
+		if got != want {
+			t.Fatalf("sequence value: got %d, want %d", got, want)
+		}
+	}
+}
+
+func TestApplicationStore_GetNextSequence_SeriesAreIndependent(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		if _, err := store.GetNextSequence(ctx, "agency-a", "034/"); err != nil {
+			t.Fatalf("GetNextSequence(agency-a) failed: %v", err)
+		}
+	}
+
+	// A different agency code, and the same agency code with a different
+	// prefix, both start their own counter.
+	other, err := store.GetNextSequence(ctx, "agency-b", "034/")
+	if err != nil {
+		t.Fatalf("GetNextSequence(agency-b) failed: %v", err)
+	}
+	if other != 1 {
+		t.Errorf("agency-b sequence: got %d, want 1", other)
+	}
+
+	otherPrefix, err := store.GetNextSequence(ctx, "agency-a", "099/")
+	if err != nil {
+		t.Fatalf("GetNextSequence(agency-a, 099/) failed: %v", err)
+	}
+	if otherPrefix != 1 {
+		t.Errorf("agency-a/099 sequence: got %d, want 1", otherPrefix)
+	}
+}
+
+// TestApplicationStore_GetNextSequence_PastPaddingWidth guards the case where
+// the counter outgrows the configured zero-padding: the sequence itself must
+// keep counting normally.
+func TestApplicationStore_GetNextSequence_PastPaddingWidth(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	if err := store.DB().Exec(
+		`INSERT INTO reference_sequences (agency_code, prefix, current_value, updated_at) VALUES (?, ?, ?, ?)`,
+		"agency-big", "034/", 99999, time.Now().UTC(),
+	).Error; err != nil {
+		t.Fatalf("failed to seed sequence: %v", err)
+	}
+
+	got, err := store.GetNextSequence(ctx, "agency-big", "034/")
+	if err != nil {
+		t.Fatalf("GetNextSequence failed: %v", err)
+	}
+	if got != 100000 {
+		t.Errorf("sequence value: got %d, want 100000", got)
+	}
+}
+
+func TestApplicationStore_GetNextSequence_ConcurrentNoDuplicates(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	const workers = 25
+	var wg sync.WaitGroup
+	results := make([]int64, workers)
+	errs := make([]error, workers)
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			results[i], errs[i] = store.GetNextSequence(ctx, "agency-concurrent", "034/")
+		}(i)
+	}
+	wg.Wait()
+
+	seen := make(map[int64]bool, workers)
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("worker %d: GetNextSequence failed: %v", i, err)
+		}
+		if seen[results[i]] {
+			t.Fatalf("duplicate sequence value %d handed out", results[i])
+		}
+		seen[results[i]] = true
+	}
+	for want := int64(1); want <= workers; want++ {
+		if !seen[want] {
+			t.Errorf("sequence value %d was never allocated", want)
+		}
+	}
+}
+
+func TestApplicationStore_AssignReferenceNumber_KeepsFirstValue(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	seedRecord(t, store, "task-ref-1", nil)
+
+	first, err := store.AssignReferenceNumber(ctx, "task-ref-1", "034/00001")
+	if err != nil {
+		t.Fatalf("AssignReferenceNumber failed: %v", err)
+	}
+	if first != "034/00001" {
+		t.Fatalf("first assignment: got %q, want %q", first, "034/00001")
+	}
+
+	// A second attempt must not overwrite the reference already issued.
+	second, err := store.AssignReferenceNumber(ctx, "task-ref-1", "034/00002")
+	if err != nil {
+		t.Fatalf("second AssignReferenceNumber failed: %v", err)
+	}
+	if second != "034/00001" {
+		t.Errorf("second assignment: got %q, want %q", second, "034/00001")
+	}
+
+	stored, err := store.GetByTaskID("task-ref-1")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if stored.ReferenceNumber != "034/00001" {
+		t.Errorf("persisted reference: got %q, want %q", stored.ReferenceNumber, "034/00001")
+	}
+}
+
+// TestApplicationStore_CreateOrUpdate_PreservesReferenceNumber covers re-injects:
+// the trader resubmitting must not wipe an already issued reference number.
+func TestApplicationStore_CreateOrUpdate_PreservesReferenceNumber(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	seedRecord(t, store, "task-reinject", nil)
+
+	if _, err := store.AssignReferenceNumber(ctx, "task-reinject", "034/00007"); err != nil {
+		t.Fatalf("AssignReferenceNumber failed: %v", err)
+	}
+
+	// Re-inject the same task with a record that carries no reference number.
+	seedRecord(t, store, "task-reinject", JSONB{"key": "updated"})
+
+	stored, err := store.GetByTaskID("task-reinject")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if stored.ReferenceNumber != "034/00007" {
+		t.Errorf("reference after re-inject: got %q, want %q", stored.ReferenceNumber, "034/00007")
 	}
 }
 

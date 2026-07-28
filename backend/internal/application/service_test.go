@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
@@ -418,6 +419,65 @@ func TestReviewApplication_CallsServiceURL(t *testing.T) {
 	}
 }
 
+func TestReviewApplication_ServerReferenceNumberOverridesClient(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "permit.json", `{
+			"meta": {"title": "Permit Review"},
+			"behavior": {"outcomeField": "application_review_outcome"},
+			"referenceNumber": {"agencyCode": "agency-a", "prefix": "034/", "minDigits": 5}
+		}`)
+	})
+	h.seed("t-ref-callback", "permit", nil)
+
+	err := h.service.ReviewApplication(context.Background(), "t-ref-callback", map[string]any{
+		"application_review_outcome": "needs_more_info",
+		"reference_number":           "manually-overridden",
+	})
+	if err != nil {
+		t.Fatalf("ReviewApplication failed: %v", err)
+	}
+
+	body := h.capture.lastCall()
+	if body["command"] != "needs_more_info" {
+		t.Errorf("callback command: got %v, want needs_more_info", body["command"])
+	}
+	payload, ok := body["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %T", body["payload"])
+	}
+	if payload["reference_number"] != "034/00001" {
+		t.Errorf("callback reference: got %v, want 034/00001 (server value must win)", payload["reference_number"])
+	}
+}
+
+func TestReviewApplication_ServerReferenceNumberUsesConfiguredField(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "permit.json", `{
+			"meta": {"title": "Permit Review"},
+			"referenceNumber": {"field": "permit_no", "agencyCode": "agency-b", "prefix": "AB-", "minDigits": 3}
+		}`)
+	})
+	h.seed("t-ref-field", "permit", nil)
+
+	err := h.service.ReviewApplication(context.Background(), "t-ref-field", map[string]any{
+		"review_outcome": "approve",
+	})
+	if err != nil {
+		t.Fatalf("ReviewApplication failed: %v", err)
+	}
+
+	payload, ok := h.capture.lastCall()["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object")
+	}
+	if payload["permit_no"] != "AB-001" {
+		t.Errorf("callback reference: got %v, want AB-001", payload["permit_no"])
+	}
+	if _, exists := payload["reference_number"]; exists {
+		t.Errorf("default field should not be populated when config names another field: %v", payload)
+	}
+}
+
 func TestFeedbackApplication_CallsServiceURL(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	h.seed("t-feedback-cb", "alpha", nil)
@@ -590,6 +650,157 @@ func TestGetApplication_NotFound(t *testing.T) {
 	_, err := h.service.GetApplication(context.Background(), "does-not-exist")
 	if err != ErrApplicationNotFound {
 		t.Errorf("expected ErrApplicationNotFound, got %v", err)
+	}
+}
+
+// ---------- GetApplication: reference numbers ----------
+
+// referenceHarness serves a task whose config asks for reference numbers in the
+// "034/%05d" shape, plus a second task code with no reference-number block.
+func referenceHarness(t *testing.T) *serviceHarness {
+	t.Helper()
+	return newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "permit.json", `{
+			"meta": {"title": "Permit Review"},
+			"forms": {"review": "permit_review"},
+			"referenceNumber": {"agencyCode": "agency-a", "prefix": "034/", "minDigits": 5}
+		}`)
+		writeTaskConfigFile(t, root, "plain.json", `{"meta": {"title": "Plain Review"}}`)
+		writeFormFile(t, root, "permit_review.json", `{
+			"schema": {"type": "object", "properties": {"reference_number": {"type": "string"}}},
+			"uiSchema": {
+				"type": "VerticalLayout",
+				"elements": [{
+					"type": "Control",
+					"scope": "#/properties/reference_number",
+					"options": {"readonly": true}
+				}]
+			}
+		}`)
+	})
+}
+
+func TestGetApplication_GeneratesConfiguredReferenceNumber(t *testing.T) {
+	h := referenceHarness(t)
+	h.seed("t-ref-1", "permit", nil)
+
+	app, err := h.service.GetApplication(context.Background(), "t-ref-1")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.ReferenceNumber != "034/00001" {
+		t.Errorf("reference number: got %q, want %q", app.ReferenceNumber, "034/00001")
+	}
+	if app.ReferenceNumberField != "reference_number" {
+		t.Errorf("reference field: got %q, want %q", app.ReferenceNumberField, "reference_number")
+	}
+
+	// The value must also be persisted, so the list view and review submission
+	// see the same reference.
+	stored, err := h.store.GetByTaskID("t-ref-1")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if stored.ReferenceNumber != "034/00001" {
+		t.Errorf("persisted reference: got %q, want %q", stored.ReferenceNumber, "034/00001")
+	}
+}
+
+func TestGetApplication_ReferenceNumberIsStableAcrossReads(t *testing.T) {
+	h := referenceHarness(t)
+	h.seed("t-ref-stable", "permit", nil)
+
+	for i := 0; i < 3; i++ {
+		app, err := h.service.GetApplication(context.Background(), "t-ref-stable")
+		if err != nil {
+			t.Fatalf("GetApplication #%d failed: %v", i+1, err)
+		}
+		if app.ReferenceNumber != "034/00001" {
+			t.Fatalf("GetApplication #%d reference: got %q, want %q", i+1, app.ReferenceNumber, "034/00001")
+		}
+	}
+
+	// Repeated reads must not have burned sequence values: the next
+	// application is still number two.
+	h.seed("t-ref-next", "permit", nil)
+	app, err := h.service.GetApplication(context.Background(), "t-ref-next")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.ReferenceNumber != "034/00002" {
+		t.Errorf("second application reference: got %q, want %q", app.ReferenceNumber, "034/00002")
+	}
+}
+
+func TestGetApplication_ConcurrentReadsShareOneReferenceNumber(t *testing.T) {
+	h := referenceHarness(t)
+	h.seed("t-ref-race", "permit", nil)
+
+	const readers = 10
+	var wg sync.WaitGroup
+	refs := make([]string, readers)
+	errs := make([]error, readers)
+
+	wg.Add(readers)
+	for i := 0; i < readers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			app, err := h.service.GetApplication(context.Background(), "t-ref-race")
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			refs[i] = app.ReferenceNumber
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("reader %d failed: %v", i, err)
+		}
+		if refs[i] != refs[0] {
+			t.Fatalf("readers disagreed on the reference number: %q vs %q", refs[i], refs[0])
+		}
+	}
+	if refs[0] == "" {
+		t.Fatal("expected a reference number to be generated")
+	}
+}
+
+// TestGetApplication_ReferenceNumberGrowsPastMinDigits checks the sequence is
+// widened rather than rejected or truncated once it outgrows minDigits.
+func TestGetApplication_ReferenceNumberGrowsPastMinDigits(t *testing.T) {
+	h := referenceHarness(t)
+	h.seed("t-ref-big", "permit", nil)
+
+	if err := h.store.DB().Exec(
+		`INSERT INTO reference_sequences (agency_code, prefix, current_value, updated_at) VALUES (?, ?, ?, ?)`,
+		"agency-a", "034/", 99999, time.Now().UTC(),
+	).Error; err != nil {
+		t.Fatalf("failed to seed sequence: %v", err)
+	}
+
+	app, err := h.service.GetApplication(context.Background(), "t-ref-big")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.ReferenceNumber != "034/100000" {
+		t.Errorf("reference number: got %q, want %q", app.ReferenceNumber, "034/100000")
+	}
+}
+
+func TestGetApplication_NoReferenceConfig_NoReferenceNumber(t *testing.T) {
+	h := referenceHarness(t)
+	h.seed("t-ref-none", "plain", nil)
+
+	app, err := h.service.GetApplication(context.Background(), "t-ref-none")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.ReferenceNumber != "" || app.ReferenceNumberField != "" {
+		t.Errorf("expected no reference number without config, got %q (field %q)",
+			app.ReferenceNumber, app.ReferenceNumberField)
 	}
 }
 

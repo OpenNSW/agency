@@ -24,6 +24,8 @@ export interface FormDefinition {
 export interface AgencyApplication {
   taskId: string
   consignmentId: string
+  referenceNumber?: string
+  referenceNumberField?: string
   serviceUrl: string
   data: Record<string, unknown>
   agencyActionData?: Record<string, unknown>
