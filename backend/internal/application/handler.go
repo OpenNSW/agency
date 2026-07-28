@@ -64,6 +64,11 @@ func (h *Handler) HandleInjectData(w http.ResponseWriter, r *http.Request) {
 
 	// Create application in database
 	if err := h.service.CreateApplication(ctx, &req); err != nil {
+		if errors.Is(err, ErrInvalidServiceURL) {
+			slog.WarnContext(ctx, "rejected inject request with invalid service URL", "taskID", req.TaskID, "error", err)
+			httputil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		slog.ErrorContext(ctx, "failed to create application", "error", err)
 		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create application: "+err.Error())
 		return

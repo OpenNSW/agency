@@ -49,6 +49,14 @@ func NewWithClient(hc *httpclient.Client) *Client {
 	return &Client{http: hc}
 }
 
+// BaseURL returns the configured NSW origin (scheme + host) this client talks
+// to, or "" if none was configured. Callers use this to reject a
+// caller-supplied callback URL that does not originate from this same NSW
+// service (SSRF defense).
+func (c *Client) BaseURL() string {
+	return c.http.BaseURL
+}
+
 // postEnvelope marshals body to JSON, POSTs it to url, and returns an error
 // unless the response status is 2xx. The response body is drained and closed.
 func (c *Client) postEnvelope(ctx context.Context, url, taskID string, body any) error {

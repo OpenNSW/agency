@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/OpenNSW/core/artifact"
@@ -21,6 +23,10 @@ import (
 
 // ErrApplicationNotFound is returned when an application is not found
 var ErrApplicationNotFound = errors.New("application not found")
+
+// ErrInvalidServiceURL is returned when an InjectRequest's ServiceURL does not
+// originate from the configured NSW service (see validateServiceURLOrigin).
+var ErrInvalidServiceURL = errors.New("invalid service URL")
 
 // Service handles Agency portal operations
 type Service interface {
@@ -87,6 +93,11 @@ type NSWClient interface {
 	SendOutcome(ctx context.Context, serviceURL, taskID, command string, payload any) error
 	// RequestAmendment asks the trader to amend a submission.
 	RequestAmendment(ctx context.Context, serviceURL, taskID string, payload any) error
+	// BaseURL returns the operator-configured NSW origin (scheme + host) that
+	// this client is restricted to, or "" if none is configured. Used to
+	// reject an InjectRequest.ServiceURL that does not originate from the
+	// same NSW service (see validateServiceURLOrigin).
+	BaseURL() string
 }
 
 type service struct {
@@ -113,6 +124,10 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) error {
 	if req.TaskID == "" || req.TaskCode == "" || req.ConsignmentID == "" || req.ServiceURL == "" {
 		return fmt.Errorf("missing required fields in InjectRequest")
+	}
+
+	if err := validateServiceURLOrigin(req.ServiceURL, s.nsw.BaseURL()); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidServiceURL, err)
 	}
 
 	existing, err := s.store.GetByTaskID(req.TaskID)
@@ -328,6 +343,38 @@ func (s *service) FeedbackApplication(ctx context.Context, taskID string, conten
 	}
 
 	return s.store.AppendFeedback(taskID, entry)
+}
+
+// validateServiceURLOrigin rejects a serviceURL whose scheme or host does not
+// match baseURL. serviceURL is caller-supplied data (the callback target
+// declared by an /inject request); without this check, a caller could
+// redirect outbound callbacks — and any credentials attached to them — to an
+// arbitrary host (SSRF), including internal services or cloud metadata
+// endpoints. baseURL is empty only via test-only NSWClient wiring (production
+// config requires NSW_API_BASE_URL, see nswclient.Config.Validate); this
+// fails closed rather than allowing an unrestricted callback target.
+func validateServiceURLOrigin(serviceURL, baseURL string) error {
+	if baseURL == "" {
+		return fmt.Errorf("no NSW base URL is configured")
+	}
+
+	su, err := url.Parse(serviceURL)
+	if err != nil {
+		return fmt.Errorf("invalid service URL: %w", err)
+	}
+	if su.Scheme == "" || su.Host == "" {
+		return fmt.Errorf("service URL must be an absolute URL")
+	}
+
+	bu, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("invalid configured NSW base URL: %w", err)
+	}
+
+	if !strings.EqualFold(su.Scheme, bu.Scheme) || !strings.EqualFold(su.Host, bu.Host) {
+		return fmt.Errorf("service URL origin %s://%s is not the configured NSW service", su.Scheme, su.Host)
+	}
+	return nil
 }
 
 func resolveAccess(roles []rbac.RoleRecord, permissions []taskconfig.Permission) (bool, []string) {
