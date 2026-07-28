@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
@@ -99,9 +100,11 @@ func newCaptureServer(t *testing.T, capture *callbackCapture) *httptest.Server {
 func TestClient_SendOutcome(t *testing.T) {
 	var capture callbackCapture
 	srv := newCaptureServer(t, &capture)
+	logs := captureLogs(t)
 
 	client := NewWithClient(httpclient.NewClientBuilder().Build())
-	err := client.SendOutcome(context.Background(), srv.URL, "task-123", CommandApprove, map[string]any{"comment": "lgtm"})
+	const sensitiveResponse = "sensitive reviewer response"
+	err := client.SendOutcome(context.Background(), srv.URL+"?token=secret-callback-token", "task-123", CommandApprove, map[string]any{"comment": sensitiveResponse})
 	if err != nil {
 		t.Fatalf("SendOutcome failed: %v", err)
 	}
@@ -113,8 +116,18 @@ func TestClient_SendOutcome(t *testing.T) {
 		t.Errorf("command: got %v, want %v", capture.body["command"], CommandApprove)
 	}
 	payload, ok := capture.body["payload"].(map[string]any)
-	if !ok || payload["comment"] != "lgtm" {
+	if !ok || payload["comment"] != sensitiveResponse {
 		t.Errorf("payload forwarded incorrectly: got %v", capture.body["payload"])
+	}
+
+	logOutput := logs.String()
+	if !strings.Contains(logOutput, `"taskID":"task-123"`) {
+		t.Errorf("log does not contain task identifier: %s", logOutput)
+	}
+	for _, sensitiveValue := range []string{srv.URL, "secret-callback-token", sensitiveResponse} {
+		if strings.Contains(logOutput, sensitiveValue) {
+			t.Errorf("log contains sensitive value %q: %s", sensitiveValue, logOutput)
+		}
 	}
 }
 

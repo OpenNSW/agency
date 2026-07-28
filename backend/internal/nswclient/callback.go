@@ -26,7 +26,7 @@ type taskResponse struct {
 // originating NSW service.
 func (c *Client) SendOutcome(ctx context.Context, serviceURL, taskID, command string, payload any) error {
 	callbackURL := buildCallbackURL(serviceURL, taskID)
-	if err := c.postEnvelope(ctx, callbackURL, taskResponse{Command: command, Payload: payload}); err != nil {
+	if err := c.postEnvelope(ctx, callbackURL, taskID, taskResponse{Command: command, Payload: payload}); err != nil {
 		return fmt.Errorf("send outcome to NSW service: %w", err)
 	}
 	return nil
