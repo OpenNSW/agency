@@ -162,6 +162,20 @@ func TestServerLoadConfig_Postgres_DefaultSSLModeRequire(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_RejectsDBSSLModeDisableOutsideDev(t *testing.T) {
+	t.Setenv("DB_DRIVER", "postgres")
+	t.Setenv("DB_SSLMODE", "disable")
+	t.Setenv("APP_ENV", "production") // Or unset, acting as production
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected an error when DB_SSLMODE=disable outside development, but got nil")
+	}
+	if !strings.Contains(err.Error(), "DB_SSLMODE=disable") {
+		t.Errorf("expected error to mention DB_SSLMODE=disable, got: %v", err)
+	}
+}
+
 func TestLoadConfig_RejectsInvalidTokenInsecureSkipVerify(t *testing.T) {
 	setBaseConfigEnv(t)
 	setRequiredNSWOAuth2Env(t)
