@@ -38,6 +38,12 @@ service:
 
 env:
   PORT: "8081"
+  # Request size and timeout settings (helps protect against slowloris / stalled clients)
+  MAX_REQUEST_BYTES: "33554432"
+  SERVER_READ_HEADER_TIMEOUT: "5s"
+  SERVER_READ_TIMEOUT: "15s"
+  SERVER_WRITE_TIMEOUT: "30s"
+  SERVER_IDLE_TIMEOUT: "60s"
 
   # --- Database (PostgreSQL) ---
   DB_DRIVER: "postgres"

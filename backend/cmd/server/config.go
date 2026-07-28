@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/OpenNSW/core/artifact/loaders"
 	"github.com/OpenNSW/core/artifact/loaders/github"
@@ -17,14 +18,18 @@ import (
 )
 
 type Config struct {
-	Port            string
-	DB              database.Config
-	ArtifactLoader  loaders.Config
-	AllowedOrigins  []string
-	NSW             nswclient.Config
-	Auth            auth.Config
-	Web             web.Config
-	MaxRequestBytes int64
+	Port              string
+	DB                database.Config
+	ArtifactLoader    loaders.Config
+	AllowedOrigins    []string
+	NSW               nswclient.Config
+	Auth              auth.Config
+	Web               web.Config
+	MaxRequestBytes   int64
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
 }
 
 // LoadConfig loads configuration from environment variables
@@ -115,6 +120,30 @@ func LoadConfig() (Config, error) {
 	}
 	cfg.MaxRequestBytes = maxRequestBytes
 
+	readHeaderTimeout, err := parseDurationEnv("SERVER_READ_HEADER_TIMEOUT", 5*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ReadHeaderTimeout = readHeaderTimeout
+
+	readTimeout, err := parseDurationEnv("SERVER_READ_TIMEOUT", 15*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ReadTimeout = readTimeout
+
+	writeTimeout, err := parseDurationEnv("SERVER_WRITE_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.WriteTimeout = writeTimeout
+
+	idleTimeout, err := parseDurationEnv("SERVER_IDLE_TIMEOUT", 60*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.IdleTimeout = idleTimeout
+
 	tokenInsecureSkipVerify, err := parseBoolEnv("NSW_TOKEN_INSECURE_SKIP_VERIFY", false)
 	if err != nil {
 		return Config{}, err
@@ -193,6 +222,26 @@ func parseInt64Env(key string, defaultValue int64) (int64, error) {
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("invalid value for %s: %q", key, raw)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("invalid value for %s: %q", key, raw)
+	}
+
+	return value, nil
+}
+
+func parseDurationEnv(key string, defaultValue time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return defaultValue, nil
+	}
+
+	value, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid value for %s: %q", key, raw)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("invalid value for %s: %q (must be greater than zero)", key, raw)
 	}
 
 	return value, nil

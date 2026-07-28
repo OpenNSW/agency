@@ -16,7 +16,7 @@ It is written for a per-agency deployment model (NPQS, FCAU, IRD, CDA) backed by
 Each agency runs **one** workload:
 
 | Workload                      | Image                          | Container port                | Exposed via         |
-|-------------------------------|--------------------------------|-------------------------------|---------------------|
+| ----------------------------- | ------------------------------ | ----------------------------- | ------------------- |
 | Agency (Go server: API + SPA) | `ghcr.io/opennsw/agency:<tag>` | `8081` (override with `PORT`) | `Service` + `Route` |
 
 The server emits the SPA's runtime config (`VITE_*`) at `/runtime-env.js` from its
@@ -29,16 +29,16 @@ The image is OpenShift-friendly out of the box:
 
 ### What ships in the image vs. what is supplied at deploy time
 
-| Artifact                            | Source                                                 | How it reaches the pod                                                               |
-|-------------------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------|
-| `agency` server binary              | root `Dockerfile`                                      | Baked into image (`/app/agency`)                                                     |
-| `migrate` CLI binary                | root `Dockerfile`                                      | Baked into image (`/app/migrate`)                                                    |
-| `nswac` CLI binary                  | root `Dockerfile`                                      | Baked into image (`/usr/local/bin/nswac`)                                            |
-| Officer-portal SPA                  | `frontend/` (built in the image)                       | Baked into image (`/app/web`, served by the server when `WEB_DIR` resolves)          |
-| SQL migrations                      | `backend/migrations/`                                  | **Baked into image** (`/app/migrations`)                                             |
-| Task configs                & forms | External artifact source (GitHub repo or S3/R2 bucket) | **Fetched at runtime** via the artifact loader — not baked into the image (see §4.2) |
-| User/role seed JSON                 | `backend/data/seed/<agency>_users.json`                | **Mounted at deploy time** via ConfigMap (see §5)                                    |
-| All configuration / secrets         | env vars                                               | `Secret` + `ConfigMap` (see §4)                                                      |
+| Artifact                    | Source                                                 | How it reaches the pod                                                               |
+| --------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `agency` server binary      | root `Dockerfile`                                      | Baked into image (`/app/agency`)                                                     |
+| `migrate` CLI binary        | root `Dockerfile`                                      | Baked into image (`/app/migrate`)                                                    |
+| `nswac` CLI binary          | root `Dockerfile`                                      | Baked into image (`/usr/local/bin/nswac`)                                            |
+| Officer-portal SPA          | `frontend/` (built in the image)                       | Baked into image (`/app/web`, served by the server when `WEB_DIR` resolves)          |
+| SQL migrations              | `backend/migrations/`                                  | **Baked into image** (`/app/migrations`)                                             |
+| Task configs & forms        | External artifact source (GitHub repo or S3/R2 bucket) | **Fetched at runtime** via the artifact loader — not baked into the image (see §4.2) |
+| User/role seed JSON         | `backend/data/seed/<agency>_users.json`                | **Mounted at deploy time** via ConfigMap (see §5)                                    |
+| All configuration / secrets | env vars                                               | `Secret` + `ConfigMap` (see §4)                                                      |
 
 ---
 
@@ -107,6 +107,11 @@ metadata:
 data:
   # Server
   PORT: "8081"
+  MAX_REQUEST_BYTES: "33554432"
+  SERVER_READ_HEADER_TIMEOUT: "5s"
+  SERVER_READ_TIMEOUT: "15s"
+  SERVER_WRITE_TIMEOUT: "30s"
+  SERVER_IDLE_TIMEOUT: "60s"
   ALLOWED_ORIGINS: "https://agency.apps.example.com"
 
   # Database (PostgreSQL)
@@ -192,7 +197,11 @@ The file format (see `backend/cmd/cli`):
 ```json
 {
   "users": [
-    { "name": "Jane Doe", "email": "jane@agency.gov.au", "roles": ["lab_officer"] }
+    {
+      "name": "Jane Doe",
+      "email": "jane@agency.gov.au",
+      "roles": ["lab_officer"]
+    }
   ]
 }
 ```
@@ -220,7 +229,7 @@ spec:
           command: ["nswac", "user", "add", "--file", "/seed/fcau_users.json"]
           envFrom:
             - configMapRef: { name: agency-config }
-            - secretRef:    { name: agency-secrets }
+            - secretRef: { name: agency-secrets }
           volumeMounts:
             - name: seed-data
               mountPath: /seed
@@ -271,7 +280,7 @@ spec:
           command: ["/app/migrate", "up"]
           envFrom:
             - configMapRef: { name: agency-config }
-            - secretRef:    { name: agency-secrets }
+            - secretRef: { name: agency-secrets }
       containers:
         - name: agency
           image: ghcr.io/opennsw/agency:<tag>
@@ -279,7 +288,7 @@ spec:
             - containerPort: 8081
           envFrom:
             - configMapRef: { name: agency-config }
-            - secretRef:    { name: agency-secrets }
+            - secretRef: { name: agency-secrets }
           readinessProbe:
             httpGet: { path: /health, port: 8081 }
             initialDelaySeconds: 5
@@ -346,12 +355,12 @@ oc logs -f job/agency-seed
 
 Deploy the same image per agency, changing only configuration:
 
-| Setting | NPQS | FCAU | CDA | SLPA |
-| --- | --- | --- | --- | --- |
-| `AUTH_EXPECTED_OU` / `VITE_IDP_EXPECTED_OU_HANDLE` | `npqs` | `fcau` | `cda` | `slpa` |
-| `VITE_BRANDING_NAME` | `npqs` | `fcau` | `cda` | `slpa` |
-| Seed file | `npqs_users.json` | `fcau_users.json` | `cda_users.json` | `slpa_users.json` |
-| `NSW_CLIENT_ID` / `VITE_IDP_CLIENT_ID` | agency-specific | agency-specific | agency-specific | agency-specific |
+| Setting                                            | NPQS              | FCAU              | CDA              | SLPA              |
+| -------------------------------------------------- | ----------------- | ----------------- | ---------------- | ----------------- |
+| `AUTH_EXPECTED_OU` / `VITE_IDP_EXPECTED_OU_HANDLE` | `npqs`            | `fcau`            | `cda`            | `slpa`            |
+| `VITE_BRANDING_NAME`                               | `npqs`            | `fcau`            | `cda`            | `slpa`            |
+| Seed file                                          | `npqs_users.json` | `fcau_users.json` | `cda_users.json` | `slpa_users.json` |
+| `NSW_CLIENT_ID` / `VITE_IDP_CLIENT_ID`             | agency-specific   | agency-specific   | agency-specific  | agency-specific   |
 
 Use a separate namespace (or a name suffix) per agency, e.g. `agency-fcau`.
 
@@ -381,7 +390,7 @@ oc get route agency
 - **Re-running migrations:** every rollout runs `migrate up` via the init container; it is a
   no-op when there is nothing pending. Roll back the last migration manually with a one-off
   pod: `oc run migrate-down --rm -it --restart=Never --image=<image> --command --
-  /app/migrate down` (wire in the same env).
+/app/migrate down` (wire in the same env).
 - **Re-seeding:** update `agency-seed-data` ConfigMap, then delete and re-apply the seed
   Job. Existing users are skipped, so it is safe to re-run.
 - **Secrets:** keep `DB_PASSWORD` and `NSW_CLIENT_SECRET` only in the `Secret`. Never put

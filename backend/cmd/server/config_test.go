@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func setBaseConfigEnv(t *testing.T) {
@@ -236,6 +237,100 @@ func TestLoadConfig_AuthJWKSInsecureSkipVerify_FailsClosedOutsideDev(t *testing.
 	_, err := LoadConfig()
 	if err == nil || !strings.Contains(err.Error(), "AUTH_JWKS_INSECURE_SKIP_VERIFY") {
 		t.Fatalf("expected LoadConfig to fail closed with an AUTH_JWKS_INSECURE_SKIP_VERIFY guard error, got: %v", err)
+	}
+}
+
+func TestLoadConfig_ServerTimeoutDefaults(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.ReadHeaderTimeout != 5*time.Second {
+		t.Errorf("ReadHeaderTimeout = %v, want %v", cfg.ReadHeaderTimeout, 5*time.Second)
+	}
+	if cfg.ReadTimeout != 15*time.Second {
+		t.Errorf("ReadTimeout = %v, want %v", cfg.ReadTimeout, 15*time.Second)
+	}
+	if cfg.WriteTimeout != 30*time.Second {
+		t.Errorf("WriteTimeout = %v, want %v", cfg.WriteTimeout, 30*time.Second)
+	}
+	if cfg.IdleTimeout != 60*time.Second {
+		t.Errorf("IdleTimeout = %v, want %v", cfg.IdleTimeout, 60*time.Second)
+	}
+}
+
+func TestLoadConfig_ServerTimeoutsFromEnv(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+	t.Setenv("SERVER_READ_HEADER_TIMEOUT", "1s")
+	t.Setenv("SERVER_READ_TIMEOUT", "2s")
+	t.Setenv("SERVER_WRITE_TIMEOUT", "3s")
+	t.Setenv("SERVER_IDLE_TIMEOUT", "4s")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.ReadHeaderTimeout != time.Second {
+		t.Errorf("ReadHeaderTimeout = %v, want %v", cfg.ReadHeaderTimeout, time.Second)
+	}
+	if cfg.ReadTimeout != 2*time.Second {
+		t.Errorf("ReadTimeout = %v, want %v", cfg.ReadTimeout, 2*time.Second)
+	}
+	if cfg.WriteTimeout != 3*time.Second {
+		t.Errorf("WriteTimeout = %v, want %v", cfg.WriteTimeout, 3*time.Second)
+	}
+	if cfg.IdleTimeout != 4*time.Second {
+		t.Errorf("IdleTimeout = %v, want %v", cfg.IdleTimeout, 4*time.Second)
+	}
+}
+
+func TestLoadConfig_RejectsInvalidServerTimeout(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+	t.Setenv("SERVER_READ_TIMEOUT", "not-a-duration")
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if err.Error() != `invalid value for SERVER_READ_TIMEOUT: "not-a-duration"` {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadConfig_RejectsInvalidMaxRequestBytes(t *testing.T) {
+	testCases := []struct {
+		name     string
+		value    string
+		expected string
+	}{
+		{name: "zero", value: "0", expected: `invalid value for MAX_REQUEST_BYTES: "0"`},
+		{name: "negative", value: "-1", expected: `invalid value for MAX_REQUEST_BYTES: "-1"`},
+		{name: "invalid integer", value: "abc", expected: `invalid value for MAX_REQUEST_BYTES: "abc"`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			setBaseConfigEnv(t)
+			setRequiredNSWOAuth2Env(t)
+			setRequiredAuthEnv(t)
+			t.Setenv("MAX_REQUEST_BYTES", tc.value)
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != tc.expected {
+				t.Fatalf("expected error %q, got %q", tc.expected, err.Error())
+			}
+		})
 	}
 }
 

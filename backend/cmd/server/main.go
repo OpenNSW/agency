@@ -121,9 +121,17 @@ func main() {
 	profileHandler := user.NewProfileHandler(profileSvc)
 
 	// Initialize storage handler (delegates NSW backend calls to nswClient)
-	storageHandler := storage.NewHandler(nswClient, cfg.MaxRequestBytes)
+	storageHandler, err := storage.NewHandler(nswClient, cfg.MaxRequestBytes)
+	if err != nil {
+		slog.Error("failed to create storage handler", "error", err)
+		return
+	}
 
-	feedbackHandler := feedback.NewHandler(service)
+	feedbackHandler, err := feedback.NewHandler(service, cfg.MaxRequestBytes)
+	if err != nil {
+		slog.Error("failed to create feedback handler", "error", err)
+		return
+	}
 
 	// Set up HTTP routes
 	mux := http.NewServeMux()
@@ -196,8 +204,12 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:    serverAddr,
-		Handler: corsHandler,
+		Addr:              serverAddr,
+		Handler:           corsHandler,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
 
 	// Channel to listen for interrupt signals

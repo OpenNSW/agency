@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +31,28 @@ func (m *mockService) GetDownloadURL(ctx context.Context, key string) (*Download
 	return nil, nil
 }
 
+func TestNewHandler(t *testing.T) {
+	t.Run("invalid config - negative", func(t *testing.T) {
+		_, err := NewHandler(&mockService{}, -1)
+		if err == nil {
+			t.Fatal("expected error for negative MaxRequestBytes, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid MaxRequestBytes") {
+			t.Fatalf("expected invalid MaxRequestBytes error, got %v", err)
+		}
+	})
+
+	t.Run("invalid config - zero", func(t *testing.T) {
+		_, err := NewHandler(&mockService{}, 0)
+		if err == nil {
+			t.Fatal("expected error for zero MaxRequestBytes, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid MaxRequestBytes") {
+			t.Fatalf("expected invalid MaxRequestBytes error, got %v", err)
+		}
+	})
+}
+
 func TestHandleCreateUpload(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mockSvc := &mockService{
@@ -41,7 +64,10 @@ func TestHandleCreateUpload(t *testing.T) {
 				}, nil
 			},
 		}
-		handler := NewHandler(mockSvc, 32<<20)
+		handler, err := NewHandler(mockSvc, 32<<20)
+		if err != nil {
+			t.Fatalf("failed to create handler: %v", err)
+		}
 
 		body := []byte(`{"filename":"test.txt","mime_type":"text/plain","size":123}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/storage", bytes.NewBuffer(body))
@@ -72,7 +98,10 @@ func TestHandleCreateUpload(t *testing.T) {
 				return nil, errors.New("upstream error")
 			},
 		}
-		handler := NewHandler(mockSvc, 32<<20)
+		handler, err := NewHandler(mockSvc, 32<<20)
+		if err != nil {
+			t.Fatalf("failed to create handler: %v", err)
+		}
 
 		body := []byte(`{"filename":"test.txt","mime_type":"text/plain","size":123}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/storage", bytes.NewBuffer(body))
@@ -96,7 +125,10 @@ func TestHandleGetUploadURL(t *testing.T) {
 				}, nil
 			},
 		}
-		handler := NewHandler(mockSvc, 32<<20)
+		handler, err := NewHandler(mockSvc, 32<<20)
+		if err != nil {
+			t.Fatalf("failed to create handler: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/storage/550e8400-e29b-41d4-a716-446655440000.pdf", nil)
 		req.SetPathValue("key", "550e8400-e29b-41d4-a716-446655440000.pdf") // Set the mux path value

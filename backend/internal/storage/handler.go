@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -15,11 +16,14 @@ type Handler struct {
 }
 
 // NewHandler creates a new storage handler instance
-func NewHandler(service Service, maxRequestBytes int64) *Handler {
+func NewHandler(service Service, maxRequestBytes int64) (*Handler, error) {
+	if maxRequestBytes <= 0 {
+		return nil, fmt.Errorf("invalid MaxRequestBytes: %d (must be greater than 0)", maxRequestBytes)
+	}
 	return &Handler{
 		service:         service,
 		MaxRequestBytes: maxRequestBytes,
-	}
+	}, nil
 }
 
 // HandleGetUploadURL returns a download URL for a file stored in the main backend.
