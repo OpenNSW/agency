@@ -198,9 +198,13 @@ func (s *ApplicationStore) AppendFeedback(taskID string, entry feedback.Entry) e
 	})
 }
 
-// UpdateDataAndResetStatus updates the submitted data and resets status to PENDING.
-// Called when a trader resubmits after receiving feedback.
-func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[string]any) error {
+// UpdateDataAndResetStatus updates the submitted data and service URL, and
+// resets status to PENDING. Called when a trader resubmits after receiving
+// feedback. The service URL is refreshed alongside the data so a
+// re-validated origin (see validateServiceURLOrigin) replaces whatever was
+// persisted for the original submission, including legacy records created
+// before origin validation existed.
+func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[string]any, serviceURL string) error {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
@@ -217,9 +221,10 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 		if err := tx.Model(&ApplicationRecord{}).
 			Where("task_id = ?", taskID).
 			Updates(map[string]any{
-				"data":       string(dataJSON),
-				"status":     "PENDING",
-				"updated_at": now,
+				"data":        string(dataJSON),
+				"service_url": serviceURL,
+				"status":      "PENDING",
+				"updated_at":  now,
 			}).Error; err != nil {
 			return err
 		}

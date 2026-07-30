@@ -138,7 +138,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		// Record doesn't exist — fall through to create.
 	} else if existing.Status == "FEEDBACK_REQUESTED" {
 		slog.InfoContext(ctx, "trader resubmitted after feedback, resetting to PENDING", "taskID", req.TaskID)
-		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data)
+		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data, req.ServiceURL)
 	}
 
 	appRecord := &ApplicationRecord{

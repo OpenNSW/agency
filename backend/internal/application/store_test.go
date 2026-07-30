@@ -432,9 +432,10 @@ func TestApplicationStore_UpdateDataAndResetStatus(t *testing.T) {
 		t.Fatalf("expected FEEDBACK_REQUESTED, got %q", app.Status)
 	}
 
-	// Simulate trader resubmission
+	// Simulate trader resubmission with a freshly validated service URL
 	newData := map[string]any{"new": "data", "updated": true}
-	if err := store.UpdateDataAndResetStatus("task-resub-1", newData); err != nil {
+	newServiceURL := "http://test/resubmit"
+	if err := store.UpdateDataAndResetStatus("task-resub-1", newData, newServiceURL); err != nil {
 		t.Fatalf("UpdateDataAndResetStatus failed: %v", err)
 	}
 
@@ -444,6 +445,9 @@ func TestApplicationStore_UpdateDataAndResetStatus(t *testing.T) {
 	}
 	if app.Data["new"] != "data" {
 		t.Errorf("expected updated data, got %v", app.Data)
+	}
+	if app.ServiceURL != newServiceURL {
+		t.Errorf("expected service URL to be refreshed to %q, got %q", newServiceURL, app.ServiceURL)
 	}
 }
 
