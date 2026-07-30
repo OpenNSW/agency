@@ -389,8 +389,7 @@ oc get route agency
 
 - **Re-running migrations:** every rollout runs `migrate up` via the init container; it is a
   no-op when there is nothing pending. Roll back the last migration manually with a one-off
-  pod: `oc run migrate-down --rm -it --restart=Never --image=<image> --command --
-/app/migrate down` (wire in the same env).
+  pod: `oc run migrate-down --rm -it --restart=Never --image=<image> --command --/app/migrate down` (wire in the same env).
 - **Re-seeding:** update `agency-seed-data` ConfigMap, then delete and re-apply the seed
   Job. Existing users are skipped, so it is safe to re-run.
 - **Secrets:** keep `DB_PASSWORD` and `NSW_CLIENT_SECRET` only in the `Secret`. Never put
