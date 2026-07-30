@@ -120,12 +120,14 @@ func main() {
 	profileSvc := user.NewProfileService(roleService)
 	profileHandler := user.NewProfileHandler(profileSvc)
 
-	// Initialize storage handler (delegates NSW backend calls to nswClient)
+	// Initialize storage handler (delegates NSW backend calls to nswClient) with database-backed KeyValidator for authorization
+	storageStore := storage.NewStore(store.DB())
 	storageHandler, err := storage.NewHandler(nswClient, cfg.MaxRequestBytes)
 	if err != nil {
 		slog.Error("failed to create storage handler", "error", err)
 		return
 	}
+	storageHandler = storageHandler.WithKeyValidator(storageStore)
 
 	feedbackHandler, err := feedback.NewHandler(service, cfg.MaxRequestBytes)
 	if err != nil {

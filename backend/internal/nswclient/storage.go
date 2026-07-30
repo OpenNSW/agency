@@ -22,13 +22,14 @@ type UploadRequest struct {
 // FileMetadata mirrors the NSW backend's uploads.FileMetadata struct.
 // It represents the full metadata of an uploaded file as returned by the backend.
 type FileMetadata struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Key       string `json:"key"`
-	URL       string `json:"url,omitempty"`
-	UploadURL string `json:"upload_url,omitempty"`
-	Size      int64  `json:"size"`
-	MimeType  string `json:"mime_type"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Key       string         `json:"key"`
+	URL       string         `json:"url,omitempty"`
+	UploadURL string         `json:"upload_url,omitempty"`
+	Size      int64          `json:"size"`
+	MimeType  string         `json:"mime_type"`
+	Ownership map[string]any `json:"ownership,omitempty"`
 }
 
 // DownloadMetadata represents the response returned when a download URL is fetched.
