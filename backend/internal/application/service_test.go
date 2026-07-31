@@ -190,7 +190,8 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 	hc := httpclient.NewClientBuilder().Build()
 
 	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), roleService)
+	nswC := nswclient.NewWithClient(hc)
+	svc := NewService(store, reg, nswC, roleService, nswC)
 	t.Cleanup(func() { _ = svc.Close() })
 
 	return &serviceHarness{
@@ -556,7 +557,8 @@ func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().Build()
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
+	nswC := nswclient.NewWithClient(hc)
+	svc := NewService(store, reg, nswC, rbac.NewRoleService(store.db), nswC)
 	t.Cleanup(func() { _ = svc.Close() })
 
 	app, err := svc.GetApplication(context.Background(), "t-load-fail")

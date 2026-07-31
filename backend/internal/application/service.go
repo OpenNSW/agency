@@ -94,11 +94,12 @@ type service struct {
 	artifactRegistry *artifact.Registry
 	nsw              NSWClient
 	roleService      *rbac.RoleService
+	fileResolver     FileResolver
 }
 
 // NewService creates a new Agency service instance with database storage
-func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService) Service {
-	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil {
+func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, fileResolver FileResolver) Service {
+	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || fileResolver == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
@@ -106,6 +107,7 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 		artifactRegistry: artifactRegistry,
 		nsw:              nsw,
 		roleService:      roleService,
+		fileResolver:     fileResolver,
 	}
 }
 
@@ -264,6 +266,13 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 			}
 		}
 	}
+
+	// Submitted data may carry raw object-storage keys (from file upload form
+	// fields). The frontend must never see those directly — resolve them to
+	// presigned download URLs here, so the backend stays the trust boundary
+	// for exchanging a key for access to the underlying file.
+	resolveFileKeys(ctx, s.fileResolver, app.DataForm, app.Data)
+	resolveFileKeys(ctx, s.fileResolver, app.AgencyForm, app.AgencyActionData)
 
 	return app, nil
 }

@@ -103,7 +103,7 @@ func main() {
 	consignmentHandler := consignment.NewHandler(consignment.NewService(consignmentStore))
 
 	// Initialize Agency service
-	service := application.NewService(store, artifactRegistry, nswClient, roleService)
+	service := application.NewService(store, artifactRegistry, nswClient, roleService, nswClient)
 	defer func() {
 		if err := service.Close(); err != nil {
 			slog.Error("failed to close service", "error", err)

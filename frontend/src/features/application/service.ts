@@ -2,7 +2,6 @@ import { http, API_BASE_URL } from '@/http'
 import { type PaginatedResponse, type ReviewResponse } from '@/types/response'
 import {
   type AgencyApplication,
-  type DownloadMetadataResponse,
   type UploadMetadataRequest,
   type UploadMetadataResponse,
   type UploadResponse,
@@ -110,22 +109,14 @@ export async function uploadFile(file: File): Promise<UploadResponse> {
   return { key: metadata.key, name: metadata.name }
 }
 
-export async function getDownloadUrl(key: string): Promise<{ url: string; expiresAt: number }> {
-  const res = await http.request({
-    url: `${API_BASE_URL}/api/v1/storage/${key}`,
-    method: 'GET',
-    attachToken: true,
-  })
-  const response = res.data as DownloadMetadataResponse
-
-  let url = response.download_url
-  if (response.download_url.startsWith('/')) {
-    try {
-      url = new URL(response.download_url, API_BASE_URL).href
-    } catch {
-      url = new URL(response.download_url, window.location.origin).href
-    }
-  }
-
-  return { url, expiresAt: response.expires_at }
+// TODO: The backend now resolves file fields in an application's `data` /
+// `agencyActionData` to presigned URLs before the response is sent (see
+// backend/internal/application/filekeys.go), so `key` here is already a
+// usable URL for previously-submitted files, not a raw storage key. This
+// short-circuits the old /api/v1/storage/{key} round trip to match that.
+// Once @opennsw/jsonforms-renderers is updated to consume a resolved URL
+// directly instead of always calling getDownloadUrl on view, remove this
+// shim and restore the real lookup below for genuinely raw keys.
+export function getDownloadUrl(key: string): Promise<{ url: string; expiresAt: number }> {
+  return Promise.resolve({ url: key, expiresAt: 0 })
 }
