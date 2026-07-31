@@ -21,10 +21,11 @@ type (
 )
 
 var (
-	ErrProhibitedFileType = nswclient.ErrProhibitedFileType
-	ErrDisallowedMimeType = nswclient.ErrDisallowedMimeType
-	ErrInvalidFilename    = nswclient.ErrInvalidFilename
-	ErrFileSizeExceeded   = nswclient.ErrFileSizeExceeded
+	ErrInvalidUploadRequest = nswclient.ErrInvalidUploadRequest
+	ErrProhibitedFileType   = nswclient.ErrProhibitedFileType
+	ErrDisallowedMimeType   = nswclient.ErrDisallowedMimeType
+	ErrInvalidFilename      = nswclient.ErrInvalidFilename
+	ErrFileSizeExceeded     = nswclient.ErrFileSizeExceeded
 )
 
 // Service is the subset of the NSW client that the storage handler depends on.
