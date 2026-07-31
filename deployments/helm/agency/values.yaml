@@ -78,21 +78,42 @@ ingress:
   # Leave empty to serve HTTP only (or rely on the controller's default cert).
   tls: []
 
+# Resource requests/limits. When HPA is enabled, CPU requests must be defined
+# for the HPA to calculate utilization. Example:
+#   resources:
+#     requests:
+#       cpu: 100m
+#       memory: 256Mi
 resources: {}
 
+# Horizontal Pod Autoscaler. When enabled, Deployment spec.replicas is omitted
+# so Helm upgrades do not override the HPA-managed replica count.
 autoscaling:
   enabled: false
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
 
+# Pod Disruption Budget. Requires at least 2 running/minReplicas to allow
+# voluntary eviction without blocking node drains.
 podDisruptionBudget:
   enabled: false
   minAvailable: 1
 
-livenessProbe: {}
-readinessProbe: {}
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
 
 # Volumes and mounts
 volumes: []

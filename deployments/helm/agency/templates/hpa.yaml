@@ -1,4 +1,7 @@
 {{- if .Values.autoscaling.enabled }}
+{{- if and .Values.autoscaling.targetCPUUtilizationPercentage (not (dig "requests" "cpu" "" .Values.resources)) }}
+{{- fail "autoscaling.targetCPUUtilizationPercentage requires resources.requests.cpu to be defined" }}
+{{- end }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
