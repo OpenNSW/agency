@@ -98,5 +98,9 @@ func resolveKey(ctx context.Context, resolver FileResolver, key string) string {
 		slog.WarnContext(ctx, "failed to resolve file key to a presigned URL; omitting from response", "error", err)
 		return ""
 	}
+	if metadata == nil || metadata.DownloadURL == "" {
+		slog.WarnContext(ctx, "file resolver returned no download URL; omitting from response")
+		return ""
+	}
 	return metadata.DownloadURL
 }

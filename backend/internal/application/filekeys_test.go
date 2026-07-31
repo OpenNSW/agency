@@ -27,6 +27,35 @@ func (f *fakeFileResolver) GetDownloadURL(_ context.Context, key string) (*nswcl
 	return &nswclient.DownloadMetadata{DownloadURL: "https://files.example.com/" + key, ExpiresAt: 123}, nil
 }
 
+// stubFileResolver returns a fixed metadata/error pair regardless of key,
+// letting tests probe resolveKey's response to unusual resolver outputs.
+type stubFileResolver struct {
+	metadata *nswclient.DownloadMetadata
+	err      error
+}
+
+func (s stubFileResolver) GetDownloadURL(_ context.Context, _ string) (*nswclient.DownloadMetadata, error) {
+	return s.metadata, s.err
+}
+
+func TestResolveKey_NilOrEmptyMetadata_OmitsRatherThanPanics(t *testing.T) {
+	tests := []struct {
+		name     string
+		resolver FileResolver
+	}{
+		{"nil metadata", stubFileResolver{metadata: nil, err: nil}},
+		{"empty download URL", stubFileResolver{metadata: &nswclient.DownloadMetadata{}, err: nil}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveKey(context.Background(), tt.resolver, "key-1")
+			if got != "" {
+				t.Errorf("resolveKey: got %q, want empty string", got)
+			}
+		})
+	}
+}
+
 func TestGetApplication_ResolvesFileKeysToPresignedURLs(t *testing.T) {
 	root := t.TempDir()
 	for _, sub := range []string{"task-configs", "forms"} {

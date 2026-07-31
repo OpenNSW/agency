@@ -537,6 +537,72 @@ func (failingLoader) Load(_ context.Context, _ string) ([]byte, error) {
 	return nil, fmt.Errorf("simulated remote store failure")
 }
 
+// selectiveFailingLoader delegates to inner for every path except failPath,
+// which returns a non-ErrNotFound I/O error, simulating a transient
+// remote-store failure for a single artifact.
+type selectiveFailingLoader struct {
+	inner    artifact.Loader
+	failPath string
+}
+
+func (l selectiveFailingLoader) Load(ctx context.Context, path string) ([]byte, error) {
+	if path == l.failPath {
+		return nil, fmt.Errorf("simulated remote store failure for %s", path)
+	}
+	return l.inner.Load(ctx, path)
+}
+
+func TestGetApplication_FormLoadError_FailsClosed(t *testing.T) {
+	root := t.TempDir()
+	for _, sub := range []string{"task-configs", "forms"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+			t.Fatalf("failed to create %s dir: %v", sub, err)
+		}
+	}
+	writeTaskConfigFile(t, root, "alpha.json", `{
+		"meta": {"title": "Alpha"},
+		"forms": {"view": "alpha_view"}
+	}`)
+	writeFormFile(t, root, "alpha_view.json", `{"schema":{"type":"object"},"uiSchema":{"type":"VerticalLayout"}}`)
+
+	inner, err := local.New(local.Config{Root: root})
+	if err != nil {
+		t.Fatalf("failed to create local loader: %v", err)
+	}
+	failPath := filepath.Join("forms", "alpha_view.json")
+	reg := artifact.NewRegistry(selectiveFailingLoader{inner: inner, failPath: failPath})
+	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", filepath.Join("task-configs", "alpha.json"))
+	reg.RegisterArtifact("alpha_view", generictemplate.Kind, "", failPath)
+
+	store := newTestStore(t)
+	if err := store.CreateOrUpdate(&ApplicationRecord{
+		TaskID:        "t-form-load-fail",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-test",
+		ServiceURL:    "http://unused.example",
+		// single_doc is a raw storage key. If the view form fails to load and
+		// GetApplication doesn't fail closed, resolveFileKeys has no schema to
+		// walk and this key would reach the frontend unresolved.
+		Data:   JSONB{"single_doc": "key-1"},
+		Status: "PENDING",
+	}); err != nil {
+		t.Fatalf("failed to seed record: %v", err)
+	}
+
+	hc := httpclient.NewClientBuilder().Build()
+	nswC := nswclient.NewWithClient(hc)
+	svc := NewService(store, reg, nswC, rbac.NewRoleService(store.db), nswC)
+	t.Cleanup(func() { _ = svc.Close() })
+
+	app, err := svc.GetApplication(context.Background(), "t-form-load-fail")
+	if err == nil {
+		t.Fatalf("expected an error when the view form fails to load, got app=%+v", app)
+	}
+	if app != nil {
+		t.Errorf("expected no application on form load error, got %+v", app)
+	}
+}
+
 func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 	store := newTestStore(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{

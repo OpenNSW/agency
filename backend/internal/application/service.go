@@ -252,17 +252,29 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		_, app.AllowedActions = resolveAccess(roles, config.Permissions)
 
 		if config.Forms.View != "" {
-			if form, err := generictemplate.Load(ctx, s.artifactRegistry, config.Forms.View); err == nil {
-				app.DataForm = form
-			} else {
+			form, err := generictemplate.Load(ctx, s.artifactRegistry, config.Forms.View)
+			if err != nil {
+				if !errors.Is(err, artifact.ErrNotFound) {
+					// A genuine load failure must not fall through to
+					// resolveFileKeys with a nil form, which would leave
+					// submitted file keys unresolved and leak them to the
+					// frontend. Fail closed.
+					return nil, fmt.Errorf("failed to load view form %s for task %s: %w", config.Forms.View, record.TaskCode, err)
+				}
 				slog.WarnContext(ctx, "view form not found", "taskCode", record.TaskCode, "formID", config.Forms.View)
+			} else {
+				app.DataForm = form
 			}
 		}
 		if config.Forms.Review != "" {
-			if form, err := generictemplate.Load(ctx, s.artifactRegistry, config.Forms.Review); err == nil {
-				app.AgencyForm = form
-			} else {
+			form, err := generictemplate.Load(ctx, s.artifactRegistry, config.Forms.Review)
+			if err != nil {
+				if !errors.Is(err, artifact.ErrNotFound) {
+					return nil, fmt.Errorf("failed to load review form %s for task %s: %w", config.Forms.Review, record.TaskCode, err)
+				}
 				slog.WarnContext(ctx, "review form not found", "taskCode", record.TaskCode, "formID", config.Forms.Review)
+			} else {
+				app.AgencyForm = form
 			}
 		}
 	}
