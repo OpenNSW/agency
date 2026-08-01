@@ -252,6 +252,25 @@ func TestShouldAuthenticateInvalidBaseURL(t *testing.T) {
 	}
 }
 
+func TestShouldAuthenticateCaseInsensitive(t *testing.T) {
+	// url.Parse lowercases the scheme automatically, so the case-sensitivity
+	// gap in practice is on Host: a caller-supplied URL matching the
+	// configured BaseURL only up to case must still be authenticated.
+	client := &Client{BaseURL: "https://nsw.example"}
+	req, _ := http.NewRequest(http.MethodGet, "https://NSW.EXAMPLE/tasks", nil)
+	if !client.shouldAuthenticate(req) {
+		t.Error("shouldAuthenticate should match BaseURL host case-insensitively")
+	}
+}
+
+func TestShouldAuthenticateCaseInsensitive_StillRejectsDifferentHost(t *testing.T) {
+	client := &Client{BaseURL: "https://nsw.example"}
+	req, _ := http.NewRequest(http.MethodGet, "https://EVIL.EXAMPLE/tasks", nil)
+	if client.shouldAuthenticate(req) {
+		t.Error("shouldAuthenticate should not match a genuinely different host")
+	}
+}
+
 func TestDoCustomMethod(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {

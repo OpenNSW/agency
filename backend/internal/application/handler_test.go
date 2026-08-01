@@ -1,6 +1,8 @@
 package application
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +13,17 @@ import (
 type mockService struct {
 	// embed the interface so we don't have to implement everything
 	Service
+}
+
+// stubCreateApplicationService overrides CreateApplication to return a fixed
+// error, so handler tests can exercise error-mapping without a real Service.
+type stubCreateApplicationService struct {
+	mockService
+	err error
+}
+
+func (s *stubCreateApplicationService) CreateApplication(ctx context.Context, req *InjectRequest) error {
+	return s.err
 }
 
 func TestNewHandler(t *testing.T) {
@@ -63,6 +76,31 @@ func TestHandleInjectData_BodyTooLarge(t *testing.T) {
 
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("expected status %d, got %d", http.StatusRequestEntityTooLarge, w.Code)
+	}
+}
+
+func TestHandleInjectData_InvalidServiceURL(t *testing.T) {
+	handler, err := NewHandler(&stubCreateApplicationService{
+		err: fmt.Errorf("%w: service URL origin is not the configured NSW service", ErrInvalidServiceURL),
+	}, 32<<20)
+	if err != nil {
+		t.Fatalf("unexpected error creating handler: %v", err)
+	}
+
+	body := strings.NewReader(`{
+		"taskId": "task-123",
+		"taskCode": "alpha",
+		"consignmentId": "wf-test",
+		"serviceUrl": "http://evil.example/callback",
+		"data": {}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/inject", body)
+	w := httptest.NewRecorder()
+
+	handler.HandleInjectData(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, w.Code)
 	}
 }
 

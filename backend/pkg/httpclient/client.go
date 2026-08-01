@@ -170,7 +170,7 @@ func (c *Client) shouldAuthenticate(req *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return req.URL.Host == baseURL.Host && req.URL.Scheme == baseURL.Scheme
+	return strings.EqualFold(req.URL.Host, baseURL.Host) && strings.EqualFold(req.URL.Scheme, baseURL.Scheme)
 }
 
 // resolveURL joins the base URL with the provided path.
