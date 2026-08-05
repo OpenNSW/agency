@@ -16,6 +16,52 @@ import { createAjv, type JsonSchema, type UISchemaElement } from '@jsonforms/cor
 import { fetchApplicationDetail, submitReview } from './service'
 import { type SchemaProperty } from './types'
 
+function getNormalizedFormData(
+  data: Record<string, unknown> | undefined,
+  schema: JsonSchema | undefined,
+): Record<string, unknown> {
+  if (!data || typeof data !== 'object') {
+    return {}
+  }
+
+  const schemaKeys = schema?.properties ? Object.keys(schema.properties) : []
+
+  if (schemaKeys.length > 0 && schemaKeys.some((k) => k in data && data[k] !== undefined && data[k] !== null)) {
+    return data
+  }
+
+  const knownWrappers = ['submission', 'userform']
+  const dataKeys = Object.keys(data)
+  const allCandidateKeys = Array.from(new Set([...knownWrappers, ...dataKeys]))
+
+  for (const key of allCandidateKeys) {
+    const val = data[key]
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const nested = val as Record<string, unknown>
+      const nestedKeys = Object.keys(nested)
+      if (nestedKeys.length === 0) {
+        continue
+      }
+      if (schemaKeys.length === 0 || schemaKeys.some((k) => k in nested)) {
+        return nested
+      }
+    }
+  }
+
+  const nonWrapperEntries = Object.entries(data).filter(([, val]) => {
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      return Object.keys(val).length > 0
+    }
+    return val !== undefined && val !== null
+  })
+
+  if (nonWrapperEntries.length === 0) {
+    return {}
+  }
+
+  return data
+}
+
 export function ApplicationDetailScreen() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
@@ -379,35 +425,38 @@ export function ApplicationDetailScreen() {
             </div>
           </Card>
 
-          <Box className="bg-white rounded-lg p-5 border border-gray-200">
-            <Text
-              size="2"
-              weight="bold"
-              color="gray"
-              mb="3"
-              as="div"
-              className="uppercase tracking-wider flex items-center gap-2"
-            >
-              <InfoCircledIcon />
-              {t('consignments.detail.section.submittedInformation')}
-            </Text>
-            {(() => {
-              if (application.dataForm) {
-                return (
+          {(() => {
+            const normalizedData = getNormalizedFormData(application.data, application.dataForm?.schema)
+            const hasData = Boolean(normalizedData && Object.keys(normalizedData).length > 0)
+
+            if (!hasData) {
+              return null
+            }
+
+            return (
+              <Box className="bg-white rounded-lg p-5 border border-gray-200">
+                <Text
+                  size="2"
+                  weight="bold"
+                  color="gray"
+                  mb="3"
+                  as="div"
+                  className="uppercase tracking-wider flex items-center gap-2"
+                >
+                  <InfoCircledIcon />
+                  {t('consignments.detail.section.submittedInformation')}
+                </Text>
+                {application.dataForm ? (
                   <JsonForms
                     schema={application.dataForm.schema}
                     uischema={application.dataForm.uiSchema}
-                    data={application.data}
+                    data={normalizedData}
                     renderers={radixRenderers}
                     readonly={true}
                   />
-                )
-              }
-
-              if (application.data && Object.keys(application.data).length > 0) {
-                return (
+                ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {Object.entries(application.data).map(([key, value]) => (
+                    {Object.entries(normalizedData).map(([key, value]) => (
                       <Box key={key}>
                         <Text size="1" color="gray" as="div" className="capitalize mb-1">
                           {key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ')}
@@ -418,16 +467,10 @@ export function ApplicationDetailScreen() {
                       </Box>
                     ))}
                   </div>
-                )
-              }
-
-              return (
-                <Text size="2" color="gray" className="italic">
-                  {t('consignments.detail.empty.noSubmissionData')}
-                </Text>
-              )
-            })()}
-          </Box>
+                )}
+              </Box>
+            )
+          })()}
         </div>
 
         {/* Sidebar elements now at the bottom of the main flow */}

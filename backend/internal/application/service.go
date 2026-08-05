@@ -121,8 +121,12 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 			return fmt.Errorf("failed to query existing application: %w", err)
 		}
 		// Record doesn't exist — fall through to create.
-	} else if existing.Status == "FEEDBACK_REQUESTED" {
-		slog.InfoContext(ctx, "trader resubmitted after feedback, resetting to PENDING", "taskID", req.TaskID)
+	} else {
+		if existing.Status == "FEEDBACK_REQUESTED" {
+			slog.InfoContext(ctx, "trader resubmitted after feedback, resetting to PENDING", "taskID", req.TaskID)
+		} else {
+			slog.InfoContext(ctx, "updating existing application data", "taskID", req.TaskID)
+		}
 		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data)
 	}
 

@@ -678,3 +678,57 @@ func TestGetApplication_NoConfig_EmptyAllowedActions(t *testing.T) {
 		t.Errorf("expected 3 default allowed actions, got %v", app.AllowedActions)
 	}
 }
+
+func TestCreateApplication_FreshAndExisting(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	ctx := context.Background()
+
+	req := &InjectRequest{
+		TaskID:        "t-create-001",
+		TaskCode:      "task-code-1",
+		ConsignmentID: "consignment-1",
+		ServiceURL:    "http://service-url",
+		Data: map[string]any{
+			"exporter_name": "ACME Corp",
+		},
+	}
+
+	if err := h.service.CreateApplication(ctx, req); err != nil {
+		t.Fatalf("CreateApplication fresh failed: %v", err)
+	}
+
+	app, err := h.service.GetApplication(ctx, "t-create-001")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.Data["exporter_name"] != "ACME Corp" {
+		t.Errorf("expected exporter_name to be ACME Corp, got %v", app.Data["exporter_name"])
+	}
+
+	// Re-inject / update data on existing application
+	reqUpdate := &InjectRequest{
+		TaskID:        "t-create-001",
+		TaskCode:      "task-code-1",
+		ConsignmentID: "consignment-1",
+		ServiceURL:    "http://service-url",
+		Data: map[string]any{
+			"exporter_name":  "ACME Global",
+			"consignee_name": "Globex",
+		},
+	}
+
+	if err := h.service.CreateApplication(ctx, reqUpdate); err != nil {
+		t.Fatalf("CreateApplication update failed: %v", err)
+	}
+
+	appUpdated, err := h.service.GetApplication(ctx, "t-create-001")
+	if err != nil {
+		t.Fatalf("GetApplication after update failed: %v", err)
+	}
+	if appUpdated.Data["exporter_name"] != "ACME Global" {
+		t.Errorf("expected updated exporter_name ACME Global, got %v", appUpdated.Data["exporter_name"])
+	}
+	if appUpdated.Data["consignee_name"] != "Globex" {
+		t.Errorf("expected consignee_name Globex, got %v", appUpdated.Data["consignee_name"])
+	}
+}
