@@ -36,7 +36,14 @@ export function ApplicationDetailScreen() {
   const [formErrors, setFormErrors] = useState<unknown[]>([])
   const [showErrors, setShowErrors] = useState(false)
 
-  const ajvInstance = useMemo(() => createAjv({ useDefaults: true }), [])
+  const ajvInstance = useMemo(() => {
+    const instance = createAjv({ useDefaults: true })
+    instance.addFormat(
+      'time',
+      /^(?:(?:[01]\d|2[0-3]):[0-5]\d(?::(?:[0-5]\d|60))?(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?|(?:0?[1-9]|1[0-2]):[0-5]\d(?::(?:[0-5]\d|60))?(?:\.\d+)?\s?[AP]M)$/i,
+    )
+    return instance
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
