@@ -14,10 +14,12 @@ import (
 
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/loaders"
+	"github.com/OpenNSW/core/trace"
 	"github.com/OpenNSW/nsw-agency/backend/internal/application"
 	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
 	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
+	"github.com/OpenNSW/nsw-agency/backend/internal/logging"
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"github.com/OpenNSW/nsw-agency/backend/internal/storage"
@@ -26,6 +28,8 @@ import (
 )
 
 func main() {
+	logging.ConfigureLogging(os.Stdout)
+
 	cfg, err := LoadConfig()
 	if err != nil {
 		log.Fatalf("FATAL: failed to load configuration: %v", err)
@@ -205,7 +209,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              serverAddr,
-		Handler:           corsHandler,
+		Handler:           trace.TraceMiddleware(corsHandler),
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,

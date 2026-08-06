@@ -3,14 +3,13 @@ package rbac
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/OpenNSW/core/artifact"
+	"github.com/OpenNSW/core/httputil"
 	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
 )
 
 // TaskCodeResolver resolves a task's task_code from its task_id.
@@ -44,14 +43,13 @@ func (m *Middleware) RequireAction(action string) func(http.Handler) http.Handle
 
 			taskID := r.PathValue("taskId")
 			if taskID == "" {
-				httputil.WriteJSONError(w, http.StatusBadRequest, "taskId is required")
+				httputil.Error(w, r, http.StatusBadRequest, "taskId is required")
 				return
 			}
 
 			taskCode, err := m.taskCodeResolver.GetTaskCode(ctx, taskID)
 			if err != nil {
-				slog.ErrorContext(ctx, "rbac: failed to resolve task code", "taskId", taskID, "error", err)
-				httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to resolve task")
+				httputil.InternalServerError(w, r, "rbac: failed to resolve task code", err, "taskId", taskID)
 				return
 			}
 
@@ -66,8 +64,7 @@ func (m *Middleware) RequireAction(action string) func(http.Handler) http.Handle
 				// A genuine load failure (network, credentials, malformed config)
 				// must fail closed: allowing the request through on a transient
 				// loader error would silently bypass RBAC.
-				slog.ErrorContext(ctx, "rbac: failed to load task config", "taskCode", taskCode, "error", err)
-				httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to load task configuration")
+				httputil.InternalServerError(w, r, "rbac: failed to load task config", err, "taskCode", taskCode)
 				return
 			}
 			if len(cfg.Permissions) == 0 {
@@ -78,20 +75,19 @@ func (m *Middleware) RequireAction(action string) func(http.Handler) http.Handle
 
 			authCtx := auth.GetAuthContext(ctx)
 			if authCtx == nil || authCtx.User == nil {
-				httputil.WriteJSONError(w, http.StatusUnauthorized, "unauthorized")
+				httputil.Error(w, r, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
 			roles, err := m.roleService.GetRolesForUser(authCtx.User.ID)
 			if err != nil {
-				slog.ErrorContext(ctx, "rbac: failed to get roles for user", "userID", authCtx.User.ID, "error", err)
-				httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to resolve user roles")
+				httputil.InternalServerError(w, r, "rbac: failed to get roles for user", err, "userID", authCtx.User.ID)
 				return
 			}
 
 			_, allowedActions := ResolveAccess(roles, cfg.Permissions)
 			if !hasAction(allowedActions, action) {
-				httputil.WriteJSONError(w, http.StatusForbidden, "access denied")
+				httputil.Error(w, r, http.StatusForbidden, "access denied")
 				return
 			}
 

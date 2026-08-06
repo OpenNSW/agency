@@ -1,11 +1,10 @@
 package consignment
 
 import (
-	"log/slog"
 	"net/http"
 	"strconv"
 
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
+	"github.com/OpenNSW/core/httputil"
 )
 
 // Handler handles HTTP requests for consignment operations
@@ -22,7 +21,7 @@ func NewHandler(service Service) *Handler {
 // Returns a paginated list of unique consignments with their latest status, optionally filtered by q
 func (h *Handler) HandleGetConsignments(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -31,21 +30,20 @@ func (h *Handler) HandleGetConsignments(w http.ResponseWriter, r *http.Request) 
 
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil && r.URL.Query().Get("page") != "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid page number")
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid page number")
 		return
 	}
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
 	if err != nil && r.URL.Query().Get("pageSize") != "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid page size")
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid page size")
 		return
 	}
 
 	result, err := h.service.GetConsignments(ctx, search, page, pageSize)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to get consignments", "error", err)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get consignments")
+		httputil.InternalServerError(w, r, "failed to get consignments", err)
 		return
 	}
 
-	httputil.WriteJSONResponse(w, http.StatusOK, result)
+	httputil.JSON(w, http.StatusOK, result)
 }

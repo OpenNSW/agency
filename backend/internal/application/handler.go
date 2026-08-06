@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/OpenNSW/core/httputil"
 	"github.com/OpenNSW/nsw-agency/backend/internal/version"
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
 )
 
 // Handler handles HTTP requests for agency portal operations
@@ -33,7 +33,7 @@ func NewHandler(service Service, maxRequestBytes int64) (*Handler, error) {
 func (h *Handler) parseTaskID(w http.ResponseWriter, r *http.Request) (string, error) {
 	taskIDStr := r.PathValue("taskId")
 	if taskIDStr == "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "taskId is required")
+		httputil.Error(w, r, http.StatusBadRequest, "taskId is required")
 		return "", errors.New("taskId is required")
 	}
 	return taskIDStr, nil
@@ -43,7 +43,7 @@ func (h *Handler) parseTaskID(w http.ResponseWriter, r *http.Request) (string, e
 // This is the endpoint that external services use to inject data into agency portal
 func (h *Handler) HandleInjectData(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -55,17 +55,16 @@ func (h *Handler) HandleInjectData(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, "Request body too large")
+			httputil.Error(w, r, http.StatusRequestEntityTooLarge, "Request body too large")
 			return
 		}
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	// Create application in database
 	if err := h.service.CreateApplication(ctx, &req); err != nil {
-		slog.ErrorContext(ctx, "failed to create application", "error", err)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create application: "+err.Error())
+		httputil.InternalServerError(w, r, "failed to create application", err)
 		return
 	}
 
@@ -73,7 +72,7 @@ func (h *Handler) HandleInjectData(w http.ResponseWriter, r *http.Request) {
 		"taskID", req.TaskID,
 		"consignmentID", req.ConsignmentID)
 
-	httputil.WriteJSONResponse(w, http.StatusCreated, map[string]any{
+	httputil.JSON(w, http.StatusCreated, map[string]any{
 		"success": true,
 		"message": "Data injected successfully",
 		"taskId":  req.TaskID,
@@ -84,7 +83,7 @@ func (h *Handler) HandleInjectData(w http.ResponseWriter, r *http.Request) {
 // Returns all applications, optionally filtered by status, consignmentId, or q query parameter
 func (h *Handler) HandleGetApplications(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -95,30 +94,29 @@ func (h *Handler) HandleGetApplications(w http.ResponseWriter, r *http.Request) 
 
 	page, err := strconv.Atoi(r.URL.Query().Get("page"))
 	if err != nil && r.URL.Query().Get("page") != "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid page number")
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid page number")
 		return
 	}
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
 	if err != nil && r.URL.Query().Get("pageSize") != "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid page size")
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid page size")
 		return
 	}
 
 	result, err := h.service.GetApplications(ctx, status, consignmentID, search, page, pageSize)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to get applications", "error", err)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get applications")
+		httputil.InternalServerError(w, r, "failed to get applications", err)
 		return
 	}
 
-	httputil.WriteJSONResponse(w, http.StatusOK, result)
+	httputil.JSON(w, http.StatusOK, result)
 }
 
 // HandleGetApplication handles GET /api/v1/applications/{taskId}
 // Returns a specific application by task ID
 func (h *Handler) HandleGetApplication(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -131,23 +129,20 @@ func (h *Handler) HandleGetApplication(w http.ResponseWriter, r *http.Request) {
 	application, err := h.service.GetApplication(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, ErrApplicationNotFound) {
-			httputil.WriteJSONError(w, http.StatusNotFound, "Application not found")
+			httputil.Error(w, r, http.StatusNotFound, "Application not found")
 		} else {
-			slog.ErrorContext(ctx, "failed to get application",
-				"taskID", taskID,
-				"error", err)
-			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to get application")
+			httputil.InternalServerError(w, r, "failed to get application", err, "taskID", taskID)
 		}
 		return
 	}
 
-	httputil.WriteJSONResponse(w, http.StatusOK, application)
+	httputil.JSON(w, http.StatusOK, application)
 }
 
 // HandleHealth handles GET /health
 // Simple health check endpoint
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
-	httputil.WriteJSONResponse(w, http.StatusOK, map[string]any{
+	httputil.JSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"service": "nsw-agency-portal",
 		"version": version.Get(),
@@ -159,7 +154,7 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 // Sends the response back to the originating service
 func (h *Handler) HandleReviewApplication(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		httputil.WriteJSONError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
@@ -178,22 +173,19 @@ func (h *Handler) HandleReviewApplication(w http.ResponseWriter, r *http.Request
 	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, "Request body too large")
+			httputil.Error(w, r, http.StatusRequestEntityTooLarge, "Request body too large")
 			return
 		}
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	// Process review and send response to service
 	if err := h.service.ReviewApplication(ctx, taskID, requestBody); err != nil {
 		if errors.Is(err, ErrApplicationNotFound) {
-			httputil.WriteJSONError(w, http.StatusNotFound, "Application not found")
+			httputil.Error(w, r, http.StatusNotFound, "Application not found")
 		} else {
-			slog.ErrorContext(ctx, "failed to review application",
-				"taskID", taskID,
-				"error", err)
-			httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to review application: "+err.Error())
+			httputil.InternalServerError(w, r, "failed to review application", err, "taskID", taskID)
 		}
 		return
 	}
@@ -202,7 +194,7 @@ func (h *Handler) HandleReviewApplication(w http.ResponseWriter, r *http.Request
 		"taskID", taskID,
 	)
 
-	httputil.WriteJSONResponse(w, http.StatusOK, map[string]any{
+	httputil.JSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": "Application reviewed successfully",
 	})

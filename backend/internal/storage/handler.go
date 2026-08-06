@@ -3,10 +3,9 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
+	"github.com/OpenNSW/core/httputil"
 )
 
 // Handler handles HTTP requests for storage operations
@@ -30,17 +29,16 @@ func NewHandler(service Service, maxRequestBytes int64) (*Handler, error) {
 func (h *Handler) HandleGetUploadURL(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	if key == "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "key is required")
+		httputil.Error(w, r, http.StatusBadRequest, "key is required")
 		return
 	}
 	metadata, err := h.service.GetDownloadURL(r.Context(), key)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "failed to get download URL from backend", "key", key, "error", err)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to get download URL")
+		httputil.InternalServerError(w, r, "failed to get download URL from backend", err, "key", key)
 		return
 	}
 
-	httputil.WriteJSONResponse(w, http.StatusOK, metadata)
+	httputil.JSON(w, http.StatusOK, metadata)
 }
 
 // HandleCreateUpload prepares an upload by requesting an upload URL from the main backend.
@@ -53,16 +51,15 @@ func (h *Handler) HandleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.MaxRequestBytes)
 	var req UploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "Invalid request body")
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	result, err := h.service.CreateUploadURL(r.Context(), req)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "failed to create upload URL", "error", err)
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "Failed to create upload URL")
+		httputil.InternalServerError(w, r, "failed to create upload URL", err)
 		return
 	}
 
-	httputil.WriteJSONResponse(w, http.StatusOK, result)
+	httputil.JSON(w, http.StatusOK, result)
 }

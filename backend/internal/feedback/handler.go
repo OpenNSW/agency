@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
+	"github.com/OpenNSW/core/httputil"
 )
 
 // Service is a narrow interface for feedback operations, avoiding a circular
@@ -35,7 +35,7 @@ func NewHandler(service Service, maxRequestBytes int64) (*Handler, error) {
 func (h *Handler) HandleFeedback(w http.ResponseWriter, r *http.Request) {
 	taskIDStr := r.PathValue("taskId")
 	if strings.TrimSpace(taskIDStr) == "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "taskId is required")
+		httputil.Error(w, r, http.StatusBadRequest, "taskId is required")
 		return
 	}
 
@@ -45,26 +45,26 @@ func (h *Handler) HandleFeedback(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, "Request body too large")
+			httputil.Error(w, r, http.StatusRequestEntityTooLarge, "Request body too large")
 			return
 		}
-		httputil.WriteJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		httputil.Error(w, r, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	feedback, ok := body["feedback"].(string)
 
 	if !ok || strings.TrimSpace(feedback) == "" {
-		httputil.WriteJSONError(w, http.StatusBadRequest, "feedback field is required and must be a non-empty string")
+		httputil.Error(w, r, http.StatusBadRequest, "feedback field is required and must be a non-empty string")
 		return
 	}
 
 	if err := h.service.FeedbackApplication(r.Context(), taskIDStr, body); err != nil {
-		httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to send feedback: "+err.Error())
+		httputil.InternalServerError(w, r, "failed to send feedback", err, "taskID", taskIDStr)
 		return
 	}
 
-	httputil.WriteJSONResponse(w, http.StatusOK, map[string]any{
+	httputil.JSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": "Feedback sent successfully",
 	})
