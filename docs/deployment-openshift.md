@@ -17,7 +17,7 @@ Each agency runs **one** workload:
 
 | Workload                      | Image                          | Container port                | Exposed via         |
 | ----------------------------- | ------------------------------ | ----------------------------- | ------------------- |
-| Agency (Go server: API + SPA) | `ghcr.io/opennsw/agency:<tag>` | `8081` (override with `PORT`) | `Service` + `Route` |
+| Agency (Go server: API + SPA) | `ghcr.io/opennsw/tnsw-agency:<tag>` | `8081` (override with `PORT`) | `Service` + `Route` |
 
 The server emits the SPA's runtime config (`VITE_*`) at `/runtime-env.js` from its
 environment, so the same image is reconfigurable per environment/agency without a rebuild.
@@ -51,8 +51,8 @@ fetched at runtime by the artifact loader (§4.2). The `nswac` **binary** is in 
 the seed **data** is supplied dynamically (§5), so you can re-seed without rebuilding.
 
 ```bash
-docker build -t ghcr.io/opennsw/agency:<tag> .
-docker push   ghcr.io/opennsw/agency:<tag>
+docker build -t ghcr.io/opennsw/tnsw-agency:<tag> .
+docker push   ghcr.io/opennsw/tnsw-agency:<tag>
 ```
 
 > Tagged releases (`vX.Y.Z`) are built and published automatically by
@@ -225,7 +225,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: seed
-          image: ghcr.io/opennsw/agency:<tag>
+          image: ghcr.io/opennsw/tnsw-agency:<tag>
           command: ["nswac", "user", "add", "--file", "/seed/fcau_users.json"]
           envFrom:
             - configMapRef: { name: agency-config }
@@ -276,14 +276,14 @@ spec:
       # Apply pending migrations before the server starts. Idempotent.
       initContainers:
         - name: migrate
-          image: ghcr.io/opennsw/agency:<tag>
+          image: ghcr.io/opennsw/tnsw-agency:<tag>
           command: ["/app/migrate", "up"]
           envFrom:
             - configMapRef: { name: agency-config }
             - secretRef: { name: agency-secrets }
       containers:
         - name: agency
-          image: ghcr.io/opennsw/agency:<tag>
+          image: ghcr.io/opennsw/tnsw-agency:<tag>
           ports:
             - containerPort: 8081
           envFrom:

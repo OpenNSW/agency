@@ -80,7 +80,7 @@ because they change at different rates. Each has its own tag namespace:
 
 | Artifact  | Tag            | Workflow                                                            | Publishes                                         |
 |-----------|----------------|---------------------------------------------------------------------|---------------------------------------------------|
-| App image | `v1.2.3`       | [`release.yml`](../../../.github/workflows/release.yml)             | `ghcr.io/opennsw/agency:1.2.3` + a GitHub Release |
+| App image | `v1.2.3`       | [`release.yml`](../../../.github/workflows/release.yml)             | `ghcr.io/opennsw/tnsw-agency:1.2.3` + a GitHub Release |
 | Chart     | `chart-v0.3.0` | [`release-chart.yml`](../../../.github/workflows/release-chart.yml) | `oci://ghcr.io/opennsw/charts/agency:0.3.0`   |
 
 ### `appVersion` vs `image.tag`

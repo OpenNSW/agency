@@ -23,7 +23,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/opennsw/agency
+  repository: ghcr.io/opennsw/tnsw-agency
   # Required — pick the app version to deploy. There is no default; the chart
   # fails to render if this is unset (appVersion is metadata, not the image tag).
   tag: "0.1.0"
@@ -112,7 +112,7 @@ env:
   AUTH_JWKS_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
 
   # --- Outbound auth: this backend calling the NSW API ---
-  NSW_API_BASE_URL: "https://nsw-api.example.com/api/v1"
+  NSW_API_BASE_URL: "https://tnsw-api.example.com/api/v1"
   NSW_CLIENT_ID: "<M2M_AGENCY_TO_NSW>"
   # SECRET — pulled from a Kubernetes Secret, never inlined.
   NSW_CLIENT_SECRET:

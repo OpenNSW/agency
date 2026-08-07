@@ -12,7 +12,7 @@ replicaCount: 1
 
 image:
   # Published image. Override for local builds (see values-test.yaml).
-  repository: ghcr.io/opennsw/agency
+  repository: ghcr.io/opennsw/tnsw-agency
   # REQUIRED — no default. Set the app version to deploy per environment or at
   # install (--set image.tag=1.4.0). Chart rendering fails if this is empty.
   # appVersion is metadata only and is deliberately NOT used as the tag.

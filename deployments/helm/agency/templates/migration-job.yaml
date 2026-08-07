@@ -44,7 +44,9 @@ spec:
           # Same image as the server; only the command differs.
           image: "{{ .Values.image.repository }}:{{ required "image.tag is required — set it per environment or at install (e.g. --set image.tag=1.4.0)" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.migration.command }}
           command: {{ .Values.migration.command | toJson }}
+          {{- end }}
           {{- if .Values.env }}
           env:
             {{- range $key, $value := .Values.env }}

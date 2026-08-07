@@ -18,5 +18,10 @@ spec:
   {{- if and .Values.route.tls .Values.route.tls.enabled }}
   tls:
     termination: {{ .Values.route.tls.termination | default "edge" | quote }}
+    {{- if .Values.route.tls.insecureEdgeTerminationPolicy }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy | quote }}
+    {{- else if eq (.Values.route.tls.termination | default "edge") "edge" }}
+    insecureEdgeTerminationPolicy: Redirect
+    {{- end }}
   {{- end }}
 {{- end }}
