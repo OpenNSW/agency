@@ -13,6 +13,7 @@ Required environment variables:
 - `VITE_IDP_EXPECTED_OU_HANDLE`: Required organization/OU handle for access restriction (e.g., `npqs`, `fcau`, `cda`, `slpa`)
 - `VITE_APP_URL`: public URL of this Agency deployment
 - `VITE_IDP_SCOPES` (optional): comma-separated scopes (defaults to `openid,profile,email,ou`)
+- `VITE_IDP_EXTRA_QUERY_PARAMS`: extra `/authorize` parameters, query-string encoded (for example `resource=https://api.nsw-agency.local`). ThunderID requires an RFC 8707 `resource` indicator naming the AGENCY_API resource server; without it the `agency:*` scopes are dropped from the issued token. Optional only for an IdP that binds tokens by scope alone.
 
 ## Per-NSW Agency deployment model
 

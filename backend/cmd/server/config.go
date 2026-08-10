@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -111,6 +112,8 @@ func LoadConfig() (Config, error) {
 				IDPExpectedOU: os.Getenv("VITE_IDP_EXPECTED_OU_HANDLE"),
 				AppURL:        os.Getenv("VITE_APP_URL"),
 				IDPScopes:     os.Getenv("VITE_IDP_SCOPES"),
+				// /runtime-env.js is the only channel: the image ships a prebuilt bundle.
+				IDPExtraQueryParams: os.Getenv("VITE_IDP_EXTRA_QUERY_PARAMS"),
 			},
 		},
 	}
@@ -143,6 +146,12 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 	cfg.IdleTimeout = idleTimeout
+
+	tokenParams, err := parseQueryEnv("NSW_TOKEN_PARAMS")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.NSW.TokenParams = tokenParams
 
 	tokenInsecureSkipVerify, err := parseBoolEnv("NSW_TOKEN_INSECURE_SKIP_VERIFY", false)
 	if err != nil {
@@ -211,6 +220,22 @@ func parseBoolEnv(key string, defaultValue bool) (bool, error) {
 	}
 
 	return value, nil
+}
+
+// parseQueryEnv reads a query-string-encoded env var into url.Values, e.g.
+// "resource=https://api.example&audience=my-api". Unset yields nil.
+func parseQueryEnv(key string) (url.Values, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid value for %s: %q: %w", key, raw, err)
+	}
+
+	return values, nil
 }
 
 func parseInt64Env(key string, defaultValue int64) (int64, error) {

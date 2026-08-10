@@ -3,8 +3,10 @@ package httpclient
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -249,5 +251,90 @@ func TestOAuth2AuthenticatorHonoursRequestContext(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Errorf("token fetch did not honour the request context; took %v", elapsed)
+	}
+}
+
+// TestOAuth2Authenticator_EndpointParams asserts extra token-request parameters are sent
+// in the request BODY, per RFC 6749 §3.2.
+//
+// It reads the raw body rather than r.Form on purpose: r.Form merges the URL query into
+// the form, so an r.Form.Get("resource") assertion would also pass if the parameter were
+// smuggled onto the token URL as a query string — which is exactly the practice this
+// replaces. Only a raw-body assertion distinguishes the two.
+func TestOAuth2Authenticator_EndpointParams(t *testing.T) {
+	var gotBody string
+	var gotRawQuery string
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		gotBody = string(body)
+		gotRawQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"t","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer tokenServer.Close()
+
+	auth := NewOAuth2Authenticator("id", "secret", tokenServer.URL, []string{"nsw:task:write"},
+		WithEndpointParams(url.Values{
+			"resource": {"https://api.nsw-srilanka.local"},
+			"audience": {"nsw-api"},
+		}))
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.invalid", nil)
+	if err := auth.Authenticate(req); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	form, err := url.ParseQuery(gotBody)
+	if err != nil {
+		t.Fatalf("parse request body %q: %v", gotBody, err)
+	}
+	if got := form.Get("resource"); got != "https://api.nsw-srilanka.local" {
+		t.Errorf("resource in body = %q, want %q", got, "https://api.nsw-srilanka.local")
+	}
+	if got := form.Get("audience"); got != "nsw-api" {
+		t.Errorf("audience in body = %q, want %q", got, "nsw-api")
+	}
+	// The flow's own parameters must survive alongside them.
+	if got := form.Get("grant_type"); got != "client_credentials" {
+		t.Errorf("grant_type in body = %q, want client_credentials", got)
+	}
+	if got := form.Get("scope"); got != "nsw:task:write" {
+		t.Errorf("scope in body = %q, want nsw:task:write", got)
+	}
+	// Nothing may leak onto the URL — that is the workaround being retired.
+	if gotRawQuery != "" {
+		t.Errorf("token URL carried a query string %q; parameters belong in the body", gotRawQuery)
+	}
+}
+
+// TestOAuth2Authenticator_NoEndpointParams: omitted by default.
+func TestOAuth2Authenticator_NoEndpointParams(t *testing.T) {
+	var gotBody string
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"t","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer tokenServer.Close()
+
+	auth := NewOAuth2Authenticator("id", "secret", tokenServer.URL, nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.invalid", nil)
+	if err := auth.Authenticate(req); err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	form, err := url.ParseQuery(gotBody)
+	if err != nil {
+		t.Fatalf("parse request body %q: %v", gotBody, err)
+	}
+	for _, k := range []string{"resource", "audience"} {
+		if form.Has(k) {
+			t.Errorf("unexpected %q in body when no endpoint params configured", k)
+		}
 	}
 }

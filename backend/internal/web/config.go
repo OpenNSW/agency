@@ -39,6 +39,9 @@ type RuntimeConfig struct {
 	IDPExpectedOU string `json:"VITE_IDP_EXPECTED_OU_HANDLE,omitempty"`
 	AppURL        string `json:"VITE_APP_URL,omitempty"`
 	IDPScopes     string `json:"VITE_IDP_SCOPES,omitempty"`
+	// Query-string-encoded extra parameters for the IdP's authorization request, e.g.
+	// "resource=https://api.nsw-agency.local". Optional; nothing here is IdP-specific.
+	IDPExtraQueryParams string `json:"VITE_IDP_EXTRA_QUERY_PARAMS,omitempty"`
 }
 
 // Validate enforces the keys the frontend reads via getRequiredEnv (see

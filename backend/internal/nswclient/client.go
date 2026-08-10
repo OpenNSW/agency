@@ -23,11 +23,17 @@ type Client struct {
 // New creates a Client that talks to the NSW service using OAuth2 credentials
 // from cfg. It builds the authenticated HTTP transport internally.
 func New(cfg Config) *Client {
+	var opts []httpclient.OAuth2Option
+	if len(cfg.TokenParams) > 0 {
+		opts = append(opts, httpclient.WithEndpointParams(cfg.TokenParams))
+	}
+
 	authenticator := httpclient.NewOAuth2Authenticator(
 		cfg.ClientID,
 		cfg.ClientSecret,
 		cfg.TokenURL,
 		cfg.Scopes,
+		opts...,
 	)
 
 	hc := httpclient.NewClientBuilder().

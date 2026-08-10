@@ -2,6 +2,7 @@ package httpclient
 
 import (
 	"net/http"
+	"net/url"
 	"sync"
 
 	"golang.org/x/oauth2"
@@ -18,16 +19,33 @@ type OAuth2Authenticator struct {
 	token *oauth2.Token
 }
 
-// NewOAuth2Authenticator creates a new OAuth2Authenticator.
-func NewOAuth2Authenticator(clientID, clientSecret, tokenURL string, scopes []string) *OAuth2Authenticator {
-	return &OAuth2Authenticator{
-		config: &clientcredentials.Config{
-			ClientID:     clientID,
-			ClientSecret: clientSecret,
-			TokenURL:     tokenURL,
-			Scopes:       scopes,
-		},
+// OAuth2Option configures an OAuth2Authenticator.
+type OAuth2Option func(*clientcredentials.Config)
+
+// WithEndpointParams adds extra parameters to the token request, sent in the body
+// alongside grant_type and scope (RFC 6749 §3.2).
+func WithEndpointParams(params url.Values) OAuth2Option {
+	return func(c *clientcredentials.Config) {
+		c.EndpointParams = params
 	}
+}
+
+// NewOAuth2Authenticator creates a new OAuth2Authenticator.
+func NewOAuth2Authenticator(
+	clientID, clientSecret, tokenURL string,
+	scopes []string,
+	opts ...OAuth2Option,
+) *OAuth2Authenticator {
+	cfg := &clientcredentials.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		TokenURL:     tokenURL,
+		Scopes:       scopes,
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return &OAuth2Authenticator{config: cfg}
 }
 
 // Authenticate fetches a token if necessary and injects it into the request header.

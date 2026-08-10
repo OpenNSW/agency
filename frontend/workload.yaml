@@ -27,3 +27,6 @@ configurations:
       value: http://localhost:5174
     - name: VITE_IDP_SCOPES
       value: openid,profile,email,ou
+    # The `resource` value must equal AUTH_AUDIENCE, or the agency:* scopes are dropped.
+    - name: VITE_IDP_EXTRA_QUERY_PARAMS
+      value: resource=https://api.nsw-agency.local

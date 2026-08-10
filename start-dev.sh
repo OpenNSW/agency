@@ -45,6 +45,10 @@ set -m
 
 IDP_BASE_URL="https://localhost:8090" # For frontend Vite proxying to a local IdP instance; not used by backend.
 
+# AGENCY_API resource-server identifier. Becomes the token's `aud` and is matched
+# verbatim, so it must stay byte-identical to nsw-srilanka's resource-servers.json.
+AGENCY_API_AUDIENCE="${AGENCY_API_AUDIENCE:-https://api.nsw-agency.local}"
+
 # Single source of truth for per-agency config:
 #   "BE_PORT|FE_PORT|IDP_CLIENT_ID|NSW_CLIENT_ID|APP_NAME|OU_HANDLE|NSW_INBOUND_CLIENT_ID".
 # NSW_CLIENT_ID is the outbound Agency->NSW m2m client; NSW_INBOUND_CLIENT_ID is
@@ -342,6 +346,8 @@ start_backend() {
     export NSW_CLIENT_SECRET
     export AUTH_JWKS_URL="${AUTH_JWKS_URL:-$IDP_BASE_URL/oauth2/jwks}"
     export AUTH_EXPECTED_OU="${AUTH_EXPECTED_OU:-$OU_HANDLE}"
+    # Expected `aud`, set here so a native dev run needs no per-developer edit.
+    export AUTH_AUDIENCE="${AUTH_AUDIENCE:-$AGENCY_API_AUDIENCE}"
     # Inbound clients this agency accepts: its SPA portal (user tokens) plus the
     # NSW->Agency m2m client (client_credentials) so NSW core can call /inject.
     # Append the inbound client only when set, so a config without the 7th field
@@ -384,6 +390,7 @@ start_frontend() {
     VITE_API_BASE_URL="${VITE_API_BASE_URL:-http://localhost:$BE_PORT}" \
     VITE_IDP_BASE_URL="${VITE_IDP_BASE_URL:-$IDP_BASE_URL}" \
     VITE_IDP_CLIENT_ID="${VITE_IDP_CLIENT_ID:-$IDP_CLIENT_ID}" \
+    VITE_IDP_EXTRA_QUERY_PARAMS="${VITE_IDP_EXTRA_QUERY_PARAMS:-resource=$AGENCY_API_AUDIENCE}" \
     VITE_IDP_SCOPES="${VITE_IDP_SCOPES:-openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write}" \
     VITE_IDP_EXPECTED_OU_HANDLE="${VITE_IDP_EXPECTED_OU_HANDLE:-$OU_HANDLE}" \
     VITE_APP_URL="${VITE_APP_URL:-http://localhost:$FE_PORT}" \
