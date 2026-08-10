@@ -14,7 +14,7 @@ interface RequestConfig {
 }
 
 export const http = {
-  request: async (config: RequestConfig) => {
+  request: async (config: RequestConfig): Promise<{ data: unknown }> => {
     let url = config.url
     if (config.params) {
       const searchParams = new URLSearchParams()
