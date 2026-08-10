@@ -30,6 +30,11 @@ const si = {
     },
   },
 
+  // Layout.tsx, LoginScreen.tsx
+  footer: {
+    poweredBy: 'OpenNSW මගින් බලගැන්වේ',
+  },
+
   // TopBar.tsx
   topbar: {
     search: {
@@ -61,6 +66,8 @@ const si = {
       badge: 'මුළු කාර්යයන් {{total}}',
       empty: 'මෙම භාණ්ඩ තොගය සඳහා කාර්යයන් කිසිවක් හමු නොවීය.',
       loading: 'කාර්යයන් පූරණය වෙමින් පවතී...',
+      error: 'කාර්යයන් පූරණය කිරීමට අපොහොසත් විය. කරුණාකර නැවත උත්සාහ කරන්න.',
+      retryButton: 'නැවත උත්සාහ කරන්න',
       defaultTitle: 'සම්මත සමාලෝචනය',
       backButton: 'භාණ්ඩ තොග වෙත ආපසු',
       table: {
@@ -100,6 +107,7 @@ const si = {
       },
       empty: {
         noSubmissionData: 'ඉදිරිපත් කළ දත්ත නොමැත',
+        noReviewPermission: 'මෙම අයදුම්පත සමාලෝචනය කිරීමට ඔබට අවසර නොමැත.',
       },
       feedback: {
         round: 'වටය {{round}}',
@@ -111,13 +119,14 @@ const si = {
   common: {
     status: {
       approved: 'අනුමත',
-      rejected: 'ප්රතික්ෂේප',
-      pending: 'අත්හිටුවා',
-      feedback_requested: 'ප්රතිපෝෂණ ඉල්ලීම්',
+      rejected: 'ප්‍රතික්ෂේප',
+      pending: 'විභාග වෙමින් පවතී',
+      feedback_requested: 'ප්‍රතිපෝෂණ ඉල්ලීම්',
     },
     pagination: {
-      info: 'පිටුව {{page}} න් {{totalPages}} (ප්රතිඵල {{total}})',
+      info: 'පිටුව {{page}} න් {{totalPages}} (ප්‍රතිඵල {{total}})',
     },
+    dateTimeAt: '{{date}} {{time}} ට',
   },
 
   // ConsignmentDetailScreen.tsx

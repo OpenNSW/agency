@@ -131,7 +131,7 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
                         }
                         variant="surface"
                       >
-                        {app.status}
+                        {t(`common.status.${app.status.toLowerCase()}`, { defaultValue: app.status })}
                       </Badge>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-gray-600">{formatDateForTable(app.updatedAt)}</td>

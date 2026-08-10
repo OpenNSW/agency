@@ -12,7 +12,7 @@ export function ConsignmentListScreen() {
   const [searchTerm, setSearchTerm] = useState('')
   const { data, status, pagination } = useConsignmentList(searchTerm)
 
-  if (loading && page === 1) {
+  if (status.loading && pagination.page === 1) {
     return (
       <div className="flex items-center justify-center py-12">
         <Spinner size="3" />
@@ -126,7 +126,9 @@ export function ConsignmentListScreen() {
                           }
                           variant="surface"
                         >
-                          {consignment.status}
+                          {t(`common.status.${consignment.status.toLowerCase()}`, {
+                            defaultValue: consignment.status,
+                          })}
                         </Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-600">
