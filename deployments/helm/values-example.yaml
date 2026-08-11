@@ -106,7 +106,7 @@ env:
   # --- Inbound auth: tokens this backend accepts ---
   AUTH_JWKS_URL: "https://idp.example.com/oauth2/jwks"
   AUTH_ISSUER: "https://idp.example.com"
-  AUTH_AUDIENCE: "AGENCY_API"
+  AUTH_AUDIENCE: "https://api.nsw-agency.local"
   AUTH_CLIENT_IDS: "<SPA_AGENCY_PORTAL>,<M2M_NSW_TO_AGENCY>"
   AUTH_EXPECTED_OU: "<AGENCY_OU_HANDLE>"
   AUTH_JWKS_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
@@ -122,6 +122,9 @@ env:
         key: nsw-client-secret
   NSW_TOKEN_URL: "https://idp.example.com/oauth2/token"
   NSW_SCOPES: "nsw:task:write,nsw:consignment:read,nsw:storage:read,nsw:storage:write"
+  # Extra token-request parameters, query-string encoded (sent in the request body).
+  # NSW's IdP requires an RFC 8707 `resource` indicator on scope-bearing requests.
+  NSW_TOKEN_PARAMS: "resource=https://api.nsw-srilanka.local"
   NSW_TOKEN_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
 
   # --- Officer portal runtime config ---
@@ -136,6 +139,9 @@ env:
   VITE_IDP_CLIENT_ID: "<AGENCY_PORTAL_CLIENT_ID>"
   VITE_APP_URL: "https://agency.example.com"
   VITE_IDP_SCOPES: "openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write"
+  # Extra /authorize parameters. The `resource` value must equal AUTH_AUDIENCE above,
+  # or the agency:* scopes are dropped from the issued token.
+  VITE_IDP_EXTRA_QUERY_PARAMS: "resource=https://api.nsw-agency.local"
   # Org/OU handle for this portal instance — must match AUTH_EXPECTED_OU above.
   VITE_IDP_EXPECTED_OU_HANDLE: "<AGENCY_OU_HANDLE>"
 

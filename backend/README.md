@@ -109,6 +109,7 @@ All configuration is via environment variables:
 | `NSW_CLIENT_SECRET`              | OAuth2 client secret for Agency -> NSW                                                | required                       |
 | `NSW_TOKEN_URL`                  | OAuth2 token endpoint URL                                                             | required                       |
 | `NSW_SCOPES`                     | Optional comma-separated OAuth2 scopes                                                | empty                          |
+| `NSW_TOKEN_PARAMS`               | Extra token-request parameters, query-string encoded (e.g. `resource=https://api.example`). Sent in the request body. Required by NSW's IdP; see [`.env.example`](../.env.example) | empty |
 | `NSW_TOKEN_INSECURE_SKIP_VERIFY` | DEV-only: skip TLS verification for token fetch                                       | `false`                        |
 
 Task configs and forms are loaded through the [`core/artifact`](https://github.com/OpenNSW/core/tree/main/artifact) registry rather than from the repo. A single loader (`local`, `github`, or `s3`) fetches a `manifest.json` and the artifacts it catalogs from one source. The `github`/`s3` backends have their own `ARTIFACT_GITHUB_*` / `ARTIFACT_S3_*` variables — see [`.env.example`](.env.example) for the full set.

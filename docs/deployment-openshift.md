@@ -142,7 +142,7 @@ data:
   # Inbound auth (validate JWTs from SPA / NSW)
   AUTH_JWKS_URL: "https://idp.example.com/oauth2/jwks"
   AUTH_ISSUER: "https://idp.example.com"
-  AUTH_AUDIENCE: "AGENCY_API"
+  AUTH_AUDIENCE: "https://api.nsw-agency.local"
   AUTH_CLIENT_IDS: "<SPA_AGENCY_PORTAL>,<M2M_NSW_TO_AGENCY>"
   AUTH_EXPECTED_OU: "fcau"
 
@@ -151,6 +151,8 @@ data:
   NSW_CLIENT_ID: "<M2M_AGENCY_TO_NSW>"
   NSW_TOKEN_URL: "https://idp.example.com/oauth2/token"
   NSW_SCOPES: "nsw:task:write,nsw:consignment:read"
+  # RFC 8707 resource indicator, required by NSW's IdP for scope-bearing requests.
+  NSW_TOKEN_PARAMS: "resource=https://api.nsw-srilanka.local"
 
   # Browser runtime config (served at /runtime-env.js). The API and SPA share one
   # origin now, so VITE_API_BASE_URL and VITE_APP_URL both point at this route.
@@ -160,6 +162,8 @@ data:
   VITE_IDP_BASE_URL: "https://idp.example.com"
   VITE_IDP_CLIENT_ID: "<AGENCY_PORTAL_CLIENT_ID>"
   VITE_IDP_SCOPES: "openid,profile,email,ou,role"
+  # Must equal AUTH_AUDIENCE above, or the agency:* scopes are dropped.
+  VITE_IDP_EXTRA_QUERY_PARAMS: "resource=https://api.nsw-agency.local"
   VITE_IDP_EXPECTED_OU_HANDLE: "fcau"
 ```
 
