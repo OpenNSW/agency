@@ -67,6 +67,8 @@ const en = {
       badge: '{{total}} Total Tasks',
       empty: 'No tasks found for this consignment.',
       loading: 'Loading tasks...',
+      error: 'Failed to load tasks. Please try again.',
+      retryButton: 'Retry',
       defaultTitle: 'Standard Review',
       backButton: 'Back to Consignments',
       table: {

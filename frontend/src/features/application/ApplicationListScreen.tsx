@@ -1,47 +1,21 @@
-import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Text, Spinner, IconButton, Button, Flex } from '@radix-ui/themes'
 import { ChevronLeftIcon, ChevronRightIcon, ArrowLeftIcon, ArchiveIcon } from '@radix-ui/react-icons'
-import { type AgencyApplication } from './types'
-import { fetchApplications } from './service'
 import { formatDateForTable } from '@/utils/date'
-
-const PAGE_SIZE = 20
+import { useApplicationList } from './hooks/useApplicationList'
 
 export function ApplicationListScreen() {
-  const { t } = useTranslation()
   const { consignmentId } = useParams<{ consignmentId: string }>()
+  return <ApplicationListContent key={consignmentId} consignmentId={consignmentId} />
+}
+
+function ApplicationListContent({ consignmentId }: { consignmentId: string | undefined }) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
-  const [applications, setApplications] = useState<AgencyApplication[]>([])
-  const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
+  const { data, status, pagination, refetch } = useApplicationList(consignmentId)
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-
-  useEffect(() => {
-    const controller = new AbortController()
-    async function fetchData() {
-      if (!consignmentId) return
-      try {
-        setLoading(true)
-        const result = await fetchApplications({ consignmentId, page, pageSize: PAGE_SIZE }, controller.signal)
-        setApplications(result.items)
-        setTotal(result.total)
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') return
-        console.error('Failed to fetch tasks:', error)
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
-      }
-    }
-
-    void fetchData()
-    return () => controller.abort()
-  }, [consignmentId, page])
-
-  if (loading && page === 1) {
+  if (status.loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Spinner size="3" />
@@ -72,13 +46,22 @@ export function ApplicationListScreen() {
             </Text>
           </div>
           <Badge color="blue" variant="soft" size="2">
-            {t('consignments.tasks.badge', { total })}
+            {t('consignments.tasks.badge', { total: pagination.total })}
           </Badge>
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {total === 0 ? (
+        {status.error ? (
+          <div className="p-12 text-center">
+            <Text size="3" color="red" weight="medium" className="block mb-4">
+              {t('consignments.tasks.error')}
+            </Text>
+            <Button variant="soft" color="red" onClick={refetch}>
+              {t('consignments.tasks.retryButton')}
+            </Button>
+          </div>
+        ) : pagination.total === 0 ? (
           <div className="p-12 text-center">
             <div className="bg-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
               <ArchiveIcon className="w-8 h-8 text-gray-300" />
@@ -107,7 +90,7 @@ export function ApplicationListScreen() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
-                {applications.map((app) => (
+                {data.map((app) => (
                   <tr
                     key={app.taskId}
                     onClick={() => {
@@ -160,17 +143,30 @@ export function ApplicationListScreen() {
         )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
+      {pagination.totalPages > 1 && (
         <div className="flex items-center justify-between pt-4">
           <Text size="2" color="gray">
-            {t('common.pagination.info', { page, totalPages, total })}
+            {t('common.pagination.info', {
+              page: pagination.page,
+              totalPages: pagination.totalPages,
+              total: pagination.total,
+            })}
           </Text>
           <div className="flex items-center gap-2">
-            <IconButton size="1" variant="soft" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            <IconButton
+              size="1"
+              variant="soft"
+              disabled={pagination.page <= 1}
+              onClick={() => pagination.setPage((p) => p - 1)}
+            >
               <ChevronLeftIcon />
             </IconButton>
-            <IconButton size="1" variant="soft" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            <IconButton
+              size="1"
+              variant="soft"
+              disabled={pagination.page >= pagination.totalPages}
+              onClick={() => pagination.setPage((p) => p + 1)}
+            >
               <ChevronRightIcon />
             </IconButton>
           </div>
