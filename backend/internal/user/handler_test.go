@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 )
 
@@ -40,12 +40,8 @@ func TestHandleMe_WithAuthContext_ReturnsProfile(t *testing.T) {
 		t.Fatalf("failed to assign role: %v", err)
 	}
 
-	ctx := auth.WithAuthContext(
-		httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil).Context(),
-		&auth.AuthContext{
-			User: &auth.UserContext{ID: userID, Email: "jane@agency.gov.au", GivenName: "Jane"},
-		},
-	)
+	ctx := authn.ContextWithPrincipal(
+		httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil).Context(), &authn.Principal{Kind: authn.KindUser, UserID: userID, Email: "jane@agency.gov.au", GivenName: "Jane"})
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 	h.HandleMe(w, r)

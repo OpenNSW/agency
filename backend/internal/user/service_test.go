@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -269,9 +269,7 @@ func TestProfileService_GetMe_ReturnsProfile(t *testing.T) {
 		t.Fatalf("failed to assign role: %v", err)
 	}
 
-	ctx := auth.WithAuthContext(context.Background(), &auth.AuthContext{
-		User: &auth.UserContext{ID: userID, Email: "jane@agency.gov.au", GivenName: "Jane"},
-	})
+	ctx := authn.ContextWithPrincipal(context.Background(), &authn.Principal{Kind: authn.KindUser, UserID: userID, Email: "jane@agency.gov.au", GivenName: "Jane"})
 
 	result, err := svc.GetMe(ctx)
 	if err != nil {
@@ -292,9 +290,7 @@ func TestProfileService_GetMe_ReturnsProfile(t *testing.T) {
 func TestProfileService_GetMe_NoRoles(t *testing.T) {
 	svc, _ := newTestProfileService(t)
 
-	ctx := auth.WithAuthContext(context.Background(), &auth.AuthContext{
-		User: &auth.UserContext{ID: "user-no-roles", Email: "nobody@agency.gov.au", GivenName: "Nobody"},
-	})
+	ctx := authn.ContextWithPrincipal(context.Background(), &authn.Principal{Kind: authn.KindUser, UserID: "user-no-roles", Email: "nobody@agency.gov.au", GivenName: "Nobody"})
 
 	result, err := svc.GetMe(ctx)
 	if err != nil {

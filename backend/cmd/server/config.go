@@ -12,7 +12,7 @@ import (
 	"github.com/OpenNSW/core/artifact/loaders/github"
 	"github.com/OpenNSW/core/artifact/loaders/local"
 	"github.com/OpenNSW/core/artifact/loaders/s3"
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/web"
@@ -24,7 +24,7 @@ type Config struct {
 	ArtifactLoader    loaders.Config
 	AllowedOrigins    []string
 	NSW               nswclient.Config
-	Auth              auth.Config
+	Auth              authn.Config
 	Web               web.Config
 	MaxRequestBytes   int64
 	ReadHeaderTimeout time.Duration
@@ -91,7 +91,7 @@ func LoadConfig() (Config, error) {
 			TokenURL:     os.Getenv("NSW_TOKEN_URL"),
 			Scopes:       parseCommaSeparated(os.Getenv("NSW_SCOPES")),
 		},
-		Auth: auth.Config{
+		Auth: authn.Config{
 			JWKSURL:    os.Getenv("AUTH_JWKS_URL"),
 			Issuer:     os.Getenv("AUTH_ISSUER"),
 			Audience:   os.Getenv("AUTH_AUDIENCE"),

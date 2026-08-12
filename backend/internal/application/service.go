@@ -10,7 +10,7 @@ import (
 
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
@@ -146,11 +146,11 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 		return nil, err
 	}
 
-	authCtx := auth.GetAuthContext(ctx)
+	principal, authenticated := authn.FromContext(ctx)
 	var roles []rbac.RoleRecord
-	if authCtx != nil && authCtx.User != nil {
+	if authenticated && principal.Kind == authn.KindUser {
 		var err error
-		roles, err = s.roleService.GetRolesForUser(authCtx.User.ID)
+		roles, err = s.roleService.GetRolesForUser(principal.UserID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get roles for user: %w", err)
 		}
@@ -204,11 +204,11 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		return nil, fmt.Errorf("failed to get application: %w", err)
 	}
 
-	authCtx := auth.GetAuthContext(ctx)
+	principal, authenticated := authn.FromContext(ctx)
 	var roles []rbac.RoleRecord
-	if authCtx != nil && authCtx.User != nil {
+	if authenticated && principal.Kind == authn.KindUser {
 		var err error
-		roles, err = s.roleService.GetRolesForUser(authCtx.User.ID)
+		roles, err = s.roleService.GetRolesForUser(principal.UserID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get roles for user: %w", err)
 		}

@@ -1,5 +1,7 @@
 github.com/OpenNSW/core v0.0.0-20260806045544-9ab700fec6c8 h1:eiNa2ExE3xLRRXpxIOCfJqaiG234uLpnmVfWhZkKZ9o=
 github.com/OpenNSW/core v0.0.0-20260806045544-9ab700fec6c8/go.mod h1:5xy1f/1ayM2nzj/h4WGA6/cOu/2oRnmYXreUgmaf8fw=
+github.com/OpenNSW/core/authn v0.3.0 h1:3IuKH2IQm0/GYoDBJFzVMSVWvzVJPLOnmxScHL76B+8=
+github.com/OpenNSW/core/authn v0.3.0/go.mod h1:9/yGWkx5t5u0+YBUH4FsaZO6wpq/5WK5tdyOD+yL2Ek=
 github.com/OpenNSW/core/httputil v0.1.0 h1:IEkr9sHOh065+pubjlPShqmW3X2GPB9+wlHoeNDsGiU=
 github.com/OpenNSW/core/httputil v0.1.0/go.mod h1:kZyjhx9ckd54vYxH/R65KW++X2Lrvt1N13ZvhMupk7M=
 github.com/OpenNSW/core/shared v0.3.0 h1:HcWcXyMdwzMfsVvo1HG2OTBYaQTRipTpLI0AFx/5Wgs=
