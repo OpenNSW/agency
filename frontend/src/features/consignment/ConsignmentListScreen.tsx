@@ -12,6 +12,17 @@ export function ConsignmentListScreen() {
   const [searchTerm, setSearchTerm] = useState('')
   const { data, status, pagination } = useConsignmentList(searchTerm)
 
+  if (status.loading && pagination.page === 1) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Spinner size="3" />
+        <Text size="3" color="gray" className="ml-3">
+          {t('consignments.list.loading')}
+        </Text>
+      </div>
+    )
+  }
+
   return (
     <div className="animate-fade-in max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -115,7 +126,9 @@ export function ConsignmentListScreen() {
                           }
                           variant="surface"
                         >
-                          {consignment.status}
+                          {t(`common.status.${consignment.status.toLowerCase()}`, {
+                            defaultValue: consignment.status,
+                          })}
                         </Badge>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-600">
