@@ -41,6 +41,10 @@ func NewOAuth2Authenticator(
 		ClientSecret: clientSecret,
 		TokenURL:     tokenURL,
 		Scopes:       scopes,
+		// client_secret_basic (RFC 6749 §2.3.1): send credentials via the
+		// Authorization header rather than auto-detecting/falling back to
+		// client_secret_post.
+		AuthStyle: oauth2.AuthStyleInHeader,
 	}
 	for _, opt := range opts {
 		opt(cfg)
