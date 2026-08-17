@@ -1,5 +1,7 @@
-# Go binaries
-server
+# Go binaries. Anchored to the module root: an unanchored "server" also matches
+# the cmd/server directory, which silently drops new source files from commits.
+/server
+**/server/server
 *.exe
 *.dll
 *.so
