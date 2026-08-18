@@ -23,6 +23,13 @@ type Config struct {
 	// ExpectedOU is the OU handle every user token must carry. It has no
 	// equivalent in core/authn — enforcing it is the main reason this package
 	// exists. See Manager.RequireAuthMiddleware.
+	//
+	// It is compared to the token's ouHandle verbatim, so the caller must
+	// supply it already normalised — cmd/server trims it once when reading
+	// AUTH_EXPECTED_OU. Normalising here instead would hide a mismatch rather
+	// than prevent one: cmd/server hands the same value to the user store,
+	// which compares it verbatim too, so a value this package quietly trimmed
+	// would pass the OU gate only to be denied by the store.
 	ExpectedOU string
 }
 

@@ -24,7 +24,7 @@ type Config struct {
 	ArtifactLoader    loaders.Config
 	AllowedOrigins    []string
 	NSW               nswclient.Config
-	Auth              authn.Config
+	Authn             authn.Config
 	Web               web.Config
 	MaxRequestBytes   int64
 	ReadHeaderTimeout time.Duration
@@ -91,12 +91,14 @@ func LoadConfig() (Config, error) {
 			TokenURL:     os.Getenv("NSW_TOKEN_URL"),
 			Scopes:       parseCommaSeparated(os.Getenv("NSW_SCOPES")),
 		},
-		Auth: authn.Config{
-			JWKSURL:    os.Getenv("AUTH_JWKS_URL"),
-			Issuer:     os.Getenv("AUTH_ISSUER"),
-			Audience:   os.Getenv("AUTH_AUDIENCE"),
-			ClientIDs:  parseCommaSeparated(os.Getenv("AUTH_CLIENT_IDS")),
-			ExpectedOU: os.Getenv("AUTH_EXPECTED_OU"),
+		Authn: authn.Config{
+			JWKSURL:   os.Getenv("AUTH_JWKS_URL"),
+			Issuer:    os.Getenv("AUTH_ISSUER"),
+			Audience:  os.Getenv("AUTH_AUDIENCE"),
+			ClientIDs: parseCommaSeparated(os.Getenv("AUTH_CLIENT_IDS")),
+			// Trimmed because this value is compared verbatim in two places —
+			// the authn OU gate and the user store — and both must agree.
+			ExpectedOU: strings.TrimSpace(os.Getenv("AUTH_EXPECTED_OU")),
 		},
 		// Officer-portal SPA. WEB_DIR defaults to "web" (relative to the working
 		// dir; /app/web in the image). The runtime config is served via
@@ -169,7 +171,7 @@ func LoadConfig() (Config, error) {
 	if authInsecureSkipTLSVerify && !isDevEnvironment() {
 		return Config{}, fmt.Errorf("AUTH_JWKS_INSECURE_SKIP_VERIFY: insecure TLS verification requested but APP_ENV is not \"development\" (unset or any other value is treated as production); refusing to start — provide a trusted certificate chain, or set APP_ENV=development for a non-production run")
 	}
-	cfg.Auth.InsecureSkipTLSVerify = authInsecureSkipTLSVerify
+	cfg.Authn.InsecureSkipTLSVerify = authInsecureSkipTLSVerify
 	if cfg.DB.Driver == "postgres" && cfg.DB.Postgres.SSLMode == "disable" && !isDevEnvironment() {
 		return Config{}, fmt.Errorf("DB_SSLMODE=disable: insecure database connection requested but APP_ENV is not \"development\" (unset or any other value is treated as production); refusing to start — use a secure SSL mode like \"require\", or set APP_ENV=development for a non-production run")
 	}
@@ -182,7 +184,7 @@ func LoadConfig() (Config, error) {
 	if err := cfg.NSW.Validate(); err != nil {
 		return Config{}, err
 	}
-	if err := cfg.Auth.Validate(); err != nil {
+	if err := cfg.Authn.Validate(); err != nil {
 		return Config{}, err
 	}
 

@@ -4,15 +4,21 @@ import (
 	"context"
 
 	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/user"
 )
+
+// userStore is the slice of user.UserStore the adapter needs. Declaring it here
+// rather than taking the concrete type keeps the adapter testable without a
+// database.
+type userStore interface {
+	GetOrCreateUser(idpUserID, email, givenName, phone, organizationID, ouHandle string) (*string, error)
+}
 
 // userProfileAdapter adapts user.UserStore to authn.UserProfileService,
 // spreading the authenticated principal's identity fields across the named
 // parameters the store already takes. Keeps internal/user free of any
 // dependency on the authentication layer's types.
 type userProfileAdapter struct {
-	store *user.UserStore
+	store userStore
 }
 
 func (a *userProfileAdapter) GetOrCreateUser(_ context.Context, p *authn.Principal) (string, error) {

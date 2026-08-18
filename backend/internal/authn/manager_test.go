@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func newManager(t *testing.T, profiles UserProfileService) *Manager {
@@ -106,14 +107,17 @@ func TestRequireAuth_ProfileResolutionFails_Returns403(t *testing.T) {
 }
 
 // An empty ID with no error is the same signal as an error: the caller is not a
-// known user.
+// known user of this agency.
 func TestRequireAuth_ProfileReturnsEmptyID_Returns403(t *testing.T) {
 	m, ring := newManagerWithKey(t, &stubProfiles{returnID: ""})
 
-	status, _, reached, _ := serve(t, m, ring.sign(userClaims(testOU)))
+	status, body, reached, _ := serve(t, m, ring.sign(userClaims(testOU)))
 
 	if status != http.StatusForbidden || reached {
 		t.Fatalf("status = %d, reached = %v; want 403 and handler not reached", status, reached)
+	}
+	if body != forbiddenBody {
+		t.Fatalf("body = %q, want %q", body, forbiddenBody)
 	}
 }
 
@@ -160,6 +164,42 @@ func TestRequireAuth_NoToken_Returns401(t *testing.T) {
 	}
 }
 
+// Every other test here signs a fully valid token, so a Config field mapped
+// into the wrong core/authn slot — the issuer into the audience, say, or
+// ClientIDs dropped altogether — would leave the allowlist and the issuer check
+// looking like they work while admitting anyone. These are the negative cases
+// that notice. The rules themselves belong to core/authn; what is under test is
+// coreConfig's wiring of them.
+func TestRequireAuth_RejectsTokensCoreConfigMustReject(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		claim string
+		value any
+	}{
+		{"wrong issuer", "iss", "https://attacker.example.com"},
+		{"wrong audience", "aud", "OTHER_API"},
+		{"unlisted client_id", "client_id", "SOME_OTHER_APP"},
+		{"expired token", "exp", time.Now().Add(-time.Hour).Unix()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profiles := &stubProfiles{returnID: "user-1"}
+			m, ring := newManagerWithKey(t, profiles)
+
+			claims := userClaims(testOU)
+			claims[tc.claim] = tc.value
+
+			status, _, reached, _ := serve(t, m, ring.sign(claims))
+
+			if status != http.StatusUnauthorized || reached {
+				t.Fatalf("status = %d, reached = %v; want 401 and handler not reached", status, reached)
+			}
+			if profiles.calls != 0 {
+				t.Fatalf("user profile service called %d times; a rejected token must not reach the database", profiles.calls)
+			}
+		})
+	}
+}
+
 // email, ouId and ouHandle are declared Required, so a token missing any of
 // them is rejected before this package's own gates run.
 func TestRequireAuth_MissingRequiredClaim_Returns401(t *testing.T) {
@@ -190,7 +230,10 @@ func TestRequireAuth_GivenNameIsOptional(t *testing.T) {
 
 		_, _, _, seen := serve(t, m, ring.sign(claims))
 
-		if seen == nil || seen.GivenName != "Alice" {
+		if seen == nil {
+			t.Fatal("handler saw no principal")
+		}
+		if seen.GivenName != "Alice" {
 			t.Fatalf("GivenName = %q, want Alice", seen.GivenName)
 		}
 	})

@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// Initialize user store
-	userStore, err := user.NewUserStore(cfg.DB, cfg.Auth.ExpectedOU)
+	userStore, err := user.NewUserStore(cfg.DB, cfg.Authn.ExpectedOU)
 	if err != nil {
 		log.Fatalf("failed to create user store: %v", err)
 	}
@@ -64,7 +64,7 @@ func main() {
 	}()
 
 	// Initialize auth manager, resolving callers to seeded user records.
-	authManager, err := authn.NewManager(&userProfileAdapter{store: userStore}, cfg.Auth)
+	authManager, err := authn.NewManager(&userProfileAdapter{store: userStore}, cfg.Authn)
 	if err != nil {
 		log.Fatalf("failed to initialize auth manager: %v", err)
 	}

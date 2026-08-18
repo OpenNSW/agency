@@ -212,6 +212,26 @@ func TestLoadConfig_NSWInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
 	}
 }
 
+// AUTH_EXPECTED_OU is compared verbatim in two places — the authn OU gate and
+// the user store — so it must be normalised once, here, where both read it. A
+// stray space or newline (easily introduced by an env file or a secret manager)
+// would otherwise deny every user with a blanket 403 that reads as an
+// authorization bug rather than the configuration error it is.
+func TestLoadConfig_TrimsExpectedOU(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+	t.Setenv("AUTH_EXPECTED_OU", "  fcau\n")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.Authn.ExpectedOU != "fcau" {
+		t.Fatalf("ExpectedOU = %q, want %q", cfg.Authn.ExpectedOU, "fcau")
+	}
+}
+
 func TestLoadConfig_AuthJWKSInsecureSkipVerify_AllowedInDev(t *testing.T) {
 	setBaseConfigEnv(t)
 	setRequiredNSWOAuth2Env(t)
@@ -223,7 +243,7 @@ func TestLoadConfig_AuthJWKSInsecureSkipVerify_AllowedInDev(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if !cfg.Auth.InsecureSkipTLSVerify {
+	if !cfg.Authn.InsecureSkipTLSVerify {
 		t.Fatalf("expected InsecureSkipTLSVerify to be true")
 	}
 }
