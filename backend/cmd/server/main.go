@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// Initialize user store
-	userStore, err := user.NewUserStore(cfg.DB, cfg.Authn.ExpectedOU)
+	userStore, err := user.NewUserStore(cfg.DB)
 	if err != nil {
 		log.Fatalf("failed to create user store: %v", err)
 	}

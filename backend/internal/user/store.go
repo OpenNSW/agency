@@ -10,10 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// ErrUnauthorizedAgency is returned when the user's JWT agency does not match
-// the agency this service instance is configured for.
-var ErrUnauthorizedAgency = errors.New("user does not belong to this agency")
-
 // ErrUserNotFound is returned when no user with the given email exists in the
 // database. Users must be pre-seeded via the seed CLI before they can log in.
 var ErrUserNotFound = errors.New("user not found — ensure the user has been seeded")
@@ -40,11 +36,10 @@ func (u *UserRecord) BeforeCreate(_ *gorm.DB) error {
 }
 
 type UserStore struct {
-	db     *gorm.DB
-	agency string
+	db *gorm.DB
 }
 
-func NewUserStore(dbCfg database.Config, expectedOU string) (*UserStore, error) {
+func NewUserStore(dbCfg database.Config) (*UserStore, error) {
 	connector, err := database.NewConnector(dbCfg)
 	if err != nil {
 		return nil, err
@@ -55,27 +50,29 @@ func NewUserStore(dbCfg database.Config, expectedOU string) (*UserStore, error) 
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	return &UserStore{db: db, agency: expectedOU}, nil
+	return &UserStore{db: db}, nil
 }
 
-// GetOrCreateUser implements auth.UserProfileService. It finds the pre-seeded
+// GetOrCreateUser resolves an authenticated caller to their seeded user record,
+// backing authn.UserProfileService through cmd/server's adapter. It finds the
 // user by email, syncs their SSOID from the token if not yet set, and returns
 // the internal UserID. Returns an error if the user has not been seeded.
-func (s *UserStore) GetOrCreateUser(idpUserID, email, givenName, phone, organizationID, ouHandle string) (*string, error) {
-	u, err := s.FindAndSync(idpUserID, email, givenName, ouHandle)
+//
+// It takes only the fields it persists, and makes no authorization decision.
+// The caller's OU is checked by internal/authn, ahead of resolution, so a
+// cross-agency token never reaches this store; and each agency has its own
+// database, so a record found here belongs to this agency by construction.
+func (s *UserStore) GetOrCreateUser(idpUserID, email, givenName string) (*string, error) {
+	u, err := s.findAndSync(idpUserID, email, givenName)
 	if err != nil {
 		return nil, err
 	}
 	return &u.UserID, nil
 }
 
-// FindAndSync looks up a pre-seeded user by email and syncs their SSOID from
+// findAndSync looks up a pre-seeded user by email and syncs their SSOID from
 // the token on first login. Returns ErrUserNotFound if no matching user exists.
-func (s *UserStore) FindAndSync(ssoid, email, name, ouHandle string) (*UserRecord, error) {
-	if ouHandle != s.agency {
-		return nil, ErrUnauthorizedAgency
-	}
-
+func (s *UserStore) findAndSync(ssoid, email, name string) (*UserRecord, error) {
 	var user UserRecord
 	if err := s.db.First(&user, "email = ?", email).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

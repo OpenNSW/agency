@@ -212,11 +212,11 @@ func TestLoadConfig_NSWInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
 	}
 }
 
-// AUTH_EXPECTED_OU is compared verbatim in two places — the authn OU gate and
-// the user store — so it must be normalised once, here, where both read it. A
-// stray space or newline (easily introduced by an env file or a secret manager)
-// would otherwise deny every user with a blanket 403 that reads as an
-// authorization bug rather than the configuration error it is.
+// AUTH_EXPECTED_OU is compared to the token's ouHandle verbatim, so it must be
+// normalised here, where it is read. A stray space or newline (easily introduced
+// by an env file or a secret manager) would otherwise deny every user with a
+// blanket 403 that reads as an authorization bug rather than the configuration
+// error it is.
 func TestLoadConfig_TrimsExpectedOU(t *testing.T) {
 	setBaseConfigEnv(t)
 	setRequiredNSWOAuth2Env(t)

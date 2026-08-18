@@ -25,11 +25,10 @@ type Config struct {
 	// exists. See Manager.RequireAuthMiddleware.
 	//
 	// It is compared to the token's ouHandle verbatim, so the caller must
-	// supply it already normalised — cmd/server trims it once when reading
-	// AUTH_EXPECTED_OU. Normalising here instead would hide a mismatch rather
-	// than prevent one: cmd/server hands the same value to the user store,
-	// which compares it verbatim too, so a value this package quietly trimmed
-	// would pass the OU gate only to be denied by the store.
+	// supply it already normalised — cmd/server trims it when reading
+	// AUTH_EXPECTED_OU, as it does every other value it reads from the
+	// environment. Normalising here as well would only mask a mis-set value
+	// from whoever has to diagnose it.
 	ExpectedOU string
 }
 

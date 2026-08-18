@@ -96,8 +96,10 @@ func LoadConfig() (Config, error) {
 			Issuer:    os.Getenv("AUTH_ISSUER"),
 			Audience:  os.Getenv("AUTH_AUDIENCE"),
 			ClientIDs: parseCommaSeparated(os.Getenv("AUTH_CLIENT_IDS")),
-			// Trimmed because this value is compared verbatim in two places —
-			// the authn OU gate and the user store — and both must agree.
+			// Trimmed on read: the OU gate compares it to the token's ouHandle
+			// verbatim, so a trailing space or newline — routine in env files
+			// and secret managers — would deny every user with a 403 that reads
+			// as an authorization bug rather than the config error it is.
 			ExpectedOU: strings.TrimSpace(os.Getenv("AUTH_EXPECTED_OU")),
 		},
 		// Officer-portal SPA. WEB_DIR defaults to "web" (relative to the working

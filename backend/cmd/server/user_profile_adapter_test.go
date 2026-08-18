@@ -16,8 +16,8 @@ type fakeUserStore struct {
 	args      []string
 }
 
-func (f *fakeUserStore) GetOrCreateUser(idpUserID, email, givenName, phone, organizationID, ouHandle string) (*string, error) {
-	f.args = []string{idpUserID, email, givenName, phone, organizationID, ouHandle}
+func (f *fakeUserStore) GetOrCreateUser(idpUserID, email, givenName string) (*string, error) {
+	f.args = []string{idpUserID, email, givenName}
 	return f.returnID, f.returnErr
 }
 
@@ -62,10 +62,14 @@ func TestUserProfileAdapter_ResolvesUserID(t *testing.T) {
 	if id != want {
 		t.Fatalf("id = %q, want %q", id, want)
 	}
-	// The store takes six positional strings, so a mis-ordered argument would
-	// otherwise pass silently — writing the phone number into the OU handle,
-	// for instance.
-	wantArgs := []string{"sub-001", "officer@fcau.gov", "Alice", "+94770000000", "ou-123", "fcau"}
+	// The store takes three positional strings, so a mis-ordered argument would
+	// otherwise pass silently — writing the given name into the email, for
+	// instance. principal() carries a phone number and both OU claims too:
+	// those stop here, so the store must see exactly these three.
+	wantArgs := []string{"sub-001", "officer@fcau.gov", "Alice"}
+	if len(store.args) != len(wantArgs) {
+		t.Fatalf("store saw %d arguments, want %d: %q", len(store.args), len(wantArgs), store.args)
+	}
 	for i, arg := range wantArgs {
 		if store.args[i] != arg {
 			t.Errorf("arg %d = %q, want %q", i, store.args[i], arg)
