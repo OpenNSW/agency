@@ -37,6 +37,9 @@ func TestConfig_Validate_RequiredFields(t *testing.T) {
 		{"missing client ids", func(c *Config) { c.ClientIDs = nil }, "AUTH_CLIENT_IDS is required"},
 		{"missing expected OU", func(c *Config) { c.ExpectedOU = "" }, "ExpectedOU is required"},
 		{"whitespace-only expected OU", func(c *Config) { c.ExpectedOU = "   " }, "ExpectedOU is required"},
+		// Rejected rather than trimmed: a value that matches no token must not
+		// be quietly corrected into one that does.
+		{"padded expected OU", func(c *Config) { c.ExpectedOU = " fcau\n" }, `ExpectedOU must not have surrounding whitespace: AUTH_EXPECTED_OU=" fcau\n" is compared to the token's ouHandle verbatim, which core/authn trims, so it would deny every user`},
 	}
 
 	for _, tc := range cases {

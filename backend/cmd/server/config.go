@@ -96,11 +96,11 @@ func LoadConfig() (Config, error) {
 			Issuer:    os.Getenv("AUTH_ISSUER"),
 			Audience:  os.Getenv("AUTH_AUDIENCE"),
 			ClientIDs: parseCommaSeparated(os.Getenv("AUTH_CLIENT_IDS")),
-			// Trimmed on read: the OU gate compares it to the token's ouHandle
-			// verbatim, so a trailing space or newline — routine in env files
-			// and secret managers — would deny every user with a 403 that reads
-			// as an authorization bug rather than the config error it is.
-			ExpectedOU: strings.TrimSpace(os.Getenv("AUTH_EXPECTED_OU")),
+			// Passed through verbatim on purpose: authn.Config.Validate rejects a
+			// value with surrounding whitespace instead of trimming it, so a
+			// mis-set AUTH_EXPECTED_OU fails at startup rather than quietly
+			// working.
+			ExpectedOU: os.Getenv("AUTH_EXPECTED_OU"),
 		},
 		// Officer-portal SPA. WEB_DIR defaults to "web" (relative to the working
 		// dir; /app/web in the image). The runtime config is served via

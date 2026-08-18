@@ -24,11 +24,12 @@ type Config struct {
 	// equivalent in core/authn — enforcing it is the main reason this package
 	// exists. See Manager.RequireAuthMiddleware.
 	//
-	// It is compared to the token's ouHandle verbatim, so the caller must
-	// supply it already normalised — cmd/server trims it when reading
-	// AUTH_EXPECTED_OU, as it does every other value it reads from the
-	// environment. Normalising here as well would only mask a mis-set value
-	// from whoever has to diagnose it.
+	// It is compared to the token's ouHandle verbatim, and core/authn trims
+	// that claim, so a value carrying surrounding whitespace matches nothing
+	// and denies every user. Validate rejects one rather than trimming it:
+	// quietly correcting the value would leave a wrong configuration working,
+	// with nothing to say it was wrong — and this handle has to agree with the
+	// portal's VITE_IDP_EXPECTED_OU_HANDLE, which no code checks.
 	ExpectedOU string
 }
 
@@ -46,8 +47,12 @@ func (c Config) Validate() error {
 	if err := c.coreConfig().Validate(); err != nil {
 		return err
 	}
-	if strings.TrimSpace(c.ExpectedOU) == "" {
+	trimmed := strings.TrimSpace(c.ExpectedOU)
+	if trimmed == "" {
 		return fmt.Errorf("ExpectedOU is required")
+	}
+	if trimmed != c.ExpectedOU {
+		return fmt.Errorf("ExpectedOU must not have surrounding whitespace: AUTH_EXPECTED_OU=%q is compared to the token's ouHandle verbatim, which core/authn trims, so it would deny every user", c.ExpectedOU)
 	}
 	return nil
 }

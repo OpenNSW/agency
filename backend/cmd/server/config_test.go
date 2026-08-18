@@ -212,23 +212,24 @@ func TestLoadConfig_NSWInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
 	}
 }
 
-// AUTH_EXPECTED_OU is compared to the token's ouHandle verbatim, so it must be
-// normalised here, where it is read. A stray space or newline (easily introduced
-// by an env file or a secret manager) would otherwise deny every user with a
-// blanket 403 that reads as an authorization bug rather than the configuration
-// error it is.
-func TestLoadConfig_TrimsExpectedOU(t *testing.T) {
+// A stray space or newline is easy to introduce in an env file or a secret
+// manager, and AUTH_EXPECTED_OU is compared to the token's ouHandle verbatim,
+// so such a value denies every user. It must fail here, at startup, and not be
+// silently trimmed into a working one: the handle also has to agree with the
+// portal's VITE_IDP_EXPECTED_OU_HANDLE, and correcting one side of that on the
+// fly would hide the divergence.
+func TestLoadConfig_PaddedExpectedOU_FailsClosed(t *testing.T) {
 	setBaseConfigEnv(t)
 	setRequiredNSWOAuth2Env(t)
 	setRequiredAuthEnv(t)
 	t.Setenv("AUTH_EXPECTED_OU", "  fcau\n")
 
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected an error for an AUTH_EXPECTED_OU with surrounding whitespace")
 	}
-	if cfg.Authn.ExpectedOU != "fcau" {
-		t.Fatalf("ExpectedOU = %q, want %q", cfg.Authn.ExpectedOU, "fcau")
+	if !strings.Contains(err.Error(), "ExpectedOU must not have surrounding whitespace") {
+		t.Fatalf("error = %q, want it to name the whitespace problem", err)
 	}
 }
 
