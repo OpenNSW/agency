@@ -92,14 +92,10 @@ func LoadConfig() (Config, error) {
 			Scopes:       parseCommaSeparated(os.Getenv("NSW_SCOPES")),
 		},
 		Authn: authn.Config{
-			JWKSURL:   os.Getenv("AUTH_JWKS_URL"),
-			Issuer:    os.Getenv("AUTH_ISSUER"),
-			Audience:  os.Getenv("AUTH_AUDIENCE"),
-			ClientIDs: parseCommaSeparated(os.Getenv("AUTH_CLIENT_IDS")),
-			// Passed through verbatim on purpose: authn.Config.Validate rejects a
-			// value with surrounding whitespace instead of trimming it, so a
-			// mis-set AUTH_EXPECTED_OU fails at startup rather than quietly
-			// working.
+			JWKSURL:    os.Getenv("AUTH_JWKS_URL"),
+			Issuer:     os.Getenv("AUTH_ISSUER"),
+			Audience:   os.Getenv("AUTH_AUDIENCE"),
+			ClientIDs:  parseCommaSeparated(os.Getenv("AUTH_CLIENT_IDS")),
 			ExpectedOU: os.Getenv("AUTH_EXPECTED_OU"),
 		},
 		// Officer-portal SPA. WEB_DIR defaults to "web" (relative to the working
