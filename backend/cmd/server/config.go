@@ -12,7 +12,7 @@ import (
 	"github.com/OpenNSW/core/artifact/loaders/github"
 	"github.com/OpenNSW/core/artifact/loaders/local"
 	"github.com/OpenNSW/core/artifact/loaders/s3"
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/web"
@@ -24,7 +24,7 @@ type Config struct {
 	ArtifactLoader    loaders.Config
 	AllowedOrigins    []string
 	NSW               nswclient.Config
-	Auth              auth.Config
+	Authn             authn.Config
 	Web               web.Config
 	MaxRequestBytes   int64
 	ReadHeaderTimeout time.Duration
@@ -91,7 +91,7 @@ func LoadConfig() (Config, error) {
 			TokenURL:     os.Getenv("NSW_TOKEN_URL"),
 			Scopes:       parseCommaSeparated(os.Getenv("NSW_SCOPES")),
 		},
-		Auth: auth.Config{
+		Authn: authn.Config{
 			JWKSURL:    os.Getenv("AUTH_JWKS_URL"),
 			Issuer:     os.Getenv("AUTH_ISSUER"),
 			Audience:   os.Getenv("AUTH_AUDIENCE"),
@@ -169,7 +169,7 @@ func LoadConfig() (Config, error) {
 	if authInsecureSkipTLSVerify && !isDevEnvironment() {
 		return Config{}, fmt.Errorf("AUTH_JWKS_INSECURE_SKIP_VERIFY: insecure TLS verification requested but APP_ENV is not \"development\" (unset or any other value is treated as production); refusing to start — provide a trusted certificate chain, or set APP_ENV=development for a non-production run")
 	}
-	cfg.Auth.InsecureSkipTLSVerify = authInsecureSkipTLSVerify
+	cfg.Authn.InsecureSkipTLSVerify = authInsecureSkipTLSVerify
 	if cfg.DB.Driver == "postgres" && cfg.DB.Postgres.SSLMode == "disable" && !isDevEnvironment() {
 		return Config{}, fmt.Errorf("DB_SSLMODE=disable: insecure database connection requested but APP_ENV is not \"development\" (unset or any other value is treated as production); refusing to start — use a secure SSL mode like \"require\", or set APP_ENV=development for a non-production run")
 	}
@@ -182,7 +182,7 @@ func LoadConfig() (Config, error) {
 	if err := cfg.NSW.Validate(); err != nil {
 		return Config{}, err
 	}
-	if err := cfg.Auth.Validate(); err != nil {
+	if err := cfg.Authn.Validate(); err != nil {
 		return Config{}, err
 	}
 

@@ -16,7 +16,7 @@ import (
 	"github.com/OpenNSW/core/artifact/loaders"
 	"github.com/OpenNSW/core/trace"
 	"github.com/OpenNSW/nsw-agency/backend/internal/application"
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
 	"github.com/OpenNSW/nsw-agency/backend/internal/logging"
@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// Initialize user store
-	userStore, err := user.NewUserStore(cfg.DB, cfg.Auth.ExpectedOU)
+	userStore, err := user.NewUserStore(cfg.DB)
 	if err != nil {
 		log.Fatalf("failed to create user store: %v", err)
 	}
@@ -63,8 +63,8 @@ func main() {
 		}
 	}()
 
-	// Initialize auth manager with JIT user provisioning
-	authManager, err := auth.NewManager(userStore, cfg.Auth)
+	// Initialize auth manager, resolving callers to seeded user records.
+	authManager, err := authn.NewManager(&userProfileAdapter{store: userStore}, cfg.Authn)
 	if err != nil {
 		log.Fatalf("failed to initialize auth manager: %v", err)
 	}

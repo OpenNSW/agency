@@ -10,7 +10,7 @@ import (
 
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/testutil"
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
 	"gorm.io/driver/sqlite"
@@ -215,9 +215,7 @@ func TestRequireAction_UserHasRole_Allows(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.SetPathValue("taskId", "task-1")
-	r = r.WithContext(auth.WithAuthContext(r.Context(), &auth.AuthContext{
-		User: &auth.UserContext{ID: testUserID},
-	}))
+	r = r.WithContext(authn.ContextWithPrincipal(r.Context(), &authn.Principal{Kind: authn.KindUser, UserID: testUserID}))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -248,9 +246,7 @@ func TestRequireAction_UserLacksRole_Forbidden(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.SetPathValue("taskId", "task-1")
-	r = r.WithContext(auth.WithAuthContext(r.Context(), &auth.AuthContext{
-		User: &auth.UserContext{ID: "user-no-roles"},
-	}))
+	r = r.WithContext(authn.ContextWithPrincipal(r.Context(), &authn.Principal{Kind: authn.KindUser, UserID: "user-no-roles"}))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
@@ -370,9 +366,7 @@ func TestRequireAction_ConfigLoadError_FailsClosed(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.SetPathValue("taskId", "task-1")
-	r = r.WithContext(auth.WithAuthContext(r.Context(), &auth.AuthContext{
-		User: &auth.UserContext{ID: "user-001"},
-	}))
+	r = r.WithContext(authn.ContextWithPrincipal(r.Context(), &authn.Principal{Kind: authn.KindUser, UserID: "user-001"}))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 

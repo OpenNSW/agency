@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"gorm.io/gorm"
 )
@@ -144,12 +144,12 @@ func NewProfileService(roleService *rbac.RoleService) *ProfileService {
 
 // GetMe returns the authenticated user's email, name, and assigned roles.
 func (s *ProfileService) GetMe(ctx context.Context) (map[string]any, error) {
-	authCtx := auth.GetAuthContext(ctx)
-	if authCtx == nil || authCtx.User == nil {
+	principal, authenticated := authn.FromContext(ctx)
+	if !authenticated || principal.Kind != authn.KindUser {
 		return nil, ErrUnauthenticated
 	}
 
-	roles, err := s.roleService.GetRolesForUser(authCtx.User.ID)
+	roles, err := s.roleService.GetRolesForUser(principal.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get roles: %w", err)
 	}
@@ -160,8 +160,8 @@ func (s *ProfileService) GetMe(ctx context.Context) (map[string]any, error) {
 	}
 
 	return map[string]any{
-		"email": authCtx.User.Email,
-		"name":  authCtx.User.GivenName,
+		"email": principal.Email,
+		"name":  principal.GivenName,
 		"roles": roleNames,
 	}, nil
 }

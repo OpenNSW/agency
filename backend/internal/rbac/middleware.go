@@ -7,7 +7,7 @@ import (
 
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/httputil"
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
 )
@@ -73,15 +73,15 @@ func (m *Middleware) RequireAction(action string) func(http.Handler) http.Handle
 				return
 			}
 
-			authCtx := auth.GetAuthContext(ctx)
-			if authCtx == nil || authCtx.User == nil {
+			principal, authenticated := authn.FromContext(ctx)
+			if !authenticated || principal.Kind != authn.KindUser {
 				httputil.Error(w, r, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
-			roles, err := m.roleService.GetRolesForUser(authCtx.User.ID)
+			roles, err := m.roleService.GetRolesForUser(principal.UserID)
 			if err != nil {
-				httputil.InternalServerError(w, r, "rbac: failed to get roles for user", err, "userID", authCtx.User.ID)
+				httputil.InternalServerError(w, r, "rbac: failed to get roles for user", err, "userID", principal.UserID)
 				return
 			}
 

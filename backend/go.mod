@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	github.com/OpenNSW/core v0.0.0-20260806045544-9ab700fec6c8
+	github.com/OpenNSW/core/authn v0.3.0
 	github.com/OpenNSW/core/httputil v0.1.0
 	github.com/OpenNSW/core/trace v0.2.0
 	github.com/golang-jwt/jwt/v5 v5.3.1

@@ -16,7 +16,7 @@ import (
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
 	"github.com/OpenNSW/core/artifact/loaders/local"
-	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
+	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
@@ -205,9 +205,7 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 
 // newAuthContext injects a minimal auth context carrying the given userID.
 func newAuthContext(ctx context.Context, userID string) context.Context {
-	return auth.WithAuthContext(ctx, &auth.AuthContext{
-		User: &auth.UserContext{ID: userID},
-	})
+	return authn.ContextWithPrincipal(ctx, &authn.Principal{Kind: authn.KindUser, UserID: userID})
 }
 
 // seed inserts an application record with the harness's callback URL as ServiceURL.

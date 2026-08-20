@@ -212,6 +212,27 @@ func TestLoadConfig_NSWInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
 	}
 }
 
+// A stray space or newline is easy to introduce in an env file or a secret
+// manager, and AUTH_EXPECTED_OU is compared to the token's ouHandle verbatim,
+// so such a value denies every user. It must fail here, at startup, and not be
+// silently trimmed into a working one: the handle also has to agree with the
+// portal's VITE_IDP_EXPECTED_OU_HANDLE, and correcting one side of that on the
+// fly would hide the divergence.
+func TestLoadConfig_PaddedExpectedOU_FailsClosed(t *testing.T) {
+	setBaseConfigEnv(t)
+	setRequiredNSWOAuth2Env(t)
+	setRequiredAuthEnv(t)
+	t.Setenv("AUTH_EXPECTED_OU", "  fcau\n")
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected an error for an AUTH_EXPECTED_OU with surrounding whitespace")
+	}
+	if !strings.Contains(err.Error(), "ExpectedOU must not have surrounding whitespace") {
+		t.Fatalf("error = %q, want it to name the whitespace problem", err)
+	}
+}
+
 func TestLoadConfig_AuthJWKSInsecureSkipVerify_AllowedInDev(t *testing.T) {
 	setBaseConfigEnv(t)
 	setRequiredNSWOAuth2Env(t)
@@ -223,7 +244,7 @@ func TestLoadConfig_AuthJWKSInsecureSkipVerify_AllowedInDev(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if !cfg.Auth.InsecureSkipTLSVerify {
+	if !cfg.Authn.InsecureSkipTLSVerify {
 		t.Fatalf("expected InsecureSkipTLSVerify to be true")
 	}
 }
