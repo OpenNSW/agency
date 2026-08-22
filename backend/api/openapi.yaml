@@ -596,11 +596,17 @@ components:
         data:
           type: object
           additionalProperties: true
-          description: Trader-submitted data
+          description: |
+            Trader-submitted data. Only present on the single-application
+            response (GET /applications/{taskId}); omitted from list results.
+          nullable: true
         agencyActionData:
           type: object
           additionalProperties: true
-          description: Copy of the reviewer response payload sent back to NSW after review
+          description: |
+            Copy of the reviewer response payload sent back to NSW after
+            review. Only present on the single-application response
+            (GET /applications/{taskId}); omitted from list results.
           nullable: true
         title:
           type: string

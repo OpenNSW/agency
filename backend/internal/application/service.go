@@ -145,7 +145,11 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 	return s.store.CreateOrUpdate(appRecord)
 }
 
-// GetApplications returns a paginated list of applications
+// GetApplications returns a paginated list of applications. List items are
+// intentionally lean: unlike GetApplication, they carry no Data,
+// AgencyActionData, or form schemas — callers needing an application's
+// submitted data or review outcome must fetch it individually via
+// GetApplication.
 func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error) {
 	page, pageSize, offset := httputil.NormalizePage(page, pageSize)
 	records, total, err := s.store.List(ctx, status, consignmentID, search, offset, pageSize)
@@ -171,7 +175,6 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 			TaskCode:      record.TaskCode,
 			ConsignmentID: record.ConsignmentID,
 			ServiceURL:    record.ServiceURL,
-			Data:          record.Data,
 			Status:        record.Status,
 			ReviewedAt:    record.ReviewedAt,
 			CreatedAt:     record.CreatedAt,

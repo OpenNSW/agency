@@ -119,11 +119,14 @@ func (s *ApplicationStore) GetByConsignmentAndTaskCode(consignmentID, taskCode s
 }
 
 // List retrieves applications with optional status, consignment, and search filters and pagination.
+// It projects out the JSONB columns (Data, ReviewerResponse, AgencyFeedbackHistory) since callers of
+// List only ever use the lightweight fields; GetByTaskID reads full rows for that.
 func (s *ApplicationStore) List(ctx context.Context, status string, consignmentID string, search string, offset, limit int) ([]ApplicationRecord, int64, error) {
 	var apps []ApplicationRecord
 	var total int64
 
-	query := s.db.WithContext(ctx).Model(&ApplicationRecord{})
+	query := s.db.WithContext(ctx).Model(&ApplicationRecord{}).
+		Select("task_id", "task_code", "consignment_id", "service_url", "status", "reviewed_at", "created_at", "updated_at")
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
