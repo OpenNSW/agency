@@ -65,11 +65,12 @@ type Application struct {
 	AllowedActions   []string       `json:"allowedActions,omitempty"`
 
 	// Task metadata from config
-	Title                 string `json:"title,omitempty"`
-	Description           string `json:"description,omitempty"`
-	Icon                  string `json:"icon,omitempty"`
-	Category              string `json:"category,omitempty"`
-	CertificateTemplateID string `json:"certificateTemplateId,omitempty"` // Set when this task's officer can generate a certificate
+	Title                 string          `json:"title,omitempty"`
+	Description           string          `json:"description,omitempty"`
+	Icon                  string          `json:"icon,omitempty"`
+	Category              string          `json:"category,omitempty"`
+	CertificateTemplateID string          `json:"certificateTemplateId,omitempty"` // Set when this task's officer can generate a certificate
+	CertificateDataSchema json.RawMessage `json:"certificateDataSchema,omitempty"` // JSON Schema for the certificate generate request's data, validated client-side
 
 	DataForm        json.RawMessage  `json:"dataForm,omitempty"`   // Schema for rendering the data in Read Only mode in the UI
 	AgencyForm      json.RawMessage  `json:"agencyForm,omitempty"` // Schema for rendering the Agency Action form in the UI
@@ -249,6 +250,7 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		app.Category = config.Meta.Category
 		if config.Certificate != nil {
 			app.CertificateTemplateID = config.Certificate.TemplateID
+			app.CertificateDataSchema = config.Certificate.DataSchema
 		}
 
 		_, app.AllowedActions = resolveAccess(roles, config.Permissions)

@@ -43,8 +43,13 @@ export function ApplicationDetailScreen() {
 
   const certificate = useCertificateGenerator()
 
+  const isCertificateDataReady = useMemo(() => {
+    if (!application?.certificateDataSchema) return true
+    return !!ajvInstance.validate(application.certificateDataSchema, agencyFormData)
+  }, [ajvInstance, application, agencyFormData])
+
   const handleGenerateCertificate = () => {
-    if (!application?.certificateTemplateId) return
+    if (!application?.certificateTemplateId || !isCertificateDataReady) return
     void certificate.generate(application.certificateTemplateId, application.consignmentId, agencyFormData)
   }
 
@@ -290,12 +295,22 @@ export function ApplicationDetailScreen() {
                 {t('consignments.detail.section.review')}
               </Text>
               {application.certificateTemplateId && (
-                <Button variant="soft" size="2" onClick={handleGenerateCertificate} disabled={certificate.loading}>
+                <Button
+                  variant="soft"
+                  size="2"
+                  onClick={handleGenerateCertificate}
+                  disabled={certificate.loading || !isCertificateDataReady}
+                >
                   {certificate.loading ? <Spinner size="1" /> : <FileTextIcon />}
                   {t('consignments.detail.button.generateCertificate')}
                 </Button>
               )}
             </Flex>
+            {application.certificateTemplateId && !isCertificateDataReady && (
+              <Text size="1" color="gray" mb="3" as="div" style={{ textAlign: 'right' }}>
+                {t('consignments.detail.certificate.missingFields')}
+              </Text>
+            )}
             {certificate.error && (
               <Callout.Root color="red" mb="3">
                 <Callout.Icon>

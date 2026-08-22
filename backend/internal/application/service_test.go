@@ -509,7 +509,14 @@ func TestGetApplication_CertificateTemplateID(t *testing.T) {
 		h := newServiceHarness(t, func(root string) {
 			writeTaskConfigFile(t, root, "alpha.json", `{
 				"meta": {"title": "Alpha"},
-				"certificate": {"templateId": "fcau-issue-certificate--certificate-template"}
+				"certificate": {
+					"templateId": "fcau-issue-certificate--certificate-template",
+					"dataSchema": {
+						"type": "object",
+						"properties": {"certificate_id": {"type": "string", "minLength": 1}},
+						"required": ["certificate_id"]
+					}
+				}
 			}`)
 		})
 		h.seed("t-cert", "alpha", nil)
@@ -520,6 +527,14 @@ func TestGetApplication_CertificateTemplateID(t *testing.T) {
 		}
 		if app.CertificateTemplateID != "fcau-issue-certificate--certificate-template" {
 			t.Errorf("CertificateTemplateID: got %q, want %q", app.CertificateTemplateID, "fcau-issue-certificate--certificate-template")
+		}
+		var schema map[string]any
+		if err := json.Unmarshal(app.CertificateDataSchema, &schema); err != nil {
+			t.Fatalf("CertificateDataSchema is not valid JSON: %v", err)
+		}
+		required, _ := schema["required"].([]any)
+		if len(required) != 1 || required[0] != "certificate_id" {
+			t.Errorf("CertificateDataSchema.required: got %v, want [certificate_id]", schema["required"])
 		}
 	})
 
