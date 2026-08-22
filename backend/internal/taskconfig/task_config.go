@@ -3,11 +3,12 @@ package taskconfig
 // TaskConfig is the per-taskCode configuration: UI metadata, references to
 // forms, and outcome-to-status behavior.
 type TaskConfig struct {
-	TaskCode    string        `json:"taskCode"`
-	Meta        TaskMeta      `json:"meta"`
-	Forms       TaskForms     `json:"forms"`
-	Behavior    *TaskBehavior `json:"behavior,omitempty"`
-	Permissions []Permission  `json:"permissions,omitempty"`
+	TaskCode    string           `json:"taskCode"`
+	Meta        TaskMeta         `json:"meta"`
+	Forms       TaskForms        `json:"forms"`
+	Behavior    *TaskBehavior    `json:"behavior,omitempty"`
+	Permissions []Permission     `json:"permissions,omitempty"`
+	Certificate *TaskCertificate `json:"certificate,omitempty"`
 }
 
 // Permission defines which actions a role is allowed to perform on a task.
@@ -29,6 +30,12 @@ type TaskMeta struct {
 type TaskForms struct {
 	View   string `json:"view,omitempty"`
 	Review string `json:"review,omitempty"`
+}
+
+// TaskCertificate references a certificate template an officer can generate
+// while reviewing this task, e.g. via POST /api/v1/certificates/generate.
+type TaskCertificate struct {
+	TemplateID string `json:"templateId"`
 }
 
 // DefaultOutcomeField is the field name read from the review submission

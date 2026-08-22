@@ -614,6 +614,13 @@ components:
         category:
           type: string
           description: Task category from task config
+        certificateTemplateId:
+          type: string
+          description: |
+            ID of a certificate template (see POST /certificates/generate) the
+            officer can generate while reviewing this task. Present only when
+            configured for the task code; only returned on the
+            single-application response, not in list results.
         dataForm:
           type: object
           description: |

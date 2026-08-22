@@ -8,6 +8,7 @@ import {
   ExclamationTriangleIcon,
   InfoCircledIcon,
   ChatBubbleIcon,
+  FileTextIcon,
 } from '@radix-ui/react-icons'
 import { type AgencyApplication } from './types'
 import { JsonForms } from '@jsonforms/react'
@@ -15,6 +16,8 @@ import { radixRenderers } from '@opennsw/jsonforms-renderers'
 import { createAjv, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
 import { fetchApplicationDetail, submitReview } from './service'
 import { type SchemaProperty } from './types'
+import { useCertificateGenerator } from '@/features/certificate/hooks/useCertificateGenerator'
+import { CertificatePreviewDialog } from '@/features/certificate/CertificatePreviewDialog'
 
 export function ApplicationDetailScreen() {
   const { t, i18n } = useTranslation()
@@ -37,6 +40,13 @@ export function ApplicationDetailScreen() {
   const [showErrors, setShowErrors] = useState(false)
 
   const ajvInstance = useMemo(() => createAjv({ useDefaults: true }), [])
+
+  const certificate = useCertificateGenerator()
+
+  const handleGenerateCertificate = () => {
+    if (!application?.certificateTemplateId) return
+    void certificate.generate(application.certificateTemplateId, application.consignmentId, agencyFormData)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -268,17 +278,32 @@ export function ApplicationDetailScreen() {
         <div className="space-y-6">
           {/* Review form is now at the very top of the page */}
           <Box className="bg-white rounded-lg p-5 border border-gray-200">
-            <Text
-              size="2"
-              weight="bold"
-              color="gray"
-              mb="3"
-              as="div"
-              className="uppercase tracking-wider flex items-center gap-2"
-            >
-              <InfoCircledIcon />
-              {t('consignments.detail.section.review')}
-            </Text>
+            <Flex justify="between" align="center" mb="3">
+              <Text
+                size="2"
+                weight="bold"
+                color="gray"
+                as="div"
+                className="uppercase tracking-wider flex items-center gap-2"
+              >
+                <InfoCircledIcon />
+                {t('consignments.detail.section.review')}
+              </Text>
+              {application.certificateTemplateId && (
+                <Button variant="soft" size="2" onClick={handleGenerateCertificate} disabled={certificate.loading}>
+                  {certificate.loading ? <Spinner size="1" /> : <FileTextIcon />}
+                  {t('consignments.detail.button.generateCertificate')}
+                </Button>
+              )}
+            </Flex>
+            {certificate.error && (
+              <Callout.Root color="red" mb="3">
+                <Callout.Icon>
+                  <ExclamationTriangleIcon />
+                </Callout.Icon>
+                <Callout.Text>{t('consignments.detail.certificate.generateFailed')}</Callout.Text>
+              </Callout.Root>
+            )}
             {isActionable && agencyFormConfig ? (
               <form
                 onSubmit={(event) => {
@@ -495,6 +520,8 @@ export function ApplicationDetailScreen() {
           )}
         </div>
       </div>
+
+      <CertificatePreviewDialog open={certificate.open} onOpenChange={certificate.setOpen} html={certificate.html} />
     </div>
   )
 }

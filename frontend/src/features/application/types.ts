@@ -41,6 +41,10 @@ export interface AgencyApplication {
   // RBAC — only present on the detail response
   allowedActions?: string[]
 
+  // Set when this task's officer can generate a certificate (see
+  // generateCertificate in service.ts) — only present on the detail response
+  certificateTemplateId?: string
+
   status: string
   feedbackHistory?: FeedbackEntry[]
   reviewerNotes?: string

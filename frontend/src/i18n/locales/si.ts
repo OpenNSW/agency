@@ -104,6 +104,7 @@ const si = {
       button: {
         cancel: 'අවලංගු කරන්න',
         submitReview: 'සමාලෝචනය ඉදිරිපත් කරන්න',
+        generateCertificate: 'සහතිකය ජනනය කරන්න',
       },
       empty: {
         noSubmissionData: 'ඉදිරිපත් කළ දත්ත නොමැත',
@@ -111,6 +112,12 @@ const si = {
       },
       feedback: {
         round: 'වටය {{round}}',
+      },
+      certificate: {
+        title: 'සහතික පෙරදසුන',
+        generateFailed: 'සහතිකය ජනනය කිරීමට අපොහොසත් විය. කරුණාකර නැවත උත්සාහ කරන්න.',
+        close: 'වසන්න',
+        print: 'මුද්‍රණය කරන්න / PDF ලෙස සුරකින්න',
       },
     },
   },

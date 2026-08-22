@@ -504,6 +504,41 @@ func TestGetApplication_ResolvesFormReferences(t *testing.T) {
 	}
 }
 
+func TestGetApplication_CertificateTemplateID(t *testing.T) {
+	t.Run("populated when the task config declares a certificate", func(t *testing.T) {
+		h := newServiceHarness(t, func(root string) {
+			writeTaskConfigFile(t, root, "alpha.json", `{
+				"meta": {"title": "Alpha"},
+				"certificate": {"templateId": "fcau-issue-certificate--certificate-template"}
+			}`)
+		})
+		h.seed("t-cert", "alpha", nil)
+
+		app, err := h.service.GetApplication(context.Background(), "t-cert")
+		if err != nil {
+			t.Fatalf("GetApplication failed: %v", err)
+		}
+		if app.CertificateTemplateID != "fcau-issue-certificate--certificate-template" {
+			t.Errorf("CertificateTemplateID: got %q, want %q", app.CertificateTemplateID, "fcau-issue-certificate--certificate-template")
+		}
+	})
+
+	t.Run("empty when the task config has no certificate", func(t *testing.T) {
+		h := newServiceHarness(t, func(root string) {
+			writeTaskConfigFile(t, root, "alpha.json", `{"meta": {"title": "Alpha"}}`)
+		})
+		h.seed("t-no-cert", "alpha", nil)
+
+		app, err := h.service.GetApplication(context.Background(), "t-no-cert")
+		if err != nil {
+			t.Fatalf("GetApplication failed: %v", err)
+		}
+		if app.CertificateTemplateID != "" {
+			t.Errorf("expected empty CertificateTemplateID, got %q", app.CertificateTemplateID)
+		}
+	})
+}
+
 func TestGetApplication_MissingFormRef_OmitsForms(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
