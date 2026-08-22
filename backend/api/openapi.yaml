@@ -578,7 +578,29 @@ components:
           example: 927adaaa-b959-4648-880a-16508acafc12
 
     Application:
+      description: |
+        Full application view returned by the single-application endpoint
+        (GET /applications/{taskId}). List results use the leaner
+        ApplicationListItem schema, which omits data and agencyActionData.
+      allOf:
+        - $ref: "#/components/schemas/ApplicationListItem"
+        - type: object
+          properties:
+            data:
+              type: object
+              additionalProperties: true
+              description: Trader-submitted data
+            agencyActionData:
+              type: object
+              additionalProperties: true
+              description: Copy of the reviewer response payload sent back to NSW after review
+
+    ApplicationListItem:
       type: object
+      description: |
+        Lean application view used in list results. Excludes
+        trader-submitted data and reviewer action data — fetch a single
+        application (GET /applications/{taskId}) for those.
       properties:
         taskId:
           type: string
@@ -589,21 +611,6 @@ components:
         consignmentId:
           type: string
           example: cefda05e-3071-4e94-b001-328094e570a7
-        data:
-          type: object
-          additionalProperties: true
-          description: |
-            Trader-submitted data. Only present on the single-application
-            response (GET /applications/{taskId}); omitted from list results.
-          nullable: true
-        agencyActionData:
-          type: object
-          additionalProperties: true
-          description: |
-            Copy of the reviewer response payload sent back to NSW after
-            review. Only present on the single-application response
-            (GET /applications/{taskId}); omitted from list results.
-          nullable: true
         title:
           type: string
           description: Human-readable task title from task config
@@ -691,7 +698,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Application"
+            $ref: "#/components/schemas/ApplicationListItem"
         total:
           type: integer
           description: Total number of matching applications across all pages
