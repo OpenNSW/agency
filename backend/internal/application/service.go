@@ -64,7 +64,7 @@ type Application struct {
 	TaskID           string         `json:"taskId"`
 	TaskCode         string         `json:"taskCode"`
 	ConsignmentID    string         `json:"consignmentId"`
-	ServiceURL       string         `json:"serviceUrl"`
+	ServiceURL       string         `json:"-"`                          // internal NSW callback URL; not part of the API response
 	Data             map[string]any `json:"data"`                       // Data from NSW service to be rendered in the UI
 	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
 	AllowedActions   []string       `json:"allowedActions,omitempty"`
