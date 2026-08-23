@@ -3,56 +3,38 @@ package certificate
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/OpenNSW/nsw-agency/backend/internal/application"
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
 )
 
-// fakeApplicationLookup is a fake ApplicationLookup for testing. It mirrors
-// the real service's split: GetApplications returns lean summaries (TaskID
-// and TaskCode only), optionally filtered by TaskCode; GetApplication returns
-// the full record. getApplicationsCalls counts calls per taskCode, so tests
-// can assert a taskCode is looked up at most once per template render.
+// fakeApplicationLookup is a fake ApplicationLookup for testing.
+// getByTaskCodeCalls counts calls per taskCode, so tests can assert a
+// taskCode is looked up at most once per template render.
 type fakeApplicationLookup struct {
-	items                []application.Application
-	err                  error            // returned by GetApplications
-	getErr               map[string]error // returned by GetApplication, keyed by TaskID
-	getApplicationsCalls map[string]int
+	items              []application.Application
+	err                error            // returned by GetApplicationByTaskCode
+	getErr             map[string]error // returned by GetApplication, keyed by TaskID
+	getByTaskCodeCalls map[string]int
 }
 
-func (f *fakeApplicationLookup) GetApplications(ctx context.Context, status, consignmentID, taskCode, search string, page, pageSize int) (*httputil.PagedResponse[application.Application], error) {
+func (f *fakeApplicationLookup) GetApplicationByTaskCode(ctx context.Context, consignmentID, taskCode string) (*application.Application, error) {
+	if f.getByTaskCodeCalls == nil {
+		f.getByTaskCodeCalls = map[string]int{}
+	}
+	f.getByTaskCodeCalls[taskCode]++
+
 	if f.err != nil {
 		return nil, f.err
 	}
-	if f.getApplicationsCalls == nil {
-		f.getApplicationsCalls = map[string]int{}
-	}
-	f.getApplicationsCalls[taskCode]++
 
-	var matched []application.Application
 	for _, app := range f.items {
-		if taskCode != "" && app.TaskCode != taskCode {
-			continue
+		if app.TaskCode == taskCode {
+			a := app
+			return &a, nil
 		}
-		matched = append(matched, application.Application{TaskID: app.TaskID, TaskCode: app.TaskCode})
 	}
-
-	start := (page - 1) * pageSize
-	if start > len(matched) {
-		start = len(matched)
-	}
-	end := start + pageSize
-	if end > len(matched) {
-		end = len(matched)
-	}
-	return &httputil.PagedResponse[application.Application]{
-		Items:    matched[start:end],
-		Total:    int64(len(matched)),
-		Page:     page,
-		PageSize: pageSize,
-	}, nil
+	return nil, application.ErrApplicationNotFound
 }
 
 func (f *fakeApplicationLookup) GetApplication(ctx context.Context, taskID string) (*application.Application, error) {
@@ -76,7 +58,7 @@ func TestLookupApplicationByTaskCode(t *testing.T) {
 		}
 	})
 
-	t.Run("finds the application by taskCode within the consignment and fetches its full record", func(t *testing.T) {
+	t.Run("finds the application by taskCode within the consignment", func(t *testing.T) {
 		lookup := &fakeApplicationLookup{
 			items: []application.Application{
 				{TaskID: "task-a", TaskCode: "task_a", Data: map[string]any{"x": "1"}},
@@ -91,7 +73,7 @@ func TestLookupApplicationByTaskCode(t *testing.T) {
 		}
 	})
 
-	t.Run("GetApplications error yields nil, not a panic", func(t *testing.T) {
+	t.Run("a lookup error yields nil, not a panic", func(t *testing.T) {
 		lookup := &fakeApplicationLookup{err: errors.New("boom")}
 
 		app := lookupApplicationByTaskCode(context.Background(), lookup, "CONSIGNMENT-1", "task_a")
@@ -110,42 +92,6 @@ func TestLookupApplicationByTaskCode(t *testing.T) {
 
 		if app != nil {
 			t.Errorf("expected nil, got %v", app)
-		}
-	})
-
-	t.Run("a GetApplication error yields nil, not a panic", func(t *testing.T) {
-		lookup := &fakeApplicationLookup{
-			items:  []application.Application{{TaskID: "task-a", TaskCode: "task_a"}},
-			getErr: map[string]error{"task-a": fmt.Errorf("boom")},
-		}
-
-		app := lookupApplicationByTaskCode(context.Background(), lookup, "CONSIGNMENT-1", "task_a")
-
-		if app != nil {
-			t.Errorf("expected nil, got %v", app)
-		}
-	})
-
-	t.Run("finds a task regardless of how many other applications are in the consignment", func(t *testing.T) {
-		// Regression test: this task previously went missing when a
-		// consignment had more applications than a single list page (100),
-		// because the old implementation indexed one page up front instead
-		// of looking the task up directly.
-		items := make([]application.Application, 0, 150)
-		for i := 0; i < 149; i++ {
-			items = append(items, application.Application{TaskID: fmt.Sprintf("task-%d", i), TaskCode: fmt.Sprintf("task_%d", i)})
-		}
-		items = append(items, application.Application{
-			TaskID:   "task-last",
-			TaskCode: "fcau_application_review_v1",
-			Data:     map[string]any{"exporter_name": "STAY NATURALS PRIVATE LIMITED"},
-		})
-		lookup := &fakeApplicationLookup{items: items}
-
-		app := lookupApplicationByTaskCode(context.Background(), lookup, "CONSIGNMENT-1", "fcau_application_review_v1")
-
-		if app == nil || app.Data["exporter_name"] != "STAY NATURALS PRIVATE LIMITED" {
-			t.Errorf("expected the task to be found regardless of consignment size, got %v", app)
 		}
 	})
 }
@@ -210,8 +156,8 @@ func TestRealFuncsFromDataFromReview(t *testing.T) {
 		if got := fromReview("fcau_application_review_v1", "reference_number"); got != "034/00481" {
 			t.Errorf("fromReview = %q, want 034/00481", got)
 		}
-		if calls := lookup.getApplicationsCalls["fcau_application_review_v1"]; calls != 1 {
-			t.Errorf("expected the taskCode to be looked up once and cached, got %d GetApplications calls", calls)
+		if calls := lookup.getByTaskCodeCalls["fcau_application_review_v1"]; calls != 1 {
+			t.Errorf("expected the taskCode to be looked up once and cached, got %d GetApplicationByTaskCode calls", calls)
 		}
 	})
 

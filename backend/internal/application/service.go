@@ -33,6 +33,11 @@ type Service interface {
 	// GetApplication returns a specific application by task ID
 	GetApplication(ctx context.Context, taskID string) (*Application, error)
 
+	// GetApplicationByTaskCode returns the application within a consignment
+	// whose TaskCode matches, for internal lookups (e.g. certificate template
+	// field resolution) that key on TaskCode rather than TaskID.
+	GetApplicationByTaskCode(ctx context.Context, consignmentID string, taskCode string) (*Application, error)
+
 	// ReviewApplication approves or rejects an application and sends response back to service
 	ReviewApplication(ctx context.Context, taskID string, reviewerData map[string]any) error
 
@@ -205,7 +210,27 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		}
 		return nil, fmt.Errorf("failed to get application: %w", err)
 	}
+	return s.buildApplication(ctx, record)
+}
 
+// GetApplicationByTaskCode returns the application within a consignment whose
+// TaskCode matches, resolved directly against the store rather than through a
+// paginated list lookup.
+func (s *service) GetApplicationByTaskCode(ctx context.Context, consignmentID string, taskCode string) (*Application, error) {
+	record, err := s.store.GetByConsignmentAndTaskCode(consignmentID, taskCode)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrApplicationNotFound
+		}
+		return nil, fmt.Errorf("failed to get application: %w", err)
+	}
+	return s.buildApplication(ctx, record)
+}
+
+// buildApplication assembles the API-facing Application DTO from a stored
+// record: resolving the caller's roles and attaching task config metadata,
+// permissions, and forms.
+func (s *service) buildApplication(ctx context.Context, record *ApplicationRecord) (*Application, error) {
 	principal, authenticated := authn.FromContext(ctx)
 	var roles []rbac.RoleRecord
 	if authenticated && principal.Kind == authn.KindUser {
@@ -241,7 +266,7 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		}
 		// Config genuinely absent — omit metadata/forms and fall back to the
 		// default access resolution (preserves prior behaviour).
-		slog.WarnContext(ctx, "task config not found for application", "taskID", taskID, "taskCode", record.TaskCode)
+		slog.WarnContext(ctx, "task config not found for application", "taskID", record.TaskID, "taskCode", record.TaskCode)
 		_, app.AllowedActions = resolveAccess(roles, nil)
 	} else {
 		app.Title = config.Meta.Title

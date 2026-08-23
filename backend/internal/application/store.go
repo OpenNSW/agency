@@ -107,6 +107,17 @@ func (s *ApplicationStore) GetByTaskID(taskID string) (*ApplicationRecord, error
 	return &app, nil
 }
 
+// GetByConsignmentAndTaskCode retrieves the application within a consignment
+// whose TaskCode matches taskCode, assuming at most one such application per
+// consignment.
+func (s *ApplicationStore) GetByConsignmentAndTaskCode(consignmentID, taskCode string) (*ApplicationRecord, error) {
+	var app ApplicationRecord
+	if err := s.db.First(&app, "consignment_id = ? AND task_code = ?", consignmentID, taskCode).Error; err != nil {
+		return nil, err
+	}
+	return &app, nil
+}
+
 // List retrieves applications with optional status, consignment, task code,
 // and search filters and pagination.
 func (s *ApplicationStore) List(ctx context.Context, status string, consignmentID string, taskCode string, search string, offset, limit int) ([]ApplicationRecord, int64, error) {

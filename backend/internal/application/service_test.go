@@ -641,6 +641,37 @@ func TestGetApplication_NotFound(t *testing.T) {
 	}
 }
 
+// ---------- GetApplicationByTaskCode ----------
+
+func TestGetApplicationByTaskCode(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{"meta": {"title": "Alpha"}}`)
+	})
+	h.seed("t-by-code", "alpha", JSONB{"exporter_name": "ACME"})
+
+	app, err := h.service.GetApplicationByTaskCode(context.Background(), "wf-test", "alpha")
+	if err != nil {
+		t.Fatalf("GetApplicationByTaskCode failed: %v", err)
+	}
+	if app.TaskID != "t-by-code" {
+		t.Errorf("TaskID: got %q, want %q", app.TaskID, "t-by-code")
+	}
+	if app.Title != "Alpha" {
+		t.Errorf("Title: got %q, want %q", app.Title, "Alpha")
+	}
+	if app.Data["exporter_name"] != "ACME" {
+		t.Errorf("Data[exporter_name]: got %v, want ACME", app.Data["exporter_name"])
+	}
+}
+
+func TestGetApplicationByTaskCode_NotFound(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	_, err := h.service.GetApplicationByTaskCode(context.Background(), "wf-test", "no-such-code")
+	if err != ErrApplicationNotFound {
+		t.Errorf("expected ErrApplicationNotFound, got %v", err)
+	}
+}
+
 // ---------- GetApplications: RBAC filtering ----------
 
 func TestGetApplications_FiltersInaccessibleItems(t *testing.T) {

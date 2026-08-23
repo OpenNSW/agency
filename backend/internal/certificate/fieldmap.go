@@ -2,25 +2,25 @@ package certificate
 
 import (
 	"context"
+	"errors"
 	"html/template"
 	"log/slog"
 	"time"
 
 	"github.com/OpenNSW/nsw-agency/backend/internal/application"
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
 )
 
 // certificateDateFormat matches the certificate spec's date style (e.g. "09/07/2026").
 const certificateDateFormat = "02/01/2006"
 
-// ApplicationLookup is the subset of application.Service this package needs to
-// resolve a certificate template's fromData/fromReview calls. GetApplications
-// is used to find the (at most one) application in a consignment with a given
-// TaskCode; GetApplication then fetches that task's full record, since list
-// results carry neither Data nor AgencyActionData.
+// ApplicationLookup is the subset of application.Service this package needs.
+// GetApplication resolves the caller-supplied taskId to its own record;
+// GetApplicationByTaskCode resolves a certificate template's fromData/
+// fromReview calls, which reference another task in the same consignment by
+// TaskCode rather than TaskID.
 type ApplicationLookup interface {
-	GetApplications(ctx context.Context, status, consignmentID, taskCode, search string, page, pageSize int) (*httputil.PagedResponse[application.Application], error)
 	GetApplication(ctx context.Context, taskID string) (*application.Application, error)
+	GetApplicationByTaskCode(ctx context.Context, consignmentID, taskCode string) (*application.Application, error)
 }
 
 // stubFuncs registers every certificate template function with a no-op body,
@@ -81,32 +81,23 @@ func fieldValue(app *application.Application, field string, review bool) string 
 }
 
 // lookupApplicationByTaskCode finds the application within consignmentID
-// whose TaskCode is taskCode and fetches its full record (Data and
-// AgencyActionData). It never fails on a miss — a certificate preview should
-// still render with whatever is available — so a missing task or a lookup
-// error is logged and nil is returned, not treated as an error.
+// whose TaskCode is taskCode. It never fails on a miss — a certificate
+// preview should still render with whatever is available — so a missing task
+// or a lookup error is logged and nil is returned, not treated as an error.
 func lookupApplicationByTaskCode(ctx context.Context, applications ApplicationLookup, consignmentID, taskCode string) *application.Application {
 	if applications == nil || consignmentID == "" {
 		return nil
 	}
 
-	page, err := applications.GetApplications(ctx, "", consignmentID, taskCode, "", 1, 1)
+	app, err := applications.GetApplicationByTaskCode(ctx, consignmentID, taskCode)
 	if err != nil {
-		slog.WarnContext(ctx, "failed to look up task for certificate generation",
-			"consignmentId", consignmentID, "taskCode", taskCode, "error", err)
-		return nil
-	}
-	if len(page.Items) == 0 {
-		slog.WarnContext(ctx, "certificate template: task not found in consignment; leaving field unset",
-			"consignmentId", consignmentID, "taskCode", taskCode)
-		return nil
-	}
-
-	taskID := page.Items[0].TaskID
-	app, err := applications.GetApplication(ctx, taskID)
-	if err != nil {
-		slog.WarnContext(ctx, "failed to fetch application for certificate generation",
-			"taskId", taskID, "taskCode", taskCode, "error", err)
+		if errors.Is(err, application.ErrApplicationNotFound) {
+			slog.WarnContext(ctx, "certificate template: task not found in consignment; leaving field unset",
+				"consignmentId", consignmentID, "taskCode", taskCode)
+		} else {
+			slog.WarnContext(ctx, "failed to look up task for certificate generation",
+				"consignmentId", consignmentID, "taskCode", taskCode, "error", err)
+		}
 		return nil
 	}
 	return app
