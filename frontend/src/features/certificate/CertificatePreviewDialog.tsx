@@ -26,7 +26,15 @@ export function CertificatePreviewDialog({ open, onOpenChange, html }: Certifica
               ref={frameRef}
               title={t('consignments.detail.certificate.title')}
               srcDoc={html}
-              sandbox=""
+              // allow-modals lets window.print() open the print dialog.
+              // allow-same-origin lets the parent's contentWindow.print() call
+              // reach the frame at all — Safari throws a SecurityError on that
+              // call without it, treating the sandboxed frame as fully opaque,
+              // even though Chrome/Firefox don't require it. Neither flag grants
+              // script execution: allow-scripts is deliberately withheld, so
+              // nothing in the certificate HTML (script tags, inline handlers,
+              // javascript: URLs) can run regardless of origin.
+              sandbox="allow-modals allow-same-origin"
               style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 'var(--radius-3)' }}
             />
           </Box>
