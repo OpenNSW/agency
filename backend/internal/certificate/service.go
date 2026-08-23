@@ -37,8 +37,7 @@ func (s *service) Generate(ctx context.Context, templateID, consignmentID string
 		return "", err
 	}
 
-	byTaskCode := indexApplicationsByTaskCode(ctx, s.applications, consignmentID)
-	tmpl, err := template.New(templateID).Funcs(realFuncs(ctx, byTaskCode)).Parse(string(raw))
+	tmpl, err := template.New(templateID).Funcs(realFuncs(ctx, s.applications, consignmentID)).Parse(string(raw))
 	if err != nil {
 		return "", fmt.Errorf("parse certificate template %q: %w", templateID, err)
 	}

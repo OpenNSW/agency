@@ -27,8 +27,8 @@ type Service interface {
 	// CreateApplication creates a new application from injected data
 	CreateApplication(ctx context.Context, req *InjectRequest) error
 
-	// GetApplications returns a paginated list of applications (optionally filtered by status, consignment, or search)
-	GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error)
+	// GetApplications returns a paginated list of applications (optionally filtered by status, consignment, task code, or search)
+	GetApplications(ctx context.Context, status string, consignmentID string, taskCode string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error)
 
 	// GetApplication returns a specific application by task ID
 	GetApplication(ctx context.Context, taskID string) (*Application, error)
@@ -141,9 +141,9 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 }
 
 // GetApplications returns a paginated list of applications
-func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error) {
+func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, taskCode string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error) {
 	page, pageSize, offset := httputil.NormalizePage(page, pageSize)
-	records, total, err := s.store.List(ctx, status, consignmentID, search, offset, pageSize)
+	records, total, err := s.store.List(ctx, status, consignmentID, taskCode, search, offset, pageSize)
 	if err != nil {
 		return nil, err
 	}

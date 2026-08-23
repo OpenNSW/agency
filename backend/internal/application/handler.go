@@ -103,7 +103,7 @@ func (h *Handler) HandleGetApplications(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	result, err := h.service.GetApplications(ctx, status, consignmentID, search, page, pageSize)
+	result, err := h.service.GetApplications(ctx, status, consignmentID, "", search, page, pageSize)
 	if err != nil {
 		httputil.InternalServerError(w, r, "failed to get applications", err)
 		return

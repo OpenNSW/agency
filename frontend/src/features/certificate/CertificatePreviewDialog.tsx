@@ -26,6 +26,7 @@ export function CertificatePreviewDialog({ open, onOpenChange, html }: Certifica
               ref={frameRef}
               title={t('consignments.detail.certificate.title')}
               srcDoc={html}
+              sandbox=""
               style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 'var(--radius-3)' }}
             />
           </Box>

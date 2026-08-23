@@ -48,9 +48,11 @@ export function ApplicationDetailScreen() {
     return !!ajvInstance.validate(application.certificateDataSchema, agencyFormData)
   }, [ajvInstance, application, agencyFormData])
 
+  const canGenerateCertificate = (application?.allowedActions?.includes('REVIEW') ?? false) && isCertificateDataReady
+
   const handleGenerateCertificate = () => {
-    if (!application?.certificateTemplateId || !isCertificateDataReady) return
-    void certificate.generate(application.certificateTemplateId, application.consignmentId, agencyFormData)
+    if (!application?.certificateTemplateId || !taskId || !canGenerateCertificate) return
+    void certificate.generate(taskId, agencyFormData)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -294,7 +296,7 @@ export function ApplicationDetailScreen() {
                 <InfoCircledIcon />
                 {t('consignments.detail.section.review')}
               </Text>
-              {application.certificateTemplateId && (
+              {application.certificateTemplateId && canReview && (
                 <Button
                   variant="soft"
                   size="2"
@@ -306,7 +308,7 @@ export function ApplicationDetailScreen() {
                 </Button>
               )}
             </Flex>
-            {application.certificateTemplateId && !isCertificateDataReady && (
+            {application.certificateTemplateId && canReview && !isCertificateDataReady && (
               <Text size="1" color="gray" mb="3" as="div" style={{ textAlign: 'right' }}>
                 {t('consignments.detail.certificate.missingFields')}
               </Text>

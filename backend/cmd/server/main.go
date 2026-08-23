@@ -140,7 +140,7 @@ func main() {
 
 	// Initialize certificate handler (populates gohtml templates fetched from the artifact registry)
 	certificateService := certificate.NewService(artifactRegistry, service)
-	certificateHandler, err := certificate.NewHandler(certificateService, cfg.MaxRequestBytes)
+	certificateHandler, err := certificate.NewHandler(certificateService, service, cfg.MaxRequestBytes)
 	if err != nil {
 		slog.Error("failed to create certificate handler", "error", err)
 		return
@@ -170,7 +170,7 @@ func main() {
 	mux.Handle("POST /api/v1/applications/{taskId}/feedback", protect(rbacMiddleware.RequireAction("FEEDBACK")(http.HandlerFunc(feedbackHandler.HandleFeedback))))
 	mux.Handle("POST /api/v1/storage", protect(http.HandlerFunc(storageHandler.HandleCreateUpload)))
 	mux.Handle("GET /api/v1/storage/{key}", protect(http.HandlerFunc(storageHandler.HandleGetUploadURL)))
-	mux.Handle("POST /api/v1/certificates/generate", protect(http.HandlerFunc(certificateHandler.HandleGenerate)))
+	mux.Handle("POST /api/v1/applications/{taskId}/certificate", protect(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(certificateHandler.HandleGenerate))))
 
 	// Serve the built officer-portal SPA from this same process. The "/" pattern
 	// is the most general match, so the specific API, /health and /runtime-env.js

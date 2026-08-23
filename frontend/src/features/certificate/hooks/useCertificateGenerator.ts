@@ -7,11 +7,11 @@ export function useCertificateGenerator() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  const generate = useCallback(async (templateId: string, consignmentId: string, data: Record<string, unknown>) => {
+  const generate = useCallback(async (taskId: string, data: Record<string, unknown>) => {
     setLoading(true)
     setError(null)
     try {
-      const result = await generateCertificate(templateId, consignmentId, data)
+      const result = await generateCertificate(taskId, data)
       setHtml(result)
       setOpen(true)
     } catch (err) {
