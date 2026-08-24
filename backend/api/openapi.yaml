@@ -581,7 +581,7 @@ components:
       description: |
         Full application view returned by the single-application endpoint
         (GET /applications/{taskId}). List results use the leaner
-        ApplicationListItem schema, which omits data and agencyActionData.
+        ApplicationListItem schema, which omits the fields below.
       allOf:
         - $ref: "#/components/schemas/ApplicationListItem"
         - type: object
@@ -594,6 +594,33 @@ components:
               type: object
               additionalProperties: true
               description: Copy of the reviewer response payload sent back to NSW after review
+            description:
+              type: string
+              description: Task description from task config
+            dataForm:
+              type: object
+              description: |
+                JSON Forms schema (schema + uiSchema) for rendering the submitted
+                data in read-only mode. Present when a view form is configured for
+                the task code.
+              nullable: true
+            agencyForm:
+              type: object
+              description: |
+                JSON Forms schema (schema + uiSchema) for rendering the agency review
+                form. Present when a review form is configured for the task code.
+              nullable: true
+            feedbackHistory:
+              type: array
+              description: History of feedback rounds sent to the trader
+              items:
+                $ref: "#/components/schemas/FeedbackEntry"
+            allowedActions:
+              type: array
+              description: RBAC actions the current user is permitted to take on this application
+              items:
+                type: string
+                enum: [VIEW, REVIEW, FEEDBACK]
 
     ApplicationListItem:
       type: object
@@ -614,9 +641,6 @@ components:
         title:
           type: string
           description: Human-readable task title from task config
-        description:
-          type: string
-          description: Task description from task config
         icon:
           type: string
           description: Icon identifier from task config
@@ -641,28 +665,10 @@ components:
             fields (a signed certificate upload, an authorized signature)
             can only be provided after the certificate has been generated
             and printed. Present only alongside certificateTemplateId.
-        dataForm:
-          type: object
-          description: |
-            JSON Forms schema (schema + uiSchema) for rendering the submitted
-            data in read-only mode. Present when a view form is configured for
-            the task code.
-          nullable: true
-        agencyForm:
-          type: object
-          description: |
-            JSON Forms schema (schema + uiSchema) for rendering the agency review
-            form. Present when a review form is configured for the task code.
-          nullable: true
         status:
           type: string
           enum: [PENDING, FEEDBACK_REQUESTED, APPROVED, REJECTED, DONE]
           description: Current application status
-        feedbackHistory:
-          type: array
-          description: History of feedback rounds sent to the trader
-          items:
-            $ref: "#/components/schemas/FeedbackEntry"
         reviewedAt:
           type: string
           format: date-time

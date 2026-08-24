@@ -174,7 +174,6 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 			TaskID:        record.TaskID,
 			TaskCode:      record.TaskCode,
 			ConsignmentID: record.ConsignmentID,
-			ServiceURL:    record.ServiceURL,
 			Status:        record.Status,
 			ReviewedAt:    record.ReviewedAt,
 			CreatedAt:     record.CreatedAt,
