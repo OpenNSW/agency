@@ -137,6 +137,45 @@ func TestApplicationStore_GetByTaskID_NotFound(t *testing.T) {
 	}
 }
 
+func TestApplicationStore_GetByConsignmentAndTaskCode(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.CreateOrUpdate(&ApplicationRecord{
+		TaskID:        "task-by-code-1",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-by-code",
+		ServiceURL:    "http://test",
+		Data:          JSONB{"key": "value"},
+		Status:        "PENDING",
+	}); err != nil {
+		t.Fatalf("failed to seed record: %v", err)
+	}
+
+	fetched, err := store.GetByConsignmentAndTaskCode("wf-by-code", "alpha")
+	if err != nil {
+		t.Fatalf("GetByConsignmentAndTaskCode failed: %v", err)
+	}
+	if fetched.TaskID != "task-by-code-1" {
+		t.Errorf("expected TaskID 'task-by-code-1', got %q", fetched.TaskID)
+	}
+	if fetched.Data["key"] != "value" {
+		t.Errorf("expected Data['key'] = 'value', got %v", fetched.Data["key"])
+	}
+}
+
+func TestApplicationStore_GetByConsignmentAndTaskCode_NotFound(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-by-code-2", nil)
+
+	// Right consignment, wrong task code.
+	if _, err := store.GetByConsignmentAndTaskCode("wf-seed", "no-such-code"); err == nil {
+		t.Error("expected error for non-matching task code")
+	}
+	// Right task code, wrong consignment.
+	if _, err := store.GetByConsignmentAndTaskCode("wf-other", "verification:123"); err == nil {
+		t.Error("expected error for non-matching consignment")
+	}
+}
+
 func TestApplicationStore_UpdateStatus(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-status-1", nil)

@@ -614,6 +614,24 @@ components:
         category:
           type: string
           description: Task category from task config
+        certificateTemplateId:
+          type: string
+          description: |
+            ID of a certificate template (see POST
+            /applications/{taskId}/certificate) the officer can generate
+            while reviewing this task. Present only when configured for the
+            task code; only returned on the single-application response, not
+            in list results.
+        certificateDataSchema:
+          type: object
+          description: |
+            JSON Schema for what the certificate generate request's data
+            must contain (e.g. requiring certificate_id), validated both
+            client-side and server-side — deliberately separate from the
+            review form's own schema, since some of that form's required
+            fields (a signed certificate upload, an authorized signature)
+            can only be provided after the certificate has been generated
+            and printed. Present only alongside certificateTemplateId.
         dataForm:
           type: object
           description: |

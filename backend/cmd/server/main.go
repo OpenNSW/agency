@@ -17,6 +17,7 @@ import (
 	"github.com/OpenNSW/core/trace"
 	"github.com/OpenNSW/nsw-agency/backend/internal/application"
 	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
+	"github.com/OpenNSW/nsw-agency/backend/internal/certificate"
 	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
 	"github.com/OpenNSW/nsw-agency/backend/internal/logging"
@@ -137,6 +138,14 @@ func main() {
 		return
 	}
 
+	// Initialize certificate handler (populates gohtml templates fetched from the artifact registry)
+	certificateService := certificate.NewService(artifactRegistry, service)
+	certificateHandler, err := certificate.NewHandler(certificateService, service, cfg.MaxRequestBytes)
+	if err != nil {
+		slog.Error("failed to create certificate handler", "error", err)
+		return
+	}
+
 	// Set up HTTP routes
 	mux := http.NewServeMux()
 	// Health check
@@ -161,6 +170,7 @@ func main() {
 	mux.Handle("POST /api/v1/applications/{taskId}/feedback", protect(rbacMiddleware.RequireAction("FEEDBACK")(http.HandlerFunc(feedbackHandler.HandleFeedback))))
 	mux.Handle("POST /api/v1/storage", protect(http.HandlerFunc(storageHandler.HandleCreateUpload)))
 	mux.Handle("GET /api/v1/storage/{key}", protect(http.HandlerFunc(storageHandler.HandleGetUploadURL)))
+	mux.Handle("POST /api/v1/applications/{taskId}/certificate", protect(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(certificateHandler.HandleGenerate))))
 
 	// Serve the built officer-portal SPA from this same process. The "/" pattern
 	// is the most general match, so the specific API, /health and /runtime-env.js

@@ -105,6 +105,7 @@ const en = {
       button: {
         cancel: 'Cancel',
         submitReview: 'Submit Review',
+        generateCertificate: 'Generate Certificate',
       },
       empty: {
         noSubmissionData: 'No submission data available',
@@ -112,6 +113,13 @@ const en = {
       },
       feedback: {
         round: 'Round {{round}}',
+      },
+      certificate: {
+        title: 'Certificate Preview',
+        generateFailed: 'Failed to generate certificate. Please try again.',
+        missingFields: 'Please fill in all required fields before generating the certificate.',
+        close: 'Close',
+        print: 'Print / Save as PDF',
       },
     },
   },

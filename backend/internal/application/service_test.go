@@ -504,6 +504,56 @@ func TestGetApplication_ResolvesFormReferences(t *testing.T) {
 	}
 }
 
+func TestGetApplication_CertificateTemplateID(t *testing.T) {
+	t.Run("populated when the task config declares a certificate", func(t *testing.T) {
+		h := newServiceHarness(t, func(root string) {
+			writeTaskConfigFile(t, root, "alpha.json", `{
+				"meta": {"title": "Alpha"},
+				"certificate": {
+					"templateId": "fcau-issue-certificate--certificate-template",
+					"dataSchema": {
+						"type": "object",
+						"properties": {"certificate_id": {"type": "string", "minLength": 1}},
+						"required": ["certificate_id"]
+					}
+				}
+			}`)
+		})
+		h.seed("t-cert", "alpha", nil)
+
+		app, err := h.service.GetApplication(context.Background(), "t-cert")
+		if err != nil {
+			t.Fatalf("GetApplication failed: %v", err)
+		}
+		if app.CertificateTemplateID != "fcau-issue-certificate--certificate-template" {
+			t.Errorf("CertificateTemplateID: got %q, want %q", app.CertificateTemplateID, "fcau-issue-certificate--certificate-template")
+		}
+		var schema map[string]any
+		if err := json.Unmarshal(app.CertificateDataSchema, &schema); err != nil {
+			t.Fatalf("CertificateDataSchema is not valid JSON: %v", err)
+		}
+		required, _ := schema["required"].([]any)
+		if len(required) != 1 || required[0] != "certificate_id" {
+			t.Errorf("CertificateDataSchema.required: got %v, want [certificate_id]", schema["required"])
+		}
+	})
+
+	t.Run("empty when the task config has no certificate", func(t *testing.T) {
+		h := newServiceHarness(t, func(root string) {
+			writeTaskConfigFile(t, root, "alpha.json", `{"meta": {"title": "Alpha"}}`)
+		})
+		h.seed("t-no-cert", "alpha", nil)
+
+		app, err := h.service.GetApplication(context.Background(), "t-no-cert")
+		if err != nil {
+			t.Fatalf("GetApplication failed: %v", err)
+		}
+		if app.CertificateTemplateID != "" {
+			t.Errorf("expected empty CertificateTemplateID, got %q", app.CertificateTemplateID)
+		}
+	})
+}
+
 func TestGetApplication_MissingFormRef_OmitsForms(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
@@ -586,6 +636,37 @@ func TestGetApplication_NoConfig_OmitsMetadata(t *testing.T) {
 func TestGetApplication_NotFound(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	_, err := h.service.GetApplication(context.Background(), "does-not-exist")
+	if err != ErrApplicationNotFound {
+		t.Errorf("expected ErrApplicationNotFound, got %v", err)
+	}
+}
+
+// ---------- GetApplicationByTaskCode ----------
+
+func TestGetApplicationByTaskCode(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{"meta": {"title": "Alpha"}}`)
+	})
+	h.seed("t-by-code", "alpha", JSONB{"exporter_name": "ACME"})
+
+	app, err := h.service.GetApplicationByTaskCode(context.Background(), "wf-test", "alpha")
+	if err != nil {
+		t.Fatalf("GetApplicationByTaskCode failed: %v", err)
+	}
+	if app.TaskID != "t-by-code" {
+		t.Errorf("TaskID: got %q, want %q", app.TaskID, "t-by-code")
+	}
+	if app.Title != "Alpha" {
+		t.Errorf("Title: got %q, want %q", app.Title, "Alpha")
+	}
+	if app.Data["exporter_name"] != "ACME" {
+		t.Errorf("Data[exporter_name]: got %v, want ACME", app.Data["exporter_name"])
+	}
+}
+
+func TestGetApplicationByTaskCode_NotFound(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	_, err := h.service.GetApplicationByTaskCode(context.Background(), "wf-test", "no-such-code")
 	if err != ErrApplicationNotFound {
 		t.Errorf("expected ErrApplicationNotFound, got %v", err)
 	}

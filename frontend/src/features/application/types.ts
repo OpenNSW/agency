@@ -41,6 +41,16 @@ export interface AgencyApplication {
   // RBAC — only present on the detail response
   allowedActions?: string[]
 
+  // Set when this task's officer can generate a certificate (see
+  // generateCertificate in service.ts) — only present on the detail response
+  certificateTemplateId?: string
+  // JSON Schema for what's required before generating the certificate —
+  // deliberately separate from the review form's own schema, since some of
+  // its required fields (a signed certificate upload, an authorized
+  // signature) can only be provided after the certificate has been
+  // generated and printed.
+  certificateDataSchema?: JsonSchema
+
   status: string
   feedbackHistory?: FeedbackEntry[]
   reviewerNotes?: string
