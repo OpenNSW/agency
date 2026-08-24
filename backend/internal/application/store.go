@@ -286,13 +286,14 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 }
 
 // ClaimApplication atomically claims an application for the given officer,
-// unless it is already claimed by a different officer. Re-claiming by the
-// same userID is idempotent (refreshes claimed_at).
+// unless it is already claimed by a different officer or is no longer
+// PENDING (i.e. it has already been reviewed). Re-claiming by the same
+// userID is idempotent (refreshes claimed_at).
 func (s *ApplicationStore) ClaimApplication(taskID, userID, name, email string) error {
 	now := time.Now()
 
 	result := s.db.Model(&ApplicationRecord{}).
-		Where("task_id = ? AND (claimed_by IS NULL OR claimed_by = ?)", taskID, userID).
+		Where("task_id = ? AND (claimed_by IS NULL OR claimed_by = ?) AND status = ?", taskID, userID, "PENDING").
 		Updates(map[string]any{
 			"claimed_by":       userID,
 			"claimed_by_name":  name,
@@ -306,10 +307,14 @@ func (s *ApplicationStore) ClaimApplication(taskID, userID, name, email string) 
 		return nil
 	}
 
-	// No rows updated: either the application doesn't exist, or it's claimed
-	// by someone else. Disambiguate with a lookup.
-	if _, err := s.GetByTaskID(taskID); err != nil {
+	// No rows updated: disambiguate why - not found, no longer PENDING, or
+	// claimed by someone else.
+	record, err := s.GetByTaskID(taskID)
+	if err != nil {
 		return err
+	}
+	if record.Status != "PENDING" {
+		return ErrApplicationNotPending
 	}
 	return ErrApplicationAlreadyClaimed
 }

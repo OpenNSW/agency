@@ -31,9 +31,9 @@ var ErrApplicationAlreadyClaimed = errors.New("application already claimed by an
 // current claimant.
 var ErrApplicationNotClaimedByYou = errors.New("application must be claimed by you first")
 
-// ErrApplicationNotPending is returned when releasing an application that
-// has already been reviewed (i.e. is no longer PENDING).
-var ErrApplicationNotPending = errors.New("application has already been reviewed and its claim can no longer be released")
+// ErrApplicationNotPending is returned when claiming or releasing an
+// application that has already been reviewed (i.e. is no longer PENDING).
+var ErrApplicationNotPending = errors.New("application has already been reviewed and is no longer pending")
 
 // ErrApplicationReviewConflict is returned when a review outcome can no
 // longer be persisted because the caller's claim or the application's

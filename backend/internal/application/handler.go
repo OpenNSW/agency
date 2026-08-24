@@ -227,6 +227,8 @@ func (h *Handler) HandleClaimApplication(w http.ResponseWriter, r *http.Request)
 			httputil.Error(w, r, http.StatusNotFound, "Application not found")
 		case errors.Is(err, ErrApplicationAlreadyClaimed):
 			httputil.Error(w, r, http.StatusConflict, "Application already claimed by another officer")
+		case errors.Is(err, ErrApplicationNotPending):
+			httputil.Error(w, r, http.StatusConflict, "Application has already been reviewed and can no longer be claimed")
 		default:
 			httputil.InternalServerError(w, r, "failed to claim application", err, "taskID", taskID)
 		}

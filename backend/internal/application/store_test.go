@@ -667,6 +667,29 @@ func TestApplicationStore_ClaimApplication_NotFound(t *testing.T) {
 	}
 }
 
+// TestApplicationStore_ClaimApplication_RejectedWhenNotPending ensures an
+// already-reviewed application cannot acquire claimant metadata, which
+// would otherwise let a stale claim satisfy review ownership checks or
+// leave ReleaseApplication rejecting a claim it never should have allowed.
+func TestApplicationStore_ClaimApplication_RejectedWhenNotPending(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-claim-reviewed", nil)
+
+	if err := store.UpdateStatus("task-claim-reviewed", "DONE", map[string]any{}); err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+
+	err := store.ClaimApplication("task-claim-reviewed", "user-1", "Officer One", "one@example.com")
+	if !errors.Is(err, ErrApplicationNotPending) {
+		t.Errorf("expected ErrApplicationNotPending, got %v", err)
+	}
+
+	app, _ := store.GetByTaskID("task-claim-reviewed")
+	if app.ClaimedBy != nil {
+		t.Errorf("expected ClaimedBy to remain unset, got %v", app.ClaimedBy)
+	}
+}
+
 func TestApplicationStore_ReleaseApplication(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-1", nil)
