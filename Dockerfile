@@ -9,9 +9,16 @@
 # server per request from the environment — no entrypoint script, no file is
 # written at runtime.
 
+# BUILD_VERSION is passed by CI (git tag for releases, dev-<run>-<sha> for dev
+# builds — see .github/workflows/release.yml and build-dev.yml) and baked into
+# both the frontend bundle and the Go binaries below. Defaults to "dev" for
+# local/unversioned builds.
+ARG BUILD_VERSION=dev
+
 # ---- Stage 1: build the frontend SPA -----------------------------------------
 FROM node:22-bookworm-slim AS frontend-builder
 
+ARG BUILD_VERSION
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 WORKDIR /app
@@ -25,11 +32,15 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 COPY frontend/ .
 
+# Vite only exposes VITE_-prefixed env vars to client code (import.meta.env),
+# baking the value into the static bundle at build time.
+ENV VITE_APP_VERSION=$BUILD_VERSION
 RUN pnpm build
 
 # ---- Stage 2: build the Go binaries ------------------------------------------
 FROM golang:1.26.4-bookworm AS backend-builder
 
+ARG BUILD_VERSION
 WORKDIR /app
 
 COPY backend/go.mod backend/go.sum ./
@@ -39,10 +50,12 @@ COPY backend/ .
 
 # -ldflags="-s -w" strips the symbol table and DWARF debug info to shrink the
 # binaries. Go panic traces (function + line) and pprof still work, since they
-# use the runtime pclntab rather than the symbol table.
-RUN go build -ldflags="-s -w" -o /out/agency ./cmd/server \
-  && go build -ldflags="-s -w" -o /out/migrate ./cmd/migrate \
-  && go build -ldflags="-s -w" -o /out/nswac ./cmd/cli
+# use the runtime pclntab rather than the symbol table. -X sets the version
+# package's build-time variable, surfaced via GET /health.
+RUN LDFLAGS="-s -w -X 'github.com/OpenNSW/nsw-agency/backend/internal/version.version=${BUILD_VERSION}'" \
+  && go build -ldflags="$LDFLAGS" -o /out/agency ./cmd/server \
+  && go build -ldflags="$LDFLAGS" -o /out/migrate ./cmd/migrate \
+  && go build -ldflags="$LDFLAGS" -o /out/nswac ./cmd/cli
 
 # ---- Stage 3: runtime --------------------------------------------------------
 FROM debian:bookworm-slim
