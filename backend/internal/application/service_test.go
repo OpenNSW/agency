@@ -21,6 +21,7 @@ import (
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
+	"github.com/OpenNSW/nsw-agency/backend/internal/user"
 	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
 )
 
@@ -211,10 +212,15 @@ func newAuthContext(ctx context.Context, userID string) context.Context {
 
 // claimAs claims taskID on behalf of userID and returns an auth context
 // carrying that principal, ready to pass to ReviewApplication (which
-// requires the caller to currently hold the claim).
+// requires the caller to currently hold the claim). Seeds a users row for
+// userID if one doesn't already exist, since claimant name/email are now
+// looked up live rather than stored on the claim.
 func (h *serviceHarness) claimAs(taskID, userID string) context.Context {
 	h.t.Helper()
-	if err := h.store.ClaimApplication(taskID, userID, "Test Officer", "officer@example.com"); err != nil {
+	if err := h.store.db.FirstOrCreate(&user.UserRecord{UserID: userID, Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", userID).Error; err != nil {
+		h.t.Fatalf("failed to seed user %s: %v", userID, err)
+	}
+	if err := h.store.ClaimApplication(taskID, userID); err != nil {
 		h.t.Fatalf("failed to claim %s for %s: %v", taskID, userID, err)
 	}
 	return newAuthContext(context.Background(), userID)
@@ -782,13 +788,9 @@ func TestGetApplication_NoConfig_EmptyAllowedActions(t *testing.T) {
 func TestClaimApplication_Success(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	h.seed("t-claim", "no-such-task", nil)
+	seedUser(t, h.store, "officer-1", "Officer One", "officer@example.com")
 
-	ctx := authn.ContextWithPrincipal(context.Background(), &authn.Principal{
-		Kind:      authn.KindUser,
-		UserID:    "officer-1",
-		GivenName: "Officer One",
-		Email:     "officer@example.com",
-	})
+	ctx := newAuthContext(context.Background(), "officer-1")
 	if err := h.service.ClaimApplication(ctx, "t-claim"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
@@ -798,7 +800,7 @@ func TestClaimApplication_Success(t *testing.T) {
 		t.Fatalf("GetApplication failed: %v", err)
 	}
 	if app.ClaimedByEmail == nil || *app.ClaimedByEmail != "officer@example.com" {
-		t.Errorf("expected ClaimedByEmail set from principal, got %v", app.ClaimedByEmail)
+		t.Errorf("expected ClaimedByEmail looked up from users table, got %v", app.ClaimedByEmail)
 	}
 }
 
@@ -881,7 +883,7 @@ func TestReviewApplication_RejectsWhenClaimedByAnotherOfficer(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	h.seed("t-review-other-claim", "no-such-task", nil)
 
-	if err := h.store.ClaimApplication("t-review-other-claim", "officer-1", "Officer One", "one@example.com"); err != nil {
+	if err := h.store.ClaimApplication("t-review-other-claim", "officer-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 

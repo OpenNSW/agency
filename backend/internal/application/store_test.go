@@ -12,6 +12,7 @@ import (
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
+	"github.com/OpenNSW/nsw-agency/backend/internal/user"
 )
 
 // ---------- helpers ----------
@@ -56,7 +57,7 @@ func newTestStore(t *testing.T) *ApplicationStore {
 		t.Fatalf("failed to create store (driver=%s): %v", dbCfg.Driver, err)
 	}
 
-	if err := store.db.AutoMigrate(&consignment.ConsignmentRecord{}, &ApplicationRecord{}, &rbac.RoleRecord{}, &rbac.UserRoleRecord{}); err != nil {
+	if err := store.db.AutoMigrate(&consignment.ConsignmentRecord{}, &ApplicationRecord{}, &rbac.RoleRecord{}, &rbac.UserRoleRecord{}, &user.UserRecord{}); err != nil {
 		t.Fatalf("failed to migrate schema: %v", err)
 	}
 
@@ -68,9 +69,21 @@ func newTestStore(t *testing.T) *ApplicationStore {
 		if err := store.db.Exec("TRUNCATE TABLE consignments CASCADE").Error; err != nil {
 			t.Fatalf("failed to truncate consignments table: %v", err)
 		}
+		if err := store.db.Exec("TRUNCATE TABLE users CASCADE").Error; err != nil {
+			t.Fatalf("failed to truncate users table: %v", err)
+		}
 	}
 
 	return store
+}
+
+// seedUser inserts a minimal user row so claim tests can exercise the
+// claimant name/email lookup by ClaimedBy.
+func seedUser(t *testing.T, store *ApplicationStore, userID, name, email string) {
+	t.Helper()
+	if err := store.db.Create(&user.UserRecord{UserID: userID, Name: name, Email: email}).Error; err != nil {
+		t.Fatalf("seedUser(%s) failed: %v", userID, err)
+	}
 }
 
 // seedRecord inserts a minimal ApplicationRecord and fails the test on error.
@@ -206,7 +219,7 @@ func TestApplicationStore_FinalizeReview(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-finalize-1", nil)
 
-	if err := store.ClaimApplication("task-finalize-1", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-finalize-1", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 	if err := store.FinalizeReview("task-finalize-1", "user-1", "APPROVED", map[string]any{"reason": "ok"}); err != nil {
@@ -226,7 +239,7 @@ func TestApplicationStore_FinalizeReview_ConflictWhenNotClaimedByCaller(t *testi
 	store := newTestStore(t)
 	seedRecord(t, store, "task-finalize-2", nil)
 
-	if err := store.ClaimApplication("task-finalize-2", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-finalize-2", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
@@ -249,7 +262,7 @@ func TestApplicationStore_FinalizeReview_ConflictOnDoubleSubmit(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-finalize-3", nil)
 
-	if err := store.ClaimApplication("task-finalize-3", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-finalize-3", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
@@ -609,8 +622,9 @@ func TestApplicationStore_UpdateStatus_PropagatesConsignment(t *testing.T) {
 func TestApplicationStore_ClaimApplication_Unclaimed(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-claim-1", nil)
+	seedUser(t, store, "user-1", "Officer One", "one@example.com")
 
-	if err := store.ClaimApplication("task-claim-1", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-claim-1", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
@@ -633,10 +647,10 @@ func TestApplicationStore_ClaimApplication_IdempotentForSameUser(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-claim-2", nil)
 
-	if err := store.ClaimApplication("task-claim-2", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-claim-2", "user-1"); err != nil {
 		t.Fatalf("first ClaimApplication failed: %v", err)
 	}
-	if err := store.ClaimApplication("task-claim-2", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-claim-2", "user-1"); err != nil {
 		t.Fatalf("re-claim by same user should succeed, got: %v", err)
 	}
 }
@@ -645,10 +659,10 @@ func TestApplicationStore_ClaimApplication_ConflictWithOtherUser(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-claim-3", nil)
 
-	if err := store.ClaimApplication("task-claim-3", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-claim-3", "user-1"); err != nil {
 		t.Fatalf("first ClaimApplication failed: %v", err)
 	}
-	err := store.ClaimApplication("task-claim-3", "user-2", "Officer Two", "two@example.com")
+	err := store.ClaimApplication("task-claim-3", "user-2")
 	if !errors.Is(err, ErrApplicationAlreadyClaimed) {
 		t.Errorf("expected ErrApplicationAlreadyClaimed, got %v", err)
 	}
@@ -662,7 +676,7 @@ func TestApplicationStore_ClaimApplication_ConflictWithOtherUser(t *testing.T) {
 
 func TestApplicationStore_ClaimApplication_NotFound(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.ClaimApplication("nonexistent", "user-1", "Officer One", "one@example.com"); err == nil {
+	if err := store.ClaimApplication("nonexistent", "user-1"); err == nil {
 		t.Error("expected error when claiming a non-existent task")
 	}
 }
@@ -679,7 +693,7 @@ func TestApplicationStore_ClaimApplication_RejectedWhenNotPending(t *testing.T) 
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 
-	err := store.ClaimApplication("task-claim-reviewed", "user-1", "Officer One", "one@example.com")
+	err := store.ClaimApplication("task-claim-reviewed", "user-1")
 	if !errors.Is(err, ErrApplicationNotPending) {
 		t.Errorf("expected ErrApplicationNotPending, got %v", err)
 	}
@@ -690,11 +704,49 @@ func TestApplicationStore_ClaimApplication_RejectedWhenNotPending(t *testing.T) 
 	}
 }
 
+// TestApplicationStore_ClaimantIdentity_NotDenormalized proves claimant name
+// and email can never go stale: they are looked up live from users via
+// ClaimedBy on every read, not stored on the application row. If the
+// claimant's user row is removed, the lookup simply comes back empty
+// instead of surfacing outdated identity information.
+func TestApplicationStore_ClaimantIdentity_NotDenormalized(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-claimant-identity", nil)
+	seedUser(t, store, "user-1", "Officer One", "one@example.com")
+
+	if err := store.ClaimApplication("task-claimant-identity", "user-1"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	app, err := store.GetByTaskID("task-claimant-identity")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if app.ClaimedByName == nil || *app.ClaimedByName != "Officer One" {
+		t.Errorf("expected ClaimedByName looked up as 'Officer One', got %v", app.ClaimedByName)
+	}
+
+	// Simulate the claimant's user row being removed (e.g. the users FK's
+	// ON DELETE SET NULL would clear ClaimedBy in Postgres; here we delete
+	// the row directly to exercise the lookup's not-found path).
+	if err := store.db.Exec("DELETE FROM users WHERE user_id = ?", "user-1").Error; err != nil {
+		t.Fatalf("failed to delete user: %v", err)
+	}
+
+	app, err = store.GetByTaskID("task-claimant-identity")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if app.ClaimedByName != nil || app.ClaimedByEmail != nil {
+		t.Errorf("expected no stale claimant identity once the user row is gone, got name=%v email=%v", app.ClaimedByName, app.ClaimedByEmail)
+	}
+}
+
 func TestApplicationStore_ReleaseApplication(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-1", nil)
 
-	if err := store.ClaimApplication("task-release-1", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-release-1", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 	if err := store.ReleaseApplication("task-release-1", "user-1"); err != nil {
@@ -714,7 +766,7 @@ func TestApplicationStore_ReleaseApplication_NotClaimedByCaller(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-2", nil)
 
-	if err := store.ClaimApplication("task-release-2", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-release-2", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 	err := store.ReleaseApplication("task-release-2", "user-2")
@@ -727,7 +779,7 @@ func TestApplicationStore_ReleaseApplication_RejectedOnceReviewed(t *testing.T) 
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-reviewed", nil)
 
-	if err := store.ClaimApplication("task-release-reviewed", "user-1", "Officer One", "one@example.com"); err != nil {
+	if err := store.ClaimApplication("task-release-reviewed", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 	if err := store.UpdateStatus("task-release-reviewed", "DONE", map[string]any{}); err != nil {

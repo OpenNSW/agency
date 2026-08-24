@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
 	"github.com/OpenNSW/nsw-agency/backend/internal/database"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
+	"github.com/OpenNSW/nsw-agency/backend/internal/user"
 	"gorm.io/gorm"
 )
 
@@ -55,9 +57,9 @@ type ApplicationRecord struct {
 	ReviewerResponse      JSONB                         `gorm:"type:text"`                                   // Response from reviewer
 	Status                string                        `gorm:"type:varchar(50);not null;default:'PENDING'"` // PENDING, FEEDBACK_REQUESTED, DONE
 	AgencyFeedbackHistory []feedback.Entry              `gorm:"type:text;serializer:json"`
-	ClaimedBy             *string                       `gorm:"column:claimed_by;type:text"`       // user_id of the officer currently working on this application
-	ClaimedByName         *string                       `gorm:"column:claimed_by_name;type:text"`  // denormalized for display without a join into users
-	ClaimedByEmail        *string                       `gorm:"column:claimed_by_email;type:text"` // denormalized for display without a join into users
+	ClaimedBy             *string                       `gorm:"column:claimed_by;type:text"` // user_id of the officer currently working on this application
+	ClaimedByName         *string                       `gorm:"-"`                           // looked up from users via ClaimedBy; not persisted
+	ClaimedByEmail        *string                       `gorm:"-"`                           // looked up from users via ClaimedBy; not persisted
 	ClaimedAt             *time.Time                    `gorm:"column:claimed_at"`
 	ReviewedAt            *time.Time                    // When it was reviewed
 	CreatedAt             time.Time                     `gorm:"autoCreateTime"`
@@ -108,6 +110,9 @@ func (s *ApplicationStore) GetByTaskID(taskID string) (*ApplicationRecord, error
 	if err := s.db.First(&app, "task_id = ?", taskID).Error; err != nil {
 		return nil, err
 	}
+	if err := s.hydrateClaimant(&app); err != nil {
+		return nil, err
+	}
 	return &app, nil
 }
 
@@ -119,7 +124,30 @@ func (s *ApplicationStore) GetByConsignmentAndTaskCode(consignmentID, taskCode s
 	if err := s.db.First(&app, "consignment_id = ? AND task_code = ?", consignmentID, taskCode).Error; err != nil {
 		return nil, err
 	}
+	if err := s.hydrateClaimant(&app); err != nil {
+		return nil, err
+	}
 	return &app, nil
+}
+
+// hydrateClaimant looks up the claimant's current name and email from the
+// users table via ClaimedBy and populates them onto app. This is a live
+// lookup rather than a denormalized copy, so a released, re-claimed, or
+// deleted claimant can never leave stale identity information behind.
+func (s *ApplicationStore) hydrateClaimant(app *ApplicationRecord) error {
+	if app.ClaimedBy == nil {
+		return nil
+	}
+	var u user.UserRecord
+	if err := s.db.Select("name", "email").First(&u, "user_id = ?", *app.ClaimedBy).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	app.ClaimedByName = &u.Name
+	app.ClaimedByEmail = &u.Email
+	return nil
 }
 
 // List retrieves applications with optional status, consignment, and search filters and pagination.
@@ -147,6 +175,12 @@ func (s *ApplicationStore) List(ctx context.Context, status string, consignmentI
 
 	if err := query.Order("CASE WHEN status = 'PENDING' THEN 0 WHEN status = 'FEEDBACK_REQUESTED' THEN 1 ELSE 2 END ASC, created_at DESC").Offset(offset).Limit(limit).Find(&apps).Error; err != nil {
 		return nil, 0, err
+	}
+
+	for i := range apps {
+		if err := s.hydrateClaimant(&apps[i]); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	return apps, total, nil
@@ -289,16 +323,14 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 // unless it is already claimed by a different officer or is no longer
 // PENDING (i.e. it has already been reviewed). Re-claiming by the same
 // userID is idempotent (refreshes claimed_at).
-func (s *ApplicationStore) ClaimApplication(taskID, userID, name, email string) error {
+func (s *ApplicationStore) ClaimApplication(taskID, userID string) error {
 	now := time.Now()
 
 	result := s.db.Model(&ApplicationRecord{}).
 		Where("task_id = ? AND (claimed_by IS NULL OR claimed_by = ?) AND status = ?", taskID, userID, "PENDING").
 		Updates(map[string]any{
-			"claimed_by":       userID,
-			"claimed_by_name":  name,
-			"claimed_by_email": email,
-			"claimed_at":       now,
+			"claimed_by": userID,
+			"claimed_at": now,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -326,10 +358,8 @@ func (s *ApplicationStore) ReleaseApplication(taskID, userID string) error {
 	result := s.db.Model(&ApplicationRecord{}).
 		Where("task_id = ? AND claimed_by = ? AND status = ?", taskID, userID, "PENDING").
 		Updates(map[string]any{
-			"claimed_by":       nil,
-			"claimed_by_name":  nil,
-			"claimed_by_email": nil,
-			"claimed_at":       nil,
+			"claimed_by": nil,
+			"claimed_at": nil,
 		})
 	if result.Error != nil {
 		return result.Error

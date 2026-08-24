@@ -439,7 +439,7 @@ func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
 		return fmt.Errorf("claiming an application requires an authenticated user")
 	}
 
-	if err := s.store.ClaimApplication(taskID, principal.UserID, principal.GivenName, principal.Email); err != nil {
+	if err := s.store.ClaimApplication(taskID, principal.UserID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrApplicationNotFound
 		}
