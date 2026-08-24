@@ -14,6 +14,7 @@ import (
 
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/loaders"
+	"github.com/OpenNSW/core/authz"
 	"github.com/OpenNSW/core/trace"
 	"github.com/OpenNSW/nsw-agency/backend/internal/application"
 	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
@@ -23,6 +24,7 @@ import (
 	"github.com/OpenNSW/nsw-agency/backend/internal/logging"
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
+	"github.com/OpenNSW/nsw-agency/backend/internal/scopes"
 	"github.com/OpenNSW/nsw-agency/backend/internal/storage"
 	"github.com/OpenNSW/nsw-agency/backend/internal/user"
 	"github.com/OpenNSW/nsw-agency/backend/internal/web"
@@ -74,6 +76,20 @@ func main() {
 			slog.Error("failed to close auth manager", "error", err)
 		}
 	}()
+
+	// Authorizer: gates routes by the OAuth2 scopes carried on the token. The
+	// extractor bridges internal/authn's Principal into authz.Principal via
+	// authzPrincipal — authz imports nothing from internal/authn.
+	authzr, err := authz.New(func(ctx context.Context) (authz.Principal, bool) {
+		p, ok := authn.FromContext(ctx)
+		if !ok || p == nil {
+			return nil, false
+		}
+		return authzPrincipal{p}, true
+	})
+	if err != nil {
+		log.Fatalf("failed to initialize authorizer: %v", err)
+	}
 
 	// NSW client: anti-corruption layer that owns the NSW HTTP transport,
 	// OAuth2 credentials, and wire protocol.
@@ -155,22 +171,27 @@ func main() {
 	// AUTH_CLIENT_IDS and aud=AGENCY_API.
 	protect := authManager.RequireAuthMiddleware()
 
+	// withScope returns middleware requiring the given OAuth2 scope; compose
+	// after protect so the authn principal is already injected when the scope
+	// check runs.
+	withScope := authzr.RequireScope
+
 	// Endpoint for services to inject data (service-to-service M2M). Protected by
 	// the same auth middleware; the NSW->Agency M2M client (e.g. NSW_TO_NPQS) is
 	// whitelisted in AUTH_CLIENT_IDS so NSW core authenticates with its
 	// client_credentials token.
-	mux.Handle("POST /api/v1/inject", protect(http.HandlerFunc(handler.HandleInjectData)))
+	mux.Handle("POST /api/v1/inject", protect(withScope(scopes.ApplicationInject)(http.HandlerFunc(handler.HandleInjectData))))
 
 	// Endpoints for UI to fetch and manage applications (protected by JIT user auth)
-	mux.Handle("GET /api/v1/consignments", protect(http.HandlerFunc(consignmentHandler.HandleGetConsignments)))
-	mux.Handle("GET /api/v1/applications", protect(http.HandlerFunc(handler.HandleGetApplications)))
-	mux.Handle("GET /api/v1/users/me", protect(http.HandlerFunc(profileHandler.HandleMe)))
-	mux.Handle("GET /api/v1/applications/{taskId}", protect(rbacMiddleware.RequireAction("VIEW")(http.HandlerFunc(handler.HandleGetApplication))))
-	mux.Handle("POST /api/v1/applications/{taskId}/review", protect(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(handler.HandleReviewApplication))))
-	mux.Handle("POST /api/v1/applications/{taskId}/feedback", protect(rbacMiddleware.RequireAction("FEEDBACK")(http.HandlerFunc(feedbackHandler.HandleFeedback))))
-	mux.Handle("POST /api/v1/storage", protect(http.HandlerFunc(storageHandler.HandleCreateUpload)))
-	mux.Handle("GET /api/v1/storage/{key}", protect(http.HandlerFunc(storageHandler.HandleGetUploadURL)))
-	mux.Handle("POST /api/v1/applications/{taskId}/certificate", protect(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(certificateHandler.HandleGenerate))))
+	mux.Handle("GET /api/v1/consignments", protect(withScope(scopes.ConsignmentRead)(http.HandlerFunc(consignmentHandler.HandleGetConsignments))))
+	mux.Handle("GET /api/v1/applications", protect(withScope(scopes.ApplicationRead)(http.HandlerFunc(handler.HandleGetApplications))))
+	mux.Handle("GET /api/v1/users/me", protect(withScope(scopes.ProfileRead)(http.HandlerFunc(profileHandler.HandleMe))))
+	mux.Handle("GET /api/v1/applications/{taskId}", protect(withScope(scopes.ApplicationRead)(rbacMiddleware.RequireAction("VIEW")(http.HandlerFunc(handler.HandleGetApplication)))))
+	mux.Handle("POST /api/v1/applications/{taskId}/review", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(handler.HandleReviewApplication)))))
+	mux.Handle("POST /api/v1/applications/{taskId}/feedback", protect(withScope(scopes.ApplicationFeedback)(rbacMiddleware.RequireAction("FEEDBACK")(http.HandlerFunc(feedbackHandler.HandleFeedback)))))
+	mux.Handle("POST /api/v1/storage", protect(withScope(scopes.StorageWrite)(http.HandlerFunc(storageHandler.HandleCreateUpload))))
+	mux.Handle("GET /api/v1/storage/{key}", protect(withScope(scopes.StorageRead)(http.HandlerFunc(storageHandler.HandleGetUploadURL))))
+	mux.Handle("POST /api/v1/applications/{taskId}/certificate", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(certificateHandler.HandleGenerate)))))
 
 	// Serve the built officer-portal SPA from this same process. The "/" pattern
 	// is the most general match, so the specific API, /health and /runtime-env.js
