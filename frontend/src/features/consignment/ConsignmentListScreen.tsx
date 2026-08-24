@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Badge, Text, TextField, Spinner, IconButton } from '@radix-ui/themes'
 import { MagnifyingGlassIcon, ChevronLeftIcon, ChevronRightIcon, ArchiveIcon } from '@radix-ui/react-icons'
 import { useConsignmentList } from './hooks/useConsignmentList'
+import { officerDisplayName } from './displayName'
 import { formatDateForTable } from '@/utils/date'
 
 export function ConsignmentListScreen() {
@@ -86,7 +87,13 @@ export function ConsignmentListScreen() {
                 <thead>
                   <tr className="bg-gray-50/50 border-b border-gray-200 text-left">
                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      {t('consignments.list.table.id')}
+                      {t('consignments.list.table.consignment')}
+                    </th>
+                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {t('consignments.list.table.exporterRegistrationNo')}
+                    </th>
+                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {t('consignments.list.table.cusdecNumber')}
                     </th>
                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">
                       {t('consignments.list.table.tasks')}
@@ -100,42 +107,52 @@ export function ConsignmentListScreen() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {data.map((consignment) => (
-                    <tr
-                      key={consignment.consignmentId}
-                      onClick={() => {
-                        void navigate(`/consignments/${consignment.consignmentId}/tasks`)
-                      }}
-                      className="hover:bg-blue-50/30 cursor-pointer transition-colors group text-sm"
-                    >
-                      <td className="px-6 py-4 break-all font-mono text-blue-600 font-medium hover:underline">
-                        {consignment.consignmentId}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">{consignment.taskCount}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <Badge
-                          size="1"
-                          color={
-                            consignment.status === 'APPROVED'
-                              ? 'green'
-                              : consignment.status === 'REJECTED'
-                                ? 'red'
-                                : consignment.status === 'FEEDBACK_REQUESTED'
-                                  ? 'amber'
-                                  : 'blue'
-                          }
-                          variant="surface"
-                        >
-                          {t(`common.status.${consignment.status.toLowerCase()}`, {
-                            defaultValue: consignment.status,
-                          })}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        {formatDateForTable(consignment.updatedAt)}
-                      </td>
-                    </tr>
-                  ))}
+                  {data.map((consignment) => {
+                    const exporterRegistrationNo = officerDisplayName(consignment.exporterRegistrationNo)
+                    const cusdecNumber = officerDisplayName(consignment.cusdecNumber)
+                    return (
+                      <tr
+                        key={consignment.consignmentId}
+                        onClick={() => {
+                          void navigate(`/consignments/${consignment.consignmentId}/tasks`)
+                        }}
+                        className="hover:bg-blue-50/30 cursor-pointer transition-colors group text-sm"
+                      >
+                        <td className="px-6 py-4">
+                          <Text size="2" weight="medium" className="text-blue-600 font-mono break-all hover:underline">
+                            {consignment.consignmentId}
+                          </Text>
+                        </td>
+                        <td className="px-6 py-4 text-gray-900 whitespace-nowrap">
+                          {exporterRegistrationNo || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-gray-900 whitespace-nowrap">{cusdecNumber || '—'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">{consignment.taskCount}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <Badge
+                            size="1"
+                            color={
+                              consignment.status === 'APPROVED'
+                                ? 'green'
+                                : consignment.status === 'REJECTED'
+                                  ? 'red'
+                                  : consignment.status === 'FEEDBACK_REQUESTED'
+                                    ? 'amber'
+                                    : 'blue'
+                            }
+                            variant="surface"
+                          >
+                            {t(`common.status.${consignment.status.toLowerCase()}`, {
+                              defaultValue: consignment.status,
+                            })}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-gray-600">
+                          {formatDateForTable(consignment.updatedAt)}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

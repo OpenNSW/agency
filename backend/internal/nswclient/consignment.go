@@ -11,12 +11,11 @@ import (
 // ConsignmentAgency is the allowlisted display payload returned by NSW Core
 // GET /consignments/{id}/agency. Extra JSON fields from Core are ignored.
 type ConsignmentAgency struct {
-	ConsignmentID   string `json:"consignmentId"`
-	ConsignmentName string `json:"consignmentName"`
-	ConsigneeName   string `json:"consigneeName"`
+	ConsignmentID     string `json:"consignmentId"`
+	TraderCompanyName string `json:"traderCompanyName"`
 }
 
-// GetConsignmentAgency fetches consignee and consignment display names from NSW Core.
+// GetConsignmentAgency fetches the trader company name from NSW Core.
 func (c *Client) GetConsignmentAgency(ctx context.Context, consignmentID string) (*ConsignmentAgency, error) {
 	if consignmentID == "" {
 		return nil, fmt.Errorf("consignment ID is required")

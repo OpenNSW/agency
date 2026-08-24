@@ -5,6 +5,8 @@ import { Badge, Text, Spinner, IconButton, Button, Flex } from '@radix-ui/themes
 import { ChevronLeftIcon, ChevronRightIcon, ArrowLeftIcon, ArchiveIcon } from '@radix-ui/react-icons'
 import { formatDateForTable } from '@/utils/date'
 import { useApplicationList } from './hooks/useApplicationList'
+import { useConsignment } from '@/features/consignment/hooks/useConsignment'
+import { officerDisplayName } from '@/features/consignment/displayName'
 
 export function ApplicationListScreen() {
   const { consignmentId } = useParams<{ consignmentId: string }>()
@@ -17,6 +19,9 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
   const auth = useAuth()
   const currentUserEmail = (auth.user?.profile?.email as string) || ''
   const { data, status, pagination, refetch } = useApplicationList(consignmentId)
+  const consignment = useConsignment(consignmentId)
+  const exporterRegistrationNo = officerDisplayName(consignment?.exporterRegistrationNo)
+  const cusdecNumber = officerDisplayName(consignment?.cusdecNumber)
 
   if (status.loading) {
     return (
@@ -44,7 +49,17 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">{t('consignments.tasks.title')}</h1>
-            <Text size="2" color="gray" className="font-mono">
+            {exporterRegistrationNo && (
+              <Text size="2" color="gray" className="block mt-1">
+                {t('consignments.tasks.exporterRegistrationLabel', { exporterRegistrationNo })}
+              </Text>
+            )}
+            {cusdecNumber && (
+              <Text size="2" color="gray" className="block mt-1">
+                {t('consignments.tasks.cusdecNumberLabel', { cusdecNumber })}
+              </Text>
+            )}
+            <Text size="2" color="gray" className="block mt-1">
               {t('consignments.tasks.consignmentIdLabel', { consignmentId: consignmentId ?? '' })}
             </Text>
           </div>

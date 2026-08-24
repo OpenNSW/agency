@@ -269,8 +269,11 @@ paths:
         - BearerAuth: []
       description: |
         Returns a paginated list of unique consignments with their task count
-        and latest status. Results can be filtered by a free-text search that
-        matches the consignment ID.
+        and latest status from the Agency database. Results can be filtered by
+        a free-text search that matches the consignment ID. Each item may
+        include `traderCompanyName` cached at inject time, and registration /
+        CUSDEC numbers from the injected form when present.
+        Those fields are omitted when they were never stored.
       tags:
         - Consignments
       parameters:
@@ -317,9 +320,11 @@ paths:
       security:
         - BearerAuth: []
       description: |
-        Returns a single consignment summary for the officer portal. Display
-        names (`consignmentName`, `consigneeName`) are fetched from NSW Core
-        when available; they are omitted if Core is unreachable.
+        Returns a single consignment summary from the Agency database. The
+        trader company name (`traderCompanyName`) and registration /
+        CUSDEC numbers are served from the local cache written at inject time
+        (or overlaid from injected application data). They are omitted when
+        they were never stored.
       tags:
         - Consignments
       parameters:
@@ -755,14 +760,18 @@ components:
         consignmentId:
           type: string
           example: cefda05e-3071-4e94-b001-328094e570a7
-        consignmentName:
+        traderCompanyName:
           type: string
-          description: Exporter/trader display name from NSW Core (omitted if unavailable or a placeholder such as N/A)
-          example: Stay Naturals Private Limited
-        consigneeName:
+          description: Trader company name from NSW, omitted if NSW is unreachable
+          example: ADAM PVT LTD
+        exporterRegistrationNo:
           type: string
-          description: Consignee name from NSW Core (omitted if unavailable, GI has not run, or a placeholder such as N/A)
-          example: Acme Imports Ltd
+          description: Registration number from the injected form, omitted when not submitted
+          example: SLTB/EXP/2026/0498
+        cusdecNumber:
+          type: string
+          description: CUSDEC number from the injected form, omitted when not submitted
+          example: CUSDEC-2026-778120
         updatedAt:
           type: string
           format: date-time

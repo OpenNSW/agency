@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/consignment"
 	"github.com/OpenNSW/agency/backend/internal/feedback"
+	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
@@ -126,13 +129,14 @@ type Application struct {
 }
 
 // NSWClient sends task outcomes and amendment requests back to the originating
-// NSW service. It is the consumer-side view of internal/nswclient, keeping the
-// NSW wire protocol out of the domain service.
+// NSW service and fetches consignment metadata.
 type NSWClient interface {
 	// SendOutcome sends a review outcome (command + payload) for a task.
 	SendOutcome(ctx context.Context, taskID, command string, payload any) error
 	// RequestAmendment asks the trader to amend a submission.
 	RequestAmendment(ctx context.Context, taskID string, payload any) error
+	// GetConsignmentAgency fetches consignment display metadata from NSW Core.
+	GetConsignmentAgency(ctx context.Context, consignmentID string) (*nswclient.ConsignmentAgency, error)
 }
 
 type service struct {
@@ -183,7 +187,11 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		// Record doesn't exist — fall through to create.
 	} else if existing.Status == "FEEDBACK_REQUESTED" {
 		slog.InfoContext(ctx, "trader resubmitted after feedback, resetting to PENDING", "taskID", req.TaskID)
-		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data)
+		if err := s.store.UpdateDataAndResetStatus(req.TaskID, req.Data); err != nil {
+			return err
+		}
+		s.cacheInjectedDisplayFields(ctx, req.ConsignmentID, req.Data)
+		return nil
 	}
 
 	appRecord := &ApplicationRecord{
@@ -201,7 +209,82 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		appRecord.ClaimedAt = existing.ClaimedAt
 	}
 
-	return s.store.CreateOrUpdate(appRecord)
+	// Same local write as origin/main. NSW extras are best-effort after persist:
+	// inject still succeeds if Core is unreachable, and later injects skip NSW
+	// once traderCompanyName is cached.
+	if err := s.store.CreateOrUpdate(appRecord); err != nil {
+		return err
+	}
+	s.cacheInjectedDisplayFields(ctx, req.ConsignmentID, req.Data)
+
+	data, err := s.store.ConsignmentStore().GetData(ctx, req.ConsignmentID)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to load cached consignment extras",
+			"consignmentID", req.ConsignmentID, "error", err)
+	} else if traderCompanyName(data) != "" {
+		return nil
+	}
+
+	extras := s.fetchAgencyExtras(ctx, req.ConsignmentID)
+	if err := s.store.ConsignmentStore().MergeData(ctx, req.ConsignmentID, extras); err != nil {
+		slog.WarnContext(ctx, "failed to store consignment extras from NSW Core",
+			"consignmentID", req.ConsignmentID, "error", err)
+	}
+	return nil
+}
+
+func (s *service) cacheInjectedDisplayFields(ctx context.Context, consignmentID string, data map[string]any) {
+	fields := displayFieldsFromInject(data)
+	if len(fields) == 0 {
+		return
+	}
+	if err := s.store.ConsignmentStore().MergeData(ctx, consignmentID, fields); err != nil {
+		slog.WarnContext(ctx, "failed to store injected consignment display fields",
+			"consignmentID", consignmentID, "error", err)
+	}
+}
+
+func displayFieldsFromInject(data map[string]any) consignment.JSONB {
+	out := consignment.JSONB{}
+	if v := nonEmptyString(data, "exporter_registration_no"); v != "" {
+		out["exporterRegistrationNo"] = v
+	}
+	if v := nonEmptyString(data, "cusdec_number"); v != "" {
+		out["cusdecNumber"] = v
+	}
+	return out
+}
+
+func nonEmptyString(data map[string]any, key string) string {
+	if data == nil {
+		return ""
+	}
+	v, ok := data[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(v)
+}
+
+func traderCompanyName(data consignment.JSONB) string {
+	if data == nil {
+		return ""
+	}
+	name, _ := data["traderCompanyName"].(string)
+	return strings.TrimSpace(name)
+}
+
+func (s *service) fetchAgencyExtras(ctx context.Context, consignmentID string) consignment.JSONB {
+	info, err := s.nsw.GetConsignmentAgency(ctx, consignmentID)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to fetch consignment metadata from NSW Core",
+			"consignmentID", consignmentID, "error", err)
+		return nil
+	}
+	if info == nil || info.TraderCompanyName == "" {
+		return nil
+	}
+	return consignment.JSONB{"traderCompanyName": info.TraderCompanyName}
 }
 
 // GetApplications returns a paginated list of applications. List items are

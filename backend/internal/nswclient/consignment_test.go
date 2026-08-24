@@ -23,8 +23,7 @@ func TestClient_GetConsignmentAgency(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"consignmentId":"` + id + `",
-			"consignmentName":"Stay Naturals Private Limited",
-			"consigneeName":"Acme Imports Ltd",
+			"traderCompanyName":"ADAM PVT LTD",
 			"email":"must-be-ignored@example.com",
 			"phone":"+9411"
 		}`))
@@ -41,11 +40,8 @@ func TestClient_GetConsignmentAgency(t *testing.T) {
 	if got.ConsignmentID != id {
 		t.Errorf("consignmentId: got %q", got.ConsignmentID)
 	}
-	if got.ConsignmentName != "Stay Naturals Private Limited" {
-		t.Errorf("consignmentName: got %q", got.ConsignmentName)
-	}
-	if got.ConsigneeName != "Acme Imports Ltd" {
-		t.Errorf("consigneeName: got %q", got.ConsigneeName)
+	if got.TraderCompanyName != "ADAM PVT LTD" {
+		t.Errorf("traderCompanyName: got %q", got.TraderCompanyName)
 	}
 
 	raw, err := json.Marshal(got)

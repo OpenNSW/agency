@@ -121,7 +121,7 @@ func main() {
 
 	// Initialize consignment service (read-only summaries over the shared DB connection)
 	consignmentStore := consignment.NewConsignmentStore(store.DB())
-	consignmentHandler := consignment.NewHandler(consignment.NewService(consignmentStore, nswClient))
+	consignmentHandler := consignment.NewHandler(consignment.NewService(consignmentStore))
 
 	// Initialize Agency service
 	service := application.NewService(store, artifactRegistry, nswClient, roleService)
