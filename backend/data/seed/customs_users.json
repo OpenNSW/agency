@@ -3,7 +3,7 @@
     {
       "name": "Customs Officer",
       "email": "customs_officer@government.dev",
-      "roles": ["lab_officer"]
+      "roles": ["officer"]
     }
   ]
 }

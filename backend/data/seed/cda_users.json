@@ -3,7 +3,7 @@
     {
       "name": "CDA Officer",
       "email": "cda_officer@government.dev",
-      "roles": ["lab_officer"]
+      "roles": ["officer"]
     }
   ]
 }

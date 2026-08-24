@@ -34,8 +34,11 @@ func NewMiddleware(roleService *RoleService, taskCodeResolver TaskCodeResolver, 
 }
 
 // RequireAction returns middleware that enforces the given action is permitted
-// for the authenticated user on the requested task. If the task config defines
-// no permissions, all authenticated users are allowed (current behaviour preserved).
+// for the authenticated user on the requested task. A task config's
+// permissions are always required and non-empty (enforced by
+// taskconfig.TaskConfig.Validate at load time), so the only way to have no
+// permissions to check is for the task config to not exist at all — that
+// case, like an explicit role mismatch, denies access by default.
 func (m *Middleware) RequireAction(action string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,20 +59,16 @@ func (m *Middleware) RequireAction(action string) func(http.Handler) http.Handle
 			cfg, err := taskconfigart.Load(ctx, m.artifactRegistry, taskCode)
 			if err != nil {
 				if errors.Is(err, artifact.ErrNotFound) {
-					// No task config for this code — preserve current behaviour,
-					// allow all authenticated users.
-					next.ServeHTTP(w, r)
+					// No task config exists for this code, so no permissions can be
+					// checked — deny by default rather than opening the task to
+					// everyone.
+					httputil.Error(w, r, http.StatusForbidden, "access denied")
 					return
 				}
 				// A genuine load failure (network, credentials, malformed config)
 				// must fail closed: allowing the request through on a transient
 				// loader error would silently bypass RBAC.
 				httputil.InternalServerError(w, r, "rbac: failed to load task config", err, "taskCode", taskCode)
-				return
-			}
-			if len(cfg.Permissions) == 0 {
-				// No permissions defined — allow all authenticated users.
-				next.ServeHTTP(w, r)
 				return
 			}
 

@@ -3,7 +3,7 @@
     {
       "name": "NPQS Officer",
       "email": "npqs_officer@government.dev",
-      "roles": ["lab_officer"]
+      "roles": ["officer"]
     }
   ]
 }

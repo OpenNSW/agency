@@ -31,6 +31,9 @@ func (l *loadable) Parse(raw []byte) error {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return fmt.Errorf("decode task config: %w", err)
 	}
+	if err := c.Validate(); err != nil {
+		return fmt.Errorf("invalid task config: %w", err)
+	}
 	l.TaskConfig = c
 	return nil
 }

@@ -157,7 +157,12 @@ func newMiddlewareTestDB(t *testing.T) *RoleService {
 
 // ---------- Integration tests: RequireAction ----------
 
-func TestRequireAction_NoPermissionsInConfig_Allows(t *testing.T) {
+// TestRequireAction_ConfigMissingPermissions_FailsClosed covers a task config
+// that exists but omits permissions. TaskConfig.Validate rejects this at
+// parse time, so the registry load fails with a genuine (non-ErrNotFound)
+// error, and the middleware must fail closed rather than fall back to
+// allowing every authenticated user.
+func TestRequireAction_ConfigMissingPermissions_FailsClosed(t *testing.T) {
 	svc := newMiddlewareTestDB(t)
 	m := NewMiddleware(svc,
 		&mockTaskCodeResolver{taskCode: "fcau_lab_test_v1"},
@@ -177,11 +182,11 @@ func TestRequireAction_NoPermissionsInConfig_Allows(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
-	if !called {
-		t.Error("expected handler to be called when no permissions are defined")
+	if called {
+		t.Error("expected handler NOT to be called for a task config missing permissions")
 	}
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 (invalid config fails closed), got %d", w.Code)
 	}
 }
 
@@ -314,12 +319,12 @@ func (failingLoader) Load(_ context.Context, _ string) ([]byte, error) {
 	return nil, fmt.Errorf("simulated remote store failure")
 }
 
-func TestRequireAction_ConfigNotFound_Allows(t *testing.T) {
+func TestRequireAction_ConfigNotFound_DeniesAccess(t *testing.T) {
 	svc := newMiddlewareTestDB(t)
 
 	// Empty registry: the resolved task code is not registered, so the loader
-	// reports ErrNotFound. A genuinely-absent config preserves the permissive
-	// default (allow all authenticated users).
+	// reports ErrNotFound. A genuinely-absent config has no permissions to
+	// check, so access is denied by default rather than opened to everyone.
 	m := NewMiddleware(svc,
 		&mockTaskCodeResolver{taskCode: "fcau_lab_test_v1"},
 		newTestRegistry(t, nil),
@@ -336,11 +341,11 @@ func TestRequireAction_ConfigNotFound_Allows(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 
-	if !called {
-		t.Error("expected handler to be called when no task config exists")
+	if called {
+		t.Error("expected handler NOT to be called when no task config exists")
 	}
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
 	}
 }
 

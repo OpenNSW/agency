@@ -261,6 +261,7 @@ func TestReviewApplication_StatusFromStatusMap(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"behavior": {
 				"statusMap": {
 					"approve": "APPROVED",
@@ -303,6 +304,7 @@ func TestReviewApplication_DefaultsToDONE_OutcomeNotInMap(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"behavior": {"statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
@@ -323,7 +325,10 @@ func TestReviewApplication_DefaultsToDONE_OutcomeNotInMap(t *testing.T) {
 func TestReviewApplication_DefaultsToDONE_NoStatusMap(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		// Config exists but defines no behavior/statusMap.
-		writeTaskConfigFile(t, root, "alpha.json", `{"meta": {"title": "Alpha"}}`)
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+		}`)
 	})
 	h.seed("t-no-map", "alpha", nil)
 
@@ -361,6 +366,7 @@ func TestReviewApplication_OutcomeFieldOverride(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "labs.json", `{
 			"meta": {"title": "Lab Results"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"behavior": {
 				"outcomeField": "decision",
 				"statusMap": {"pass": "APPROVED", "fail": "REJECTED"}
@@ -405,6 +411,7 @@ func TestReviewApplication_CallsServiceURL(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"behavior": {"statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
@@ -480,6 +487,7 @@ func TestGetApplication_ResolvesFormReferences(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"meta": {"title": "Alpha", "category": "Test", "description": "Test task", "icon": "emoji:📋"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"forms": {"view": "alpha_view", "review": "alpha_review"}
 		}`)
 		writeFormFile(t, root, "alpha_view.json", `{"schema":{"type":"object","title":"View"},"uiSchema":{"type":"VerticalLayout"}}`)
@@ -534,6 +542,7 @@ func TestGetApplication_CertificateTemplateID(t *testing.T) {
 		h := newServiceHarness(t, func(root string) {
 			writeTaskConfigFile(t, root, "alpha.json", `{
 				"meta": {"title": "Alpha"},
+				"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 				"certificate": {
 					"templateId": "fcau-issue-certificate--certificate-template",
 					"dataSchema": {
@@ -565,7 +574,10 @@ func TestGetApplication_CertificateTemplateID(t *testing.T) {
 
 	t.Run("empty when the task config has no certificate", func(t *testing.T) {
 		h := newServiceHarness(t, func(root string) {
-			writeTaskConfigFile(t, root, "alpha.json", `{"meta": {"title": "Alpha"}}`)
+			writeTaskConfigFile(t, root, "alpha.json", `{
+				"meta": {"title": "Alpha"},
+				"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+			}`)
 		})
 		h.seed("t-no-cert", "alpha", nil)
 
@@ -583,6 +595,7 @@ func TestGetApplication_MissingFormRef_OmitsForms(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"forms": {"view": "missing_view", "review": "missing_review"}
 		}`)
 	})
@@ -670,7 +683,10 @@ func TestGetApplication_NotFound(t *testing.T) {
 
 func TestGetApplicationByTaskCode(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
-		writeTaskConfigFile(t, root, "alpha.json", `{"meta": {"title": "Alpha"}}`)
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+		}`)
 	})
 	h.seed("t-by-code", "alpha", JSONB{"exporter_name": "ACME"})
 
@@ -721,13 +737,24 @@ func TestGetApplications_FiltersInaccessibleItems(t *testing.T) {
 func TestGetApplications_IncludesAccessibleItems(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "open.json", `{
-			"meta": {"title": "Open"}
+			"meta": {"title": "Open"},
+			"permissions": [{"role": "officer", "actions": ["VIEW"]}]
 		}`)
 	})
 	h.seed("t-open", "open", nil)
 
-	// No permissions config — all users have access.
-	result, err := h.service.GetApplications(context.Background(), "", "", "", 1, 20)
+	roleService := rbac.NewRoleService(h.store.db)
+	role, err := roleService.Create("officer")
+	if err != nil {
+		t.Fatalf("failed to create role: %v", err)
+	}
+	const userID = "user-with-access"
+	if err := roleService.Assign(userID, role.ID); err != nil {
+		t.Fatalf("failed to assign role: %v", err)
+	}
+
+	// User holds the role granted VIEW on this task's permissions.
+	result, err := h.service.GetApplications(newAuthContext(context.Background(), userID), "", "", "", 1, 20)
 	if err != nil {
 		t.Fatalf("GetApplications failed: %v", err)
 	}
@@ -777,9 +804,9 @@ func TestGetApplication_NoConfig_EmptyAllowedActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetApplication failed: %v", err)
 	}
-	// No config → falls back to full access.
-	if len(app.AllowedActions) != 3 {
-		t.Errorf("expected 3 default allowed actions, got %v", app.AllowedActions)
+	// No config → no permissions to check → denied by default.
+	if len(app.AllowedActions) != 0 {
+		t.Errorf("expected no allowed actions, got %v", app.AllowedActions)
 	}
 }
 

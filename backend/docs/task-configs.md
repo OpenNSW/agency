@@ -49,21 +49,25 @@ manifest, loads the bytes through the loader, and parses + validates them into a
       "reject": "REJECTED",
       "needs_more_info": "FEEDBACK_REQUESTED"
     }
-  }
+  },
+  "permissions": [
+    { "role": "fcau_officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"] }
+  ]
 }
 ```
 
-| Field                    | Required | Description                                                                                                                          |
-|--------------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `taskCode`               | optional | Logical task code. If omitted, the filename (without `.json`) is used.                                                               |
-| `meta.title`             | yes      | Display title shown in the task list and review screen header.                                                                       |
-| `meta.description`       | no       | One-line description shown under the title.                                                                                          |
-| `meta.icon`              | no       | Icon hint. Currently the frontend renders only `emoji:<char>`-prefixed values; other formats are ignored.                            |
-| `meta.category`          | no       | Category label shown in the task list (e.g. `Food Control`).                                                                         |
-| `forms.view`             | no       | Form ID for the read-only display of the trader's submitted data. Omit if the task has no trader-side data to display.               |
-| `forms.review`           | no       | Form ID for the officer's review action form. Omit if there's no review action.                                                      |
-| `behavior.outcomeField`  | no       | Name of the field in the review submission body whose value is looked up in `statusMap`. Defaults to `review_outcome`.               |
-| `behavior.statusMap`     | no       | Maps the outcome field's value to a final application status. If absent or no key matches, status defaults to `DONE`.                |
+| Field                   | Required | Description                                                                                                                                                                                                                                                                                                                |
+|-------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `taskCode`              | optional | Logical task code. If omitted, the filename (without `.json`) is used.                                                                                                                                                                                                                                                     |
+| `meta.title`            | yes      | Display title shown in the task list and review screen header.                                                                                                                                                                                                                                                             |
+| `meta.description`      | no       | One-line description shown under the title.                                                                                                                                                                                                                                                                                |
+| `meta.icon`             | no       | Icon hint. Currently the frontend renders only `emoji:<char>`-prefixed values; other formats are ignored.                                                                                                                                                                                                                  |
+| `meta.category`         | no       | Category label shown in the task list (e.g. `Food Control`).                                                                                                                                                                                                                                                               |
+| `forms.view`            | no       | Form ID for the read-only display of the trader's submitted data. Omit if the task has no trader-side data to display.                                                                                                                                                                                                     |
+| `forms.review`          | no       | Form ID for the officer's review action form. Omit if there's no review action.                                                                                                                                                                                                                                            |
+| `behavior.outcomeField` | no       | Name of the field in the review submission body whose value is looked up in `statusMap`. Defaults to `review_outcome`.                                                                                                                                                                                                     |
+| `behavior.statusMap`    | no       | Maps the outcome field's value to a final application status. If absent or no key matches, status defaults to `DONE`.                                                                                                                                                                                                      |
+| `permissions`           | **yes**  | Non-empty list of `{role, actions}` entries controlling who can view/act on this task. A config that omits this, or sets it to `[]`, fails to load. Each entry needs a non-empty `role` and at least one `action`. See [`task-config-reference.md`](./task-config-reference.md#permissions-permission-required-non-empty). |
 
 ## Resolution Flow
 
@@ -104,7 +108,10 @@ These steps happen in the **artifacts source** (the local dir / GitHub repo / S3
          "approve": "APPROVED",
          "reject":  "REJECTED"
        }
-     }
+     },
+     "permissions": [
+       { "role": "moh_officer", "actions": ["VIEW", "REVIEW"] }
+     ]
    }
    ```
 
