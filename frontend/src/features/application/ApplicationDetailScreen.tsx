@@ -263,11 +263,13 @@ export function ApplicationDetailScreen() {
           <ArrowLeftIcon /> {t('consignments.detail.backButton')}
         </Button>
         <Flex align="center" gap="3">
-          {application.claimedByName && (
+          {application.claimedByEmail && (
             <Badge size="2" color={isClaimedByMe ? 'green' : 'amber'} variant="soft">
               {isClaimedByMe
                 ? t('consignments.detail.claimedByYou')
-                : t('consignments.detail.claimedBy', { name: application.claimedByName })}
+                : t('consignments.detail.claimedBy', {
+                    name: application.claimedByName ?? application.claimedByEmail,
+                  })}
             </Badge>
           )}
           <Badge size="2" color={statusColor} highContrast>
@@ -344,7 +346,7 @@ export function ApplicationDetailScreen() {
                 {t('consignments.detail.section.review')}
               </Text>
               <Flex align="center" gap="2">
-                {application.status === 'PENDING' && canReview && !application.claimedByName && (
+                {application.status === 'PENDING' && canReview && !application.claimedByEmail && (
                   <Button variant="soft" size="2" onClick={() => void handleClaim()} disabled={claimActionLoading}>
                     {claimActionLoading ? <Spinner size="1" /> : <LockClosedIcon />}
                     {t('consignments.detail.button.claim')}
@@ -427,7 +429,9 @@ export function ApplicationDetailScreen() {
               </form>
             ) : application.status === 'PENDING' && canReview && isClaimedByOther ? (
               <Text size="2" color="gray" className="italic">
-                {t('consignments.detail.empty.claimedByOther', { name: application.claimedByName ?? '' })}
+                {t('consignments.detail.empty.claimedByOther', {
+                  name: application.claimedByName ?? application.claimedByEmail ?? '',
+                })}
               </Text>
             ) : application.status === 'PENDING' && !canReview ? (
               <Text size="2" color="gray" className="italic">

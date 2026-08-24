@@ -134,8 +134,14 @@ func (s *ApplicationStore) GetByConsignmentAndTaskCode(consignmentID, taskCode s
 // users table via ClaimedBy and populates them onto app. This is a live
 // lookup rather than a denormalized copy, so a released, re-claimed, or
 // deleted claimant can never leave stale identity information behind.
+//
+// It also enforces that ClaimedAt is only ever meaningful alongside an
+// active claim: the users FK's ON DELETE SET NULL only clears ClaimedBy,
+// so without this, ClaimedAt would survive as a claim timestamp with no
+// claimant behind it.
 func (s *ApplicationStore) hydrateClaimant(app *ApplicationRecord) error {
 	if app.ClaimedBy == nil {
+		app.ClaimedAt = nil
 		return nil
 	}
 	var u user.UserRecord

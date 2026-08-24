@@ -742,6 +742,34 @@ func TestApplicationStore_ClaimantIdentity_NotDenormalized(t *testing.T) {
 	}
 }
 
+// TestApplicationStore_ClaimedAt_ClearedWhenClaimedByIsNil covers the case
+// the users FK's ON DELETE SET NULL produces: only claimed_by is nulled at
+// the DB level, leaving claimed_at untouched on the row. A read must not
+// surface a claim timestamp with no claimant behind it.
+func TestApplicationStore_ClaimedAt_ClearedWhenClaimedByIsNil(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-orphaned-claimed-at", nil)
+	seedUser(t, store, "user-1", "Officer One", "one@example.com")
+
+	if err := store.ClaimApplication("task-orphaned-claimed-at", "user-1"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	// Simulate the FK's ON DELETE SET NULL: it only writes to claimed_by,
+	// not claimed_at, so mimic that here with a raw update.
+	if err := store.db.Exec("UPDATE applications SET claimed_by = NULL WHERE task_id = ?", "task-orphaned-claimed-at").Error; err != nil {
+		t.Fatalf("failed to null claimed_by: %v", err)
+	}
+
+	app, err := store.GetByTaskID("task-orphaned-claimed-at")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if app.ClaimedAt != nil {
+		t.Errorf("expected ClaimedAt to be cleared once ClaimedBy is nil, got %v", app.ClaimedAt)
+	}
+}
+
 func TestApplicationStore_ReleaseApplication(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-1", nil)

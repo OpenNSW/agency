@@ -138,9 +138,9 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
                       </Badge>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {app.claimedByName ? (
+                      {app.claimedByEmail ? (
                         <Badge size="1" color="gray" variant="soft">
-                          {app.claimedByName}
+                          {app.claimedByName ?? app.claimedByEmail}
                         </Badge>
                       ) : (
                         <Text size="1" color="gray" className="italic">
