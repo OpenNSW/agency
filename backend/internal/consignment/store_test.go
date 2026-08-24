@@ -2,6 +2,7 @@ package consignment
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -139,5 +140,23 @@ func TestConsignmentStore_List_Search(t *testing.T) {
 	}
 	if summaries[0].ConsignmentID != "alpha-wf" {
 		t.Errorf("expected alpha-wf, got %s", summaries[0].ConsignmentID)
+	}
+}
+
+func TestConsignmentStore_Get(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	seedConsignment(t, store, "wf-get", "PENDING", "t1", "t2")
+
+	got, err := store.Get(ctx, "wf-get")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.ConsignmentID != "wf-get" || got.TaskCount != 2 || got.Status != "PENDING" {
+		t.Errorf("unexpected summary: %+v", got)
+	}
+
+	if _, err := store.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }

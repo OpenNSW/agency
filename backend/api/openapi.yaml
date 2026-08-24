@@ -310,6 +310,42 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /api/v1/consignments/{consignmentId}:
+    get:
+      operationId: getConsignment
+      summary: Get consignment
+      security:
+        - BearerAuth: []
+      description: |
+        Returns a single consignment summary for the officer portal. Display
+        names (`consignmentName`, `consigneeName`) are fetched from NSW Core
+        when available; they are omitted if Core is unreachable.
+      tags:
+        - Consignments
+      parameters:
+        - name: consignmentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Consignment summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsignmentSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /api/v1/users/me:
     get:
       operationId: getMe
@@ -719,6 +755,14 @@ components:
         consignmentId:
           type: string
           example: cefda05e-3071-4e94-b001-328094e570a7
+        consignmentName:
+          type: string
+          description: Exporter/trader display name from NSW Core (omitted if unavailable or a placeholder such as N/A)
+          example: Stay Naturals Private Limited
+        consigneeName:
+          type: string
+          description: Consignee name from NSW Core (omitted if unavailable, GI has not run, or a placeholder such as N/A)
+          example: Acme Imports Ltd
         updatedAt:
           type: string
           format: date-time

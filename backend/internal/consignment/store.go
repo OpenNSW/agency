@@ -2,11 +2,15 @@ package consignment
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// ErrNotFound is returned when a consignment does not exist in the agency store.
+var ErrNotFound = errors.New("consignment not found")
 
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
 // Each consignment groups one or more application records.
@@ -24,10 +28,12 @@ func (ConsignmentRecord) TableName() string {
 
 // Summary represents a unique consignment with its most recent activity.
 type Summary struct {
-	ConsignmentID string    `json:"consignmentId"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	Status        string    `json:"status"`    // Status of the most recent application
-	TaskCount     int       `json:"taskCount"` // Total number of applications in this consignment
+	ConsignmentID   string    `json:"consignmentId"`
+	ConsignmentName string    `json:"consignmentName,omitempty"`
+	ConsigneeName   string    `json:"consigneeName,omitempty"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	Status          string    `json:"status"`    // Status of the most recent application
+	TaskCount       int       `json:"taskCount"` // Total number of applications in this consignment
 }
 
 // Store handles database operations for consignments.
@@ -95,4 +101,27 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 	}
 
 	return summaries, total, nil
+}
+
+// Get returns a single consignment summary by exact ID, including task count.
+func (s *Store) Get(ctx context.Context, id string) (*Summary, error) {
+	var rec ConsignmentRecord
+	if err := s.db.WithContext(ctx).First(&rec, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	var taskCount int64
+	if err := s.db.WithContext(ctx).Table("applications").Where("consignment_id = ?", id).Count(&taskCount).Error; err != nil {
+		return nil, err
+	}
+
+	return &Summary{
+		ConsignmentID: rec.ID,
+		Status:        rec.Status,
+		UpdatedAt:     rec.UpdatedAt,
+		TaskCount:     int(taskCount),
+	}, nil
 }

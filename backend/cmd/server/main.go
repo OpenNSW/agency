@@ -121,7 +121,7 @@ func main() {
 
 	// Initialize consignment service (read-only summaries over the shared DB connection)
 	consignmentStore := consignment.NewConsignmentStore(store.DB())
-	consignmentHandler := consignment.NewHandler(consignment.NewService(consignmentStore))
+	consignmentHandler := consignment.NewHandler(consignment.NewService(consignmentStore, nswClient))
 
 	// Initialize Agency service
 	service := application.NewService(store, artifactRegistry, nswClient, roleService)
@@ -184,6 +184,7 @@ func main() {
 
 	// Endpoints for UI to fetch and manage applications (protected by JIT user auth)
 	mux.Handle("GET /api/v1/consignments", protect(withScope(scopes.ConsignmentRead)(http.HandlerFunc(consignmentHandler.HandleGetConsignments))))
+	mux.Handle("GET /api/v1/consignments/{consignmentId}", protect(withScope(scopes.ConsignmentRead)(http.HandlerFunc(consignmentHandler.HandleGetConsignment))))
 	mux.Handle("GET /api/v1/applications", protect(withScope(scopes.ApplicationRead)(http.HandlerFunc(handler.HandleGetApplications))))
 	mux.Handle("GET /api/v1/users/me", protect(withScope(scopes.ProfileRead)(http.HandlerFunc(profileHandler.HandleMe))))
 	mux.Handle("GET /api/v1/applications/{taskId}", protect(withScope(scopes.ApplicationRead)(rbacMiddleware.RequireAction("VIEW")(http.HandlerFunc(handler.HandleGetApplication)))))
