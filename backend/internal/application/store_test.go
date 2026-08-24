@@ -307,7 +307,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List all
-	apps, total, err := store.List(ctx, "", "", "", "", 0, 10)
+	apps, total, err := store.List(ctx, "", "", "", 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List with status filter
-	_, total, err = store.List(ctx, "APPROVED", "", "", "", 0, 10)
+	_, total, err = store.List(ctx, "APPROVED", "", "", 0, 10)
 	if err != nil {
 		t.Fatalf("List with status filter failed: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List with pagination
-	apps, _, err = store.List(ctx, "", "", "", "", 0, 2)
+	apps, _, err = store.List(ctx, "", "", "", 0, 2)
 	if err != nil {
 		t.Fatalf("List with limit failed: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List with offset
-	apps, _, err = store.List(ctx, "", "", "", "", 3, 10)
+	apps, _, err = store.List(ctx, "", "", "", 3, 10)
 	if err != nil {
 		t.Fatalf("List with offset failed: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestApplicationStore_List_OrderingPriority(t *testing.T) {
 	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", ServiceURL: "http://test", Status: "FEEDBACK_REQUESTED"})
 	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", ServiceURL: "http://test", Status: "PENDING"})
 
-	apps, _, err := store.List(ctx, "", "wf-order", "", "", 0, 10)
+	apps, _, err := store.List(ctx, "", "wf-order", "", 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestApplicationStore_List_ConsignmentFilter(t *testing.T) {
 	}
 
 	// Filter by wf-seed
-	apps, total, err := store.List(ctx, "", "wf-seed", "", "", 0, 10)
+	apps, total, err := store.List(ctx, "", "wf-seed", "", 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestApplicationStore_List_ConsignmentFilter(t *testing.T) {
 	}
 
 	// Filter by wf-custom
-	_, total, err = store.List(ctx, "", "wf-custom", "", "", 0, 10)
+	_, total, err = store.List(ctx, "", "wf-custom", "", 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}

@@ -684,7 +684,7 @@ func TestGetApplications_FiltersInaccessibleItems(t *testing.T) {
 	h.seed("t-restricted", "restricted", nil)
 
 	// No auth context — user has no roles, task requires manager.
-	result, err := h.service.GetApplications(context.Background(), "", "", "", "", 1, 20)
+	result, err := h.service.GetApplications(context.Background(), "", "", "", 1, 20)
 	if err != nil {
 		t.Fatalf("GetApplications failed: %v", err)
 	}
@@ -702,7 +702,7 @@ func TestGetApplications_IncludesAccessibleItems(t *testing.T) {
 	h.seed("t-open", "open", nil)
 
 	// No permissions config — all users have access.
-	result, err := h.service.GetApplications(context.Background(), "", "", "", "", 1, 20)
+	result, err := h.service.GetApplications(context.Background(), "", "", "", 1, 20)
 	if err != nil {
 		t.Fatalf("GetApplications failed: %v", err)
 	}

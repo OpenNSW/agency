@@ -118,9 +118,8 @@ func (s *ApplicationStore) GetByConsignmentAndTaskCode(consignmentID, taskCode s
 	return &app, nil
 }
 
-// List retrieves applications with optional status, consignment, task code,
-// and search filters and pagination.
-func (s *ApplicationStore) List(ctx context.Context, status string, consignmentID string, taskCode string, search string, offset, limit int) ([]ApplicationRecord, int64, error) {
+// List retrieves applications with optional status, consignment, and search filters and pagination.
+func (s *ApplicationStore) List(ctx context.Context, status string, consignmentID string, search string, offset, limit int) ([]ApplicationRecord, int64, error) {
 	var apps []ApplicationRecord
 	var total int64
 
@@ -130,9 +129,6 @@ func (s *ApplicationStore) List(ctx context.Context, status string, consignmentI
 	}
 	if consignmentID != "" {
 		query = query.Where("consignment_id = ?", consignmentID)
-	}
-	if taskCode != "" {
-		query = query.Where("task_code = ?", taskCode)
 	}
 	if search != "" {
 		query = query.Where("task_id LIKE ? OR consignment_id LIKE ?", "%"+search+"%", "%"+search+"%")
