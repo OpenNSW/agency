@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -888,6 +889,32 @@ func TestReviewApplication_RejectsWhenClaimedByAnotherOfficer(t *testing.T) {
 	err := h.service.ReviewApplication(ctx, "t-review-other-claim", map[string]any{"review_outcome": "approve"})
 	if err != ErrApplicationNotClaimedByYou {
 		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	}
+}
+
+// TestReviewApplication_ConflictOnDoubleSubmit simulates a claimant
+// submitting a review twice (e.g. a double-click, or two concurrent
+// requests that both pass the initial ownership check). The claim is left
+// in place after a review, so without an atomic finalize the second call
+// would silently record a conflicting outcome; it must instead be rejected.
+func TestReviewApplication_ConflictOnDoubleSubmit(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-review-double", "no-such-task", nil)
+
+	ctx := h.claimAs("t-review-double", "officer-1")
+
+	if err := h.service.ReviewApplication(ctx, "t-review-double", map[string]any{"review_outcome": "approve"}); err != nil {
+		t.Fatalf("first ReviewApplication failed: %v", err)
+	}
+
+	err := h.service.ReviewApplication(ctx, "t-review-double", map[string]any{"review_outcome": "reject"})
+	if !errors.Is(err, ErrApplicationReviewConflict) {
+		t.Errorf("expected ErrApplicationReviewConflict on double submit, got %v", err)
+	}
+
+	// The first outcome must stick; the second call must not have overwritten it.
+	if h.statusOf("t-review-double") != "DONE" {
+		t.Errorf("expected status to remain 'DONE' from the first review, got %q", h.statusOf("t-review-double"))
 	}
 }
 

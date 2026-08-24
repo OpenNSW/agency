@@ -35,6 +35,12 @@ var ErrApplicationNotClaimedByYou = errors.New("application must be claimed by y
 // has already been reviewed (i.e. is no longer PENDING).
 var ErrApplicationNotPending = errors.New("application has already been reviewed and its claim can no longer be released")
 
+// ErrApplicationReviewConflict is returned when a review outcome can no
+// longer be persisted because the caller's claim or the application's
+// PENDING status changed since the review was validated (e.g. a concurrent
+// review already completed, or the claim was released and re-claimed).
+var ErrApplicationReviewConflict = errors.New("application was already reviewed or your claim has changed")
+
 // Service handles Agency portal operations
 type Service interface {
 	// CreateApplication creates a new application from injected data
@@ -352,6 +358,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 	if !authenticated || principal.Kind != authn.KindUser || record.ClaimedBy == nil || *record.ClaimedBy != principal.UserID {
 		return ErrApplicationNotClaimedByYou
 	}
+	userID := principal.UserID
 
 	app, err := s.buildApplication(ctx, record)
 	if err != nil {
@@ -390,7 +397,19 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 		}
 	}
 
-	return s.store.UpdateStatus(taskID, status, reviewerResponse)
+	// Persist the outcome only if userID still holds the claim and the
+	// application is still PENDING. This closes the race window between the
+	// ownership check above and this write: a concurrent or stale review
+	// request (duplicate submission, or a claim released and re-claimed by
+	// another officer while this call was in flight) fails here instead of
+	// silently recording a second, conflicting outcome.
+	if err := s.store.FinalizeReview(taskID, userID, status, reviewerResponse); err != nil {
+		if errors.Is(err, ErrApplicationReviewConflict) {
+			return err
+		}
+		return fmt.Errorf("failed to finalize review: %w", err)
+	}
+	return nil
 }
 
 // FeedbackApplication sends Agency feedback to the trader

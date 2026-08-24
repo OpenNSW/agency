@@ -202,6 +202,72 @@ func TestApplicationStore_UpdateStatus_NotFound(t *testing.T) {
 	}
 }
 
+func TestApplicationStore_FinalizeReview(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-finalize-1", nil)
+
+	if err := store.ClaimApplication("task-finalize-1", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+	if err := store.FinalizeReview("task-finalize-1", "user-1", "APPROVED", map[string]any{"reason": "ok"}); err != nil {
+		t.Fatalf("FinalizeReview failed: %v", err)
+	}
+
+	app, _ := store.GetByTaskID("task-finalize-1")
+	if app.Status != "APPROVED" {
+		t.Errorf("expected Status 'APPROVED', got %q", app.Status)
+	}
+	if app.ReviewedAt == nil {
+		t.Error("expected ReviewedAt to be set after finalizing review")
+	}
+}
+
+func TestApplicationStore_FinalizeReview_ConflictWhenNotClaimedByCaller(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-finalize-2", nil)
+
+	if err := store.ClaimApplication("task-finalize-2", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	err := store.FinalizeReview("task-finalize-2", "user-2", "APPROVED", map[string]any{})
+	if !errors.Is(err, ErrApplicationReviewConflict) {
+		t.Errorf("expected ErrApplicationReviewConflict, got %v", err)
+	}
+
+	app, _ := store.GetByTaskID("task-finalize-2")
+	if app.Status != "PENDING" {
+		t.Errorf("expected status to remain 'PENDING', got %q", app.Status)
+	}
+}
+
+// TestApplicationStore_FinalizeReview_ConflictOnDoubleSubmit simulates two
+// concurrent review requests from the same claimant: only the first
+// FinalizeReview call may persist its outcome, the second must be rejected
+// as a conflict rather than silently overwriting it.
+func TestApplicationStore_FinalizeReview_ConflictOnDoubleSubmit(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-finalize-3", nil)
+
+	if err := store.ClaimApplication("task-finalize-3", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	if err := store.FinalizeReview("task-finalize-3", "user-1", "APPROVED", map[string]any{"outcome": "first"}); err != nil {
+		t.Fatalf("first FinalizeReview failed: %v", err)
+	}
+
+	err := store.FinalizeReview("task-finalize-3", "user-1", "REJECTED", map[string]any{"outcome": "second"})
+	if !errors.Is(err, ErrApplicationReviewConflict) {
+		t.Errorf("expected ErrApplicationReviewConflict on double submit, got %v", err)
+	}
+
+	app, _ := store.GetByTaskID("task-finalize-3")
+	if app.Status != "APPROVED" {
+		t.Errorf("expected the first outcome 'APPROVED' to stick, got %q", app.Status)
+	}
+}
+
 func TestApplicationStore_Delete(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-delete-1", nil)

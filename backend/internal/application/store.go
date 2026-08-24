@@ -186,6 +186,45 @@ func (s *ApplicationStore) UpdateStatus(taskID string, status string, reviewerRe
 	})
 }
 
+// FinalizeReview atomically records a review outcome, but only if userID
+// still holds the claim and the application is still PENDING. It returns
+// ErrApplicationReviewConflict if that condition no longer holds (e.g. a
+// concurrent review already completed, or the claim changed hands), so the
+// caller never overwrites another officer's outcome or double-records its
+// own.
+func (s *ApplicationStore) FinalizeReview(taskID, userID string, status string, reviewerResponse map[string]any) error {
+	now := time.Now()
+
+	jsonResponse, err := json.Marshal(reviewerResponse)
+	if err != nil {
+		return fmt.Errorf("failed to marshal reviewer response: %w", err)
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&ApplicationRecord{}).
+			Where("task_id = ? AND claimed_by = ? AND status = ?", taskID, userID, "PENDING").
+			Updates(map[string]any{
+				"status":            status,
+				"reviewed_at":       now,
+				"updated_at":        now,
+				"reviewer_response": jsonResponse,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrApplicationReviewConflict
+		}
+
+		var app ApplicationRecord
+		if err := tx.Select("consignment_id").Where("task_id = ?", taskID).First(&app).Error; err != nil {
+			return fmt.Errorf("failed to fetch consignment_id: %w", err)
+		}
+
+		return s.consignmentStore.UpdateStatus(tx, app.ConsignmentID, status, now)
+	})
+}
+
 // AppendFeedback appends a feedback entry to the application's history and sets
 // the status to FEEDBACK_REQUESTED.
 func (s *ApplicationStore) AppendFeedback(taskID string, entry feedback.Entry) error {
