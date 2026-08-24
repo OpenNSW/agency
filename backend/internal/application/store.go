@@ -55,6 +55,10 @@ type ApplicationRecord struct {
 	ReviewerResponse      JSONB                         `gorm:"type:text"`                                   // Response from reviewer
 	Status                string                        `gorm:"type:varchar(50);not null;default:'PENDING'"` // PENDING, FEEDBACK_REQUESTED, DONE
 	AgencyFeedbackHistory []feedback.Entry              `gorm:"type:text;serializer:json"`
+	ClaimedBy             *string                       `gorm:"column:claimed_by;type:text"`       // user_id of the officer currently working on this application
+	ClaimedByName         *string                       `gorm:"column:claimed_by_name;type:text"`  // denormalized for display without a join into users
+	ClaimedByEmail        *string                       `gorm:"column:claimed_by_email;type:text"` // denormalized for display without a join into users
+	ClaimedAt             *time.Time                    `gorm:"column:claimed_at"`
 	ReviewedAt            *time.Time                    // When it was reviewed
 	CreatedAt             time.Time                     `gorm:"autoCreateTime"`
 	UpdatedAt             time.Time                     `gorm:"autoUpdateTime"`
@@ -240,6 +244,65 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 
 		return s.consignmentStore.UpdateStatus(tx, app.ConsignmentID, "PENDING", now)
 	})
+}
+
+// ClaimApplication atomically claims an application for the given officer,
+// unless it is already claimed by a different officer. Re-claiming by the
+// same userID is idempotent (refreshes claimed_at).
+func (s *ApplicationStore) ClaimApplication(taskID, userID, name, email string) error {
+	now := time.Now()
+
+	result := s.db.Model(&ApplicationRecord{}).
+		Where("task_id = ? AND (claimed_by IS NULL OR claimed_by = ?)", taskID, userID).
+		Updates(map[string]any{
+			"claimed_by":       userID,
+			"claimed_by_name":  name,
+			"claimed_by_email": email,
+			"claimed_at":       now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
+	// No rows updated: either the application doesn't exist, or it's claimed
+	// by someone else. Disambiguate with a lookup.
+	if _, err := s.GetByTaskID(taskID); err != nil {
+		return err
+	}
+	return ErrApplicationAlreadyClaimed
+}
+
+// ReleaseApplication releases the given officer's claim on an application.
+// Fails if the application is not currently claimed by userID, or if it is
+// no longer PENDING (i.e. it has already been reviewed).
+func (s *ApplicationStore) ReleaseApplication(taskID, userID string) error {
+	result := s.db.Model(&ApplicationRecord{}).
+		Where("task_id = ? AND claimed_by = ? AND status = ?", taskID, userID, "PENDING").
+		Updates(map[string]any{
+			"claimed_by":       nil,
+			"claimed_by_name":  nil,
+			"claimed_by_email": nil,
+			"claimed_at":       nil,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
+	// No rows updated: disambiguate why.
+	record, err := s.GetByTaskID(taskID)
+	if err != nil {
+		return err
+	}
+	if record.ClaimedBy == nil || *record.ClaimedBy != userID {
+		return ErrApplicationNotClaimedByYou
+	}
+	return ErrApplicationNotPending
 }
 
 // Delete removes an application by task ID

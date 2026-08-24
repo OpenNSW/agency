@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useAuth } from 'react-oidc-context'
 import { Button, Badge, Spinner, Text, Card, Flex, Box, Callout } from '@radix-ui/themes'
 import {
   ArrowLeftIcon,
@@ -9,12 +10,14 @@ import {
   InfoCircledIcon,
   ChatBubbleIcon,
   FileTextIcon,
+  LockClosedIcon,
+  LockOpen1Icon,
 } from '@radix-ui/react-icons'
 import { type AgencyApplication } from './types'
 import { JsonForms } from '@jsonforms/react'
 import { radixRenderers } from '@opennsw/jsonforms-renderers'
 import { createAjv, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
-import { fetchApplicationDetail, submitReview } from './service'
+import { fetchApplicationDetail, submitReview, claimApplication, releaseApplication } from './service'
 import { type SchemaProperty } from './types'
 import { useCertificateGenerator } from '@/features/certificate/hooks/useCertificateGenerator'
 import { CertificatePreviewDialog } from '@/features/certificate/CertificatePreviewDialog'
@@ -22,6 +25,8 @@ import { CertificatePreviewDialog } from '@/features/certificate/CertificatePrev
 export function ApplicationDetailScreen() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const auth = useAuth()
+  const currentUserEmail = (auth.user?.profile?.email as string) || ''
 
   const [searchParams] = useSearchParams()
   const taskId = searchParams.get('taskId')
@@ -38,6 +43,7 @@ export function ApplicationDetailScreen() {
   const [agencyFormData, setAgencyFormData] = useState<Record<string, unknown>>({})
   const [formErrors, setFormErrors] = useState<unknown[]>([])
   const [showErrors, setShowErrors] = useState(false)
+  const [claimActionLoading, setClaimActionLoading] = useState(false)
 
   const ajvInstance = useMemo(() => createAjv({ useDefaults: true }), [])
 
@@ -45,7 +51,7 @@ export function ApplicationDetailScreen() {
 
   const isCertificateDataReady = useMemo(() => {
     if (!application?.certificateDataSchema) return true
-    return !!ajvInstance.validate(application.certificateDataSchema, agencyFormData)
+    return ajvInstance.validate(application.certificateDataSchema, agencyFormData)
   }, [ajvInstance, application, agencyFormData])
 
   const canGenerateCertificate = (application?.allowedActions?.includes('REVIEW') ?? false) && isCertificateDataReady
@@ -53,6 +59,36 @@ export function ApplicationDetailScreen() {
   const handleGenerateCertificate = () => {
     if (!application?.certificateTemplateId || !taskId || !canGenerateCertificate) return
     void certificate.generate(taskId, agencyFormData)
+  }
+
+  const handleClaim = async () => {
+    if (!taskId) return
+    setClaimActionLoading(true)
+    setError(null)
+    try {
+      await claimApplication(taskId)
+      const refreshed = await fetchApplicationDetail(taskId)
+      setApplication(refreshed)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('errors.submitFailed'))
+    } finally {
+      setClaimActionLoading(false)
+    }
+  }
+
+  const handleRelease = async () => {
+    if (!taskId) return
+    setClaimActionLoading(true)
+    setError(null)
+    try {
+      await releaseApplication(taskId)
+      const refreshed = await fetchApplicationDetail(taskId)
+      setApplication(refreshed)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('errors.submitFailed'))
+    } finally {
+      setClaimActionLoading(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -201,7 +237,9 @@ export function ApplicationDetailScreen() {
   }
 
   const canReview = application.allowedActions?.includes('REVIEW') ?? false
-  const isActionable = application.status === 'PENDING' && canReview
+  const isClaimedByMe = !!application.claimedByEmail && application.claimedByEmail === currentUserEmail
+  const isClaimedByOther = !!application.claimedByEmail && !isClaimedByMe
+  const isActionable = application.status === 'PENDING' && canReview && isClaimedByMe
 
   const statusColor =
     application.status === 'APPROVED'
@@ -224,9 +262,18 @@ export function ApplicationDetailScreen() {
         >
           <ArrowLeftIcon /> {t('consignments.detail.backButton')}
         </Button>
-        <Badge size="2" color={statusColor} highContrast>
-          {application.status}
-        </Badge>
+        <Flex align="center" gap="3">
+          {application.claimedByName && (
+            <Badge size="2" color={isClaimedByMe ? 'green' : 'amber'} variant="soft">
+              {isClaimedByMe
+                ? t('consignments.detail.claimedByYou')
+                : t('consignments.detail.claimedBy', { name: application.claimedByName })}
+            </Badge>
+          )}
+          <Badge size="2" color={statusColor} highContrast>
+            {application.status}
+          </Badge>
+        </Flex>
       </Flex>
 
       <Box mb="6">
@@ -296,17 +343,37 @@ export function ApplicationDetailScreen() {
                 <InfoCircledIcon />
                 {t('consignments.detail.section.review')}
               </Text>
-              {application.certificateTemplateId && canReview && (
-                <Button
-                  variant="soft"
-                  size="2"
-                  onClick={handleGenerateCertificate}
-                  disabled={certificate.loading || !isCertificateDataReady}
-                >
-                  {certificate.loading ? <Spinner size="1" /> : <FileTextIcon />}
-                  {t('consignments.detail.button.generateCertificate')}
-                </Button>
-              )}
+              <Flex align="center" gap="2">
+                {application.status === 'PENDING' && canReview && !application.claimedByName && (
+                  <Button variant="soft" size="2" onClick={() => void handleClaim()} disabled={claimActionLoading}>
+                    {claimActionLoading ? <Spinner size="1" /> : <LockClosedIcon />}
+                    {t('consignments.detail.button.claim')}
+                  </Button>
+                )}
+                {isClaimedByMe && application.status === 'PENDING' && (
+                  <Button
+                    variant="soft"
+                    color="gray"
+                    size="2"
+                    onClick={() => void handleRelease()}
+                    disabled={claimActionLoading}
+                  >
+                    {claimActionLoading ? <Spinner size="1" /> : <LockOpen1Icon />}
+                    {t('consignments.detail.button.release')}
+                  </Button>
+                )}
+                {application.certificateTemplateId && canReview && (
+                  <Button
+                    variant="soft"
+                    size="2"
+                    onClick={handleGenerateCertificate}
+                    disabled={certificate.loading || !isCertificateDataReady}
+                  >
+                    {certificate.loading ? <Spinner size="1" /> : <FileTextIcon />}
+                    {t('consignments.detail.button.generateCertificate')}
+                  </Button>
+                )}
+              </Flex>
             </Flex>
             {application.certificateTemplateId && canReview && !isCertificateDataReady && (
               <Text size="1" color="gray" mb="3" as="div" style={{ textAlign: 'right' }}>
@@ -358,6 +425,10 @@ export function ApplicationDetailScreen() {
                   </Button>
                 </Flex>
               </form>
+            ) : application.status === 'PENDING' && canReview && isClaimedByOther ? (
+              <Text size="2" color="gray" className="italic">
+                {t('consignments.detail.empty.claimedByOther', { name: application.claimedByName ?? '' })}
+              </Text>
             ) : application.status === 'PENDING' && !canReview ? (
               <Text size="2" color="gray" className="italic">
                 {t('consignments.detail.empty.noReviewPermission')}

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -534,5 +535,124 @@ func TestApplicationStore_UpdateStatus_PropagatesConsignment(t *testing.T) {
 	}
 	if cr.Status != "APPROVED" {
 		t.Errorf("expected consignment status 'APPROVED', got %q", cr.Status)
+	}
+}
+
+// ---------- 8. Functional Testing: Claim & Release ----------
+
+func TestApplicationStore_ClaimApplication_Unclaimed(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-claim-1", nil)
+
+	if err := store.ClaimApplication("task-claim-1", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	app, _ := store.GetByTaskID("task-claim-1")
+	if app.ClaimedBy == nil || *app.ClaimedBy != "user-1" {
+		t.Errorf("expected ClaimedBy 'user-1', got %v", app.ClaimedBy)
+	}
+	if app.ClaimedByName == nil || *app.ClaimedByName != "Officer One" {
+		t.Errorf("expected ClaimedByName 'Officer One', got %v", app.ClaimedByName)
+	}
+	if app.ClaimedByEmail == nil || *app.ClaimedByEmail != "one@example.com" {
+		t.Errorf("expected ClaimedByEmail 'one@example.com', got %v", app.ClaimedByEmail)
+	}
+	if app.ClaimedAt == nil {
+		t.Error("expected ClaimedAt to be set")
+	}
+}
+
+func TestApplicationStore_ClaimApplication_IdempotentForSameUser(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-claim-2", nil)
+
+	if err := store.ClaimApplication("task-claim-2", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("first ClaimApplication failed: %v", err)
+	}
+	if err := store.ClaimApplication("task-claim-2", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("re-claim by same user should succeed, got: %v", err)
+	}
+}
+
+func TestApplicationStore_ClaimApplication_ConflictWithOtherUser(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-claim-3", nil)
+
+	if err := store.ClaimApplication("task-claim-3", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("first ClaimApplication failed: %v", err)
+	}
+	err := store.ClaimApplication("task-claim-3", "user-2", "Officer Two", "two@example.com")
+	if !errors.Is(err, ErrApplicationAlreadyClaimed) {
+		t.Errorf("expected ErrApplicationAlreadyClaimed, got %v", err)
+	}
+
+	// Claim must remain with the original claimant.
+	app, _ := store.GetByTaskID("task-claim-3")
+	if app.ClaimedBy == nil || *app.ClaimedBy != "user-1" {
+		t.Errorf("expected claim to remain with 'user-1', got %v", app.ClaimedBy)
+	}
+}
+
+func TestApplicationStore_ClaimApplication_NotFound(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.ClaimApplication("nonexistent", "user-1", "Officer One", "one@example.com"); err == nil {
+		t.Error("expected error when claiming a non-existent task")
+	}
+}
+
+func TestApplicationStore_ReleaseApplication(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-release-1", nil)
+
+	if err := store.ClaimApplication("task-release-1", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+	if err := store.ReleaseApplication("task-release-1", "user-1"); err != nil {
+		t.Fatalf("ReleaseApplication failed: %v", err)
+	}
+
+	app, _ := store.GetByTaskID("task-release-1")
+	if app.ClaimedBy != nil {
+		t.Errorf("expected ClaimedBy to be cleared, got %v", app.ClaimedBy)
+	}
+	if app.ClaimedByName != nil || app.ClaimedByEmail != nil || app.ClaimedAt != nil {
+		t.Errorf("expected all claim fields cleared, got name=%v email=%v at=%v", app.ClaimedByName, app.ClaimedByEmail, app.ClaimedAt)
+	}
+}
+
+func TestApplicationStore_ReleaseApplication_NotClaimedByCaller(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-release-2", nil)
+
+	if err := store.ClaimApplication("task-release-2", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+	err := store.ReleaseApplication("task-release-2", "user-2")
+	if !errors.Is(err, ErrApplicationNotClaimedByYou) {
+		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	}
+}
+
+func TestApplicationStore_ReleaseApplication_RejectedOnceReviewed(t *testing.T) {
+	store := newTestStore(t)
+	seedRecord(t, store, "task-release-reviewed", nil)
+
+	if err := store.ClaimApplication("task-release-reviewed", "user-1", "Officer One", "one@example.com"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+	if err := store.UpdateStatus("task-release-reviewed", "DONE", map[string]any{}); err != nil {
+		t.Fatalf("UpdateStatus failed: %v", err)
+	}
+
+	err := store.ReleaseApplication("task-release-reviewed", "user-1")
+	if !errors.Is(err, ErrApplicationNotPending) {
+		t.Errorf("expected ErrApplicationNotPending, got %v", err)
+	}
+
+	// Claim must remain in place.
+	app, _ := store.GetByTaskID("task-release-reviewed")
+	if app.ClaimedBy == nil || *app.ClaimedBy != "user-1" {
+		t.Errorf("expected claim to remain with 'user-1', got %v", app.ClaimedBy)
 	}
 }

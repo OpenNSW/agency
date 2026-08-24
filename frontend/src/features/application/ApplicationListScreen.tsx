@@ -85,6 +85,9 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
                     {t('consignments.tasks.table.status')}
                   </th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    {t('consignments.tasks.table.claimedBy')}
+                  </th>
+                  <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     {t('consignments.tasks.table.lastUpdated')}
                   </th>
                 </tr>
@@ -133,6 +136,17 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
                       >
                         {t(`common.status.${app.status.toLowerCase()}`, { defaultValue: app.status })}
                       </Badge>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {app.claimedByName ? (
+                        <Badge size="1" color="gray" variant="soft">
+                          {app.claimedByName}
+                        </Badge>
+                      ) : (
+                        <Text size="1" color="gray" className="italic">
+                          {t('consignments.tasks.table.unclaimed')}
+                        </Text>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-gray-600">{formatDateForTable(app.updatedAt)}</td>
                   </tr>

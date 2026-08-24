@@ -22,6 +22,19 @@ import (
 // ErrApplicationNotFound is returned when an application is not found
 var ErrApplicationNotFound = errors.New("application not found")
 
+// ErrApplicationAlreadyClaimed is returned when a claim attempt conflicts
+// with an existing claim held by a different officer.
+var ErrApplicationAlreadyClaimed = errors.New("application already claimed by another officer")
+
+// ErrApplicationNotClaimedByYou is returned when an action that requires a
+// claim (reviewing, releasing) is attempted by someone other than the
+// current claimant.
+var ErrApplicationNotClaimedByYou = errors.New("application must be claimed by you first")
+
+// ErrApplicationNotPending is returned when releasing an application that
+// has already been reviewed (i.e. is no longer PENDING).
+var ErrApplicationNotPending = errors.New("application has already been reviewed and its claim can no longer be released")
+
 // Service handles Agency portal operations
 type Service interface {
 	// CreateApplication creates a new application from injected data
@@ -38,12 +51,22 @@ type Service interface {
 	// field resolution) that key on TaskCode rather than TaskID.
 	GetApplicationByTaskCode(ctx context.Context, consignmentID string, taskCode string) (*Application, error)
 
-	// ReviewApplication approves or rejects an application and sends response back to service
+	// ReviewApplication approves or rejects an application and sends response back to service.
+	// Requires that the caller currently holds the claim on the application.
 	ReviewApplication(ctx context.Context, taskID string, reviewerData map[string]any) error
 
 	// FeedbackApplication sends a change-request feedback to the trader via the NSW task API
 	// and updates the application status to FEEDBACK_REQUESTED.
 	FeedbackApplication(ctx context.Context, taskID string, content map[string]any) error
+
+	// ClaimApplication marks the application as claimed by the calling
+	// officer, required before ReviewApplication can be called. Idempotent
+	// if the caller already holds the claim.
+	ClaimApplication(ctx context.Context, taskID string) error
+
+	// ReleaseApplication releases the calling officer's claim on the
+	// application.
+	ReleaseApplication(ctx context.Context, taskID string) error
 
 	// Close closes the service and releases resources
 	Close() error
@@ -82,8 +105,15 @@ type Application struct {
 	Status          string           `json:"status"`
 	FeedbackHistory []feedback.Entry `json:"feedbackHistory,omitempty"`
 	ReviewedAt      *time.Time       `json:"reviewedAt,omitempty"`
-	CreatedAt       time.Time        `json:"createdAt"`
-	UpdatedAt       time.Time        `json:"updatedAt"`
+
+	// Set when an officer has claimed the application to work on it; required
+	// before ReviewApplication will accept a decision.
+	ClaimedByName  *string    `json:"claimedByName,omitempty"`
+	ClaimedByEmail *string    `json:"claimedByEmail,omitempty"`
+	ClaimedAt      *time.Time `json:"claimedAt,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // NSWClient sends task outcomes and amendment requests back to the originating
@@ -171,13 +201,16 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 	for _, record := range records {
 		var permissions []taskconfig.Permission
 		app := Application{
-			TaskID:        record.TaskID,
-			TaskCode:      record.TaskCode,
-			ConsignmentID: record.ConsignmentID,
-			Status:        record.Status,
-			ReviewedAt:    record.ReviewedAt,
-			CreatedAt:     record.CreatedAt,
-			UpdatedAt:     record.UpdatedAt,
+			TaskID:         record.TaskID,
+			TaskCode:       record.TaskCode,
+			ConsignmentID:  record.ConsignmentID,
+			Status:         record.Status,
+			ReviewedAt:     record.ReviewedAt,
+			ClaimedByName:  record.ClaimedByName,
+			ClaimedByEmail: record.ClaimedByEmail,
+			ClaimedAt:      record.ClaimedAt,
+			CreatedAt:      record.CreatedAt,
+			UpdatedAt:      record.UpdatedAt,
 		}
 
 		if config, err := taskconfigart.Load(ctx, s.artifactRegistry, record.TaskCode); err == nil {
@@ -253,6 +286,9 @@ func (s *service) buildApplication(ctx context.Context, record *ApplicationRecor
 		Status:           record.Status,
 		FeedbackHistory:  record.AgencyFeedbackHistory,
 		ReviewedAt:       record.ReviewedAt,
+		ClaimedByName:    record.ClaimedByName,
+		ClaimedByEmail:   record.ClaimedByEmail,
+		ClaimedAt:        record.ClaimedAt,
 		CreatedAt:        record.CreatedAt,
 		UpdatedAt:        record.UpdatedAt,
 	}
@@ -301,9 +337,23 @@ func (s *service) buildApplication(ctx context.Context, record *ApplicationRecor
 	return app, nil
 }
 
-// ReviewApplication approves or rejects an application
+// ReviewApplication approves or rejects an application. The caller must
+// currently hold the claim on the application.
 func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewerResponse map[string]any) error {
-	app, err := s.GetApplication(ctx, taskID)
+	record, err := s.store.GetByTaskID(taskID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrApplicationNotFound
+		}
+		return fmt.Errorf("failed to get application: %w", err)
+	}
+
+	principal, authenticated := authn.FromContext(ctx)
+	if !authenticated || principal.Kind != authn.KindUser || record.ClaimedBy == nil || *record.ClaimedBy != principal.UserID {
+		return ErrApplicationNotClaimedByYou
+	}
+
+	app, err := s.buildApplication(ctx, record)
 	if err != nil {
 		return err
 	}
@@ -361,6 +411,38 @@ func (s *service) FeedbackApplication(ctx context.Context, taskID string, conten
 	}
 
 	return s.store.AppendFeedback(taskID, entry)
+}
+
+// ClaimApplication marks the application as claimed by the calling officer.
+func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
+	principal, authenticated := authn.FromContext(ctx)
+	if !authenticated || principal.Kind != authn.KindUser {
+		return fmt.Errorf("claiming an application requires an authenticated user")
+	}
+
+	if err := s.store.ClaimApplication(taskID, principal.UserID, principal.GivenName, principal.Email); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrApplicationNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+// ReleaseApplication releases the calling officer's claim on the application.
+func (s *service) ReleaseApplication(ctx context.Context, taskID string) error {
+	principal, authenticated := authn.FromContext(ctx)
+	if !authenticated || principal.Kind != authn.KindUser {
+		return fmt.Errorf("releasing an application requires an authenticated user")
+	}
+
+	if err := s.store.ReleaseApplication(taskID, principal.UserID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrApplicationNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func resolveAccess(roles []rbac.RoleRecord, permissions []taskconfig.Permission) (bool, []string) {

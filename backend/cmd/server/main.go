@@ -189,6 +189,8 @@ func main() {
 	mux.Handle("GET /api/v1/applications/{taskId}", protect(withScope(scopes.ApplicationRead)(rbacMiddleware.RequireAction("VIEW")(http.HandlerFunc(handler.HandleGetApplication)))))
 	mux.Handle("POST /api/v1/applications/{taskId}/review", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(handler.HandleReviewApplication)))))
 	mux.Handle("POST /api/v1/applications/{taskId}/feedback", protect(withScope(scopes.ApplicationFeedback)(rbacMiddleware.RequireAction("FEEDBACK")(http.HandlerFunc(feedbackHandler.HandleFeedback)))))
+	mux.Handle("POST /api/v1/applications/{taskId}/claim", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(handler.HandleClaimApplication)))))
+	mux.Handle("POST /api/v1/applications/{taskId}/release", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(handler.HandleReleaseApplication)))))
 	mux.Handle("POST /api/v1/storage", protect(withScope(scopes.StorageWrite)(http.HandlerFunc(storageHandler.HandleCreateUpload))))
 	mux.Handle("GET /api/v1/storage/{key}", protect(withScope(scopes.StorageRead)(http.HandlerFunc(storageHandler.HandleGetUploadURL))))
 	mux.Handle("POST /api/v1/applications/{taskId}/certificate", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(certificateHandler.HandleGenerate)))))
