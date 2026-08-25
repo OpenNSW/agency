@@ -27,7 +27,7 @@ func (c TaskConfig) Validate() error {
 		return fmt.Errorf("taskconfig %q: permissions is required and must include at least one entry", c.TaskCode)
 	}
 	for i, p := range c.Permissions {
-		if p.Role == "" {
+		if strings.TrimSpace(p.Role) == "" {
 			return fmt.Errorf("taskconfig %q: permissions[%d].role must not be empty", c.TaskCode, i)
 		}
 		if len(p.Actions) == 0 {
@@ -67,11 +67,11 @@ type TaskForms struct {
 }
 
 // TaskCertificate references a certificate template an officer can generate
-// while reviewing this task, e.g. via POST /api/v1/certificates/generate.
+// while reviewing this task, e.g. via POST /api/v1/applications/{taskId}/certificate.
 type TaskCertificate struct {
 	TemplateID string `json:"templateId"`
 	// DataSchema is a JSON Schema, validated client-side before generation,
-	// describing what POST /api/v1/certificates/generate's data payload must
+	// describing what POST /api/v1/applications/{taskId}/certificate's data payload must
 	// look like for this task (e.g. requiring "certificate_id"). This is
 	// deliberately separate from the review form's own schema: the review
 	// form's required fields include things — a signed certificate upload,

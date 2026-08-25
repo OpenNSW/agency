@@ -26,6 +26,16 @@ func TestValidate_PermissionMissingRole(t *testing.T) {
 	}
 }
 
+func TestValidate_PermissionWhitespaceRole(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "   ", Actions: []string{"VIEW"}}},
+	}
+	if err := c.Validate(); err == nil {
+		t.Error("expected error when a permission entry has a whitespace-only role")
+	}
+}
+
 func TestValidate_PermissionMissingActions(t *testing.T) {
 	c := TaskConfig{
 		TaskCode:    "alpha",

@@ -271,13 +271,13 @@ type TaskCertificate struct {
 ```
 
 Lets an officer generate a certificate while reviewing this task, via
-`POST /api/v1/certificates/generate` (handled by
+`POST /api/v1/applications/{taskId}/certificate` (handled by
 `internal/certificate/handler.go`).
 
-| Field        | Required | Purpose                                                                                                   |
-|--------------|----------|---------------------------------------------------------------------------------------------------------|
-| `templateId` | yes (if `certificate` is present) | ID of the certificate template to render. Copied onto `Application.CertificateTemplateID`; the generate handler 404s if it's empty on the application. |
-| `dataSchema` | no       | A JSON Schema, validated **client-side**, describing the shape of the `data` payload the generate request must send (e.g. requiring a `certificate_id` field). Copied onto `Application.CertificateDataSchema`. |
+| Field        | Required                          | Purpose                                                                                                                                                                                                         |
+|--------------|-----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `templateId` | yes (if `certificate` is present) | ID of the certificate template to render. Copied onto `Application.CertificateTemplateID`; the generate handler 404s if it's empty on the application.                                                          |
+| `dataSchema` | no                                | A JSON Schema, validated **client-side**, describing the shape of the `data` payload the generate request must send (e.g. requiring a `certificate_id` field). Copied onto `Application.CertificateDataSchema`. |
 
 Why `dataSchema` is separate from `forms.review`'s own schema (straight from
 the doc comment in the struct): the review form's required fields include
