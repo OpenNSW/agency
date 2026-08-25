@@ -1303,11 +1303,11 @@ type mockNSWClient struct {
 	fetchErr    error
 }
 
-func (m *mockNSWClient) SendOutcome(_ context.Context, _, _, _ string, _ any) error {
+func (m *mockNSWClient) SendOutcome(_ context.Context, _, _ string, _ any) error {
 	return nil
 }
 
-func (m *mockNSWClient) RequestAmendment(_ context.Context, _, _ string, _ any) error {
+func (m *mockNSWClient) RequestAmendment(_ context.Context, _ string, _ any) error {
 	return nil
 }
 
@@ -1329,6 +1329,14 @@ func newEmptyTestRegistry(t *testing.T) *artifact.Registry {
 		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
 			t.Fatalf("failed to create %s dir: %v", sub, err)
 		}
+	}
+	// Minimal configs so CreateApplication accepts injects used by consignment-metadata tests.
+	for _, code := range []string{"task-a", "task-b"} {
+		writeTaskConfigFile(t, root, code+".json", fmt.Sprintf(`{
+			"schemaVersion": 1,
+			"meta": {"title": %q},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+		}`, code))
 	}
 	return newTestRegistry(t, root)
 }
@@ -1353,7 +1361,6 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 		TaskID:        "t-101",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-100",
-		ServiceURL:    "http://example.com/callback",
 		Data:          map[string]any{"field": "v1"},
 	})
 	if err != nil {
@@ -1365,12 +1372,12 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 	}
 
 	// Verify consignment row in DB has traderCompanyName in data
-	summary, err := store.ConsignmentStore().Get(ctx, "c-100")
+	data, err := store.ConsignmentStore().GetData(ctx, "c-100")
 	if err != nil {
-		t.Fatalf("ConsignmentStore.Get failed: %v", err)
+		t.Fatalf("ConsignmentStore.GetData failed: %v", err)
 	}
-	if summary.TraderCompanyName != "CEYLON EXPORTS" {
-		t.Errorf("expected TraderCompanyName 'CEYLON EXPORTS', got %q", summary.TraderCompanyName)
+	if traderCompanyName(data) != "CEYLON EXPORTS" {
+		t.Errorf("expected TraderCompanyName 'CEYLON EXPORTS', got %q", traderCompanyName(data))
 	}
 
 	// 2. Second injection for the SAME consignment c-100
@@ -1378,7 +1385,6 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 		TaskID:        "t-102",
 		TaskCode:      "task-b",
 		ConsignmentID: "c-100",
-		ServiceURL:    "http://example.com/callback",
 		Data:          map[string]any{"field": "v2"},
 	})
 	if err != nil {
@@ -1416,7 +1422,6 @@ func TestCreateApplication_ConsignmentFetchFailureDegradesGracefully(t *testing.
 		TaskID:        "t-201",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-200",
-		ServiceURL:    "http://example.com/callback",
 		Data:          map[string]any{"field": "v1"},
 	})
 	if err != nil {
@@ -1457,7 +1462,6 @@ func TestCreateApplication_RetriesAgencyFetchWhenExtrasMissing(t *testing.T) {
 		TaskID:        "t-301",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-300",
-		ServiceURL:    "http://example.com/callback",
 		Data:          map[string]any{"field": "v1"},
 	}); err != nil {
 		t.Fatalf("first CreateApplication: %v", err)
@@ -1472,7 +1476,6 @@ func TestCreateApplication_RetriesAgencyFetchWhenExtrasMissing(t *testing.T) {
 		TaskID:        "t-302",
 		TaskCode:      "task-b",
 		ConsignmentID: "c-300",
-		ServiceURL:    "http://example.com/callback",
 		Data:          map[string]any{"field": "v2"},
 	}); err != nil {
 		t.Fatalf("second CreateApplication: %v", err)
@@ -1481,12 +1484,12 @@ func TestCreateApplication_RetriesAgencyFetchWhenExtrasMissing(t *testing.T) {
 		t.Errorf("expected a retry fetch after the first failure, got fetchCount %d", nswMock.fetchCount)
 	}
 
-	summary, err := store.ConsignmentStore().Get(ctx, "c-300")
+	data, err := store.ConsignmentStore().GetData(ctx, "c-300")
 	if err != nil {
-		t.Fatalf("ConsignmentStore.Get: %v", err)
+		t.Fatalf("ConsignmentStore.GetData: %v", err)
 	}
-	if summary.TraderCompanyName != "ADAM PVT LTD" {
-		t.Errorf("expected extras to be filled on retry, got %q", summary.TraderCompanyName)
+	if traderCompanyName(data) != "ADAM PVT LTD" {
+		t.Errorf("expected extras to be filled on retry, got %q", traderCompanyName(data))
 	}
 }
 
@@ -1508,7 +1511,6 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 		TaskID:        "t-fb",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-fb",
-		ServiceURL:    "http://example.com/callback",
 		Data:          map[string]any{"field": "original"},
 	}); err != nil {
 		t.Fatalf("first CreateApplication: %v", err)
@@ -1524,7 +1526,6 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 		TaskID:        "t-fb",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-fb",
-		ServiceURL:    "http://example.com/callback",
 		Data:          map[string]any{"field": "resubmitted"},
 	}); err != nil {
 		t.Fatalf("feedback resubmit CreateApplication: %v", err)
@@ -1542,74 +1543,5 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 	}
 	if app.Data["field"] != "resubmitted" {
 		t.Errorf("expected resubmitted data, got %v", app.Data)
-	}
-}
-
-func TestCreateApplication_CachesExporterAndCusdecFromInject(t *testing.T) {
-	store := newTestStore(t)
-	reg := newEmptyTestRegistry(t)
-	nswMock := &mockNSWClient{
-		consignment: &nswclient.ConsignmentAgency{
-			ConsignmentID:     "c-form",
-			TraderCompanyName: "ADAM PVT LTD",
-		},
-	}
-	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswMock, roleService)
-	t.Cleanup(func() { _ = svc.Close() })
-
-	ctx := context.Background()
-	if err := svc.CreateApplication(ctx, &InjectRequest{
-		TaskID:        "t-form-1",
-		TaskCode:      "task-a",
-		ConsignmentID: "c-form",
-		ServiceURL:    "http://example.com/callback",
-		Data: map[string]any{
-			"exporter_registration_no": "SLTB/EXP/2026/0498",
-			"cusdec_number":            "CUSDEC-2026-778120",
-		},
-	}); err != nil {
-		t.Fatalf("first CreateApplication: %v", err)
-	}
-	if nswMock.fetchCount != 1 {
-		t.Fatalf("expected 1 NSW fetch, got %d", nswMock.fetchCount)
-	}
-
-	summary, err := store.ConsignmentStore().Get(ctx, "c-form")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if summary.TraderCompanyName != "ADAM PVT LTD" {
-		t.Errorf("expected ADAM PVT LTD, got %q", summary.TraderCompanyName)
-	}
-	if summary.ExporterRegistrationNo != "SLTB/EXP/2026/0498" {
-		t.Errorf("expected exporter registration, got %q", summary.ExporterRegistrationNo)
-	}
-	if summary.CusdecNumber != "CUSDEC-2026-778120" {
-		t.Errorf("expected CUSDEC, got %q", summary.CusdecNumber)
-	}
-
-	if err := svc.CreateApplication(ctx, &InjectRequest{
-		TaskID:        "t-form-2",
-		TaskCode:      "task-b",
-		ConsignmentID: "c-form",
-		ServiceURL:    "http://example.com/callback",
-		Data:          map[string]any{"field": "later-task"},
-	}); err != nil {
-		t.Fatalf("second CreateApplication: %v", err)
-	}
-	if nswMock.fetchCount != 1 {
-		t.Errorf("second inject must skip NSW once company name is cached, got fetchCount %d", nswMock.fetchCount)
-	}
-
-	data, err := store.ConsignmentStore().GetData(ctx, "c-form")
-	if err != nil {
-		t.Fatalf("GetData: %v", err)
-	}
-	if data["exporterRegistrationNo"] != "SLTB/EXP/2026/0498" {
-		t.Errorf("second inject must keep exporter registration, got %v", data["exporterRegistrationNo"])
-	}
-	if data["cusdecNumber"] != "CUSDEC-2026-778120" {
-		t.Errorf("second inject must keep CUSDEC, got %v", data["cusdecNumber"])
 	}
 }

@@ -2,7 +2,6 @@ package consignment
 
 import (
 	"context"
-	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,45 +15,17 @@ import (
 // ErrNotFound is returned when a consignment does not exist in the agency store.
 var ErrNotFound = errors.New("consignment not found")
 
-// JSONB is a custom type for storing JSON data in SQLite / PostgreSQL.
+// JSONB is an in-memory map used when reading or merging NSW extras.
 type JSONB map[string]any
-
-// Value implements the driver.Valuer interface.
-func (j JSONB) Value() (driver.Value, error) {
-	if j == nil {
-		return nil, nil
-	}
-	return json.Marshal(j)
-}
-
-// Scan implements the sql.Scanner interface.
-func (j *JSONB) Scan(value any) error {
-	if value == nil {
-		*j = nil
-		return nil
-	}
-
-	var bytes []byte
-	switch v := value.(type) {
-	case []byte:
-		bytes = v
-	case string:
-		bytes = []byte(v)
-	default:
-		return fmt.Errorf("failed to unmarshal JSONB value: %v", value)
-	}
-
-	return json.Unmarshal(bytes, j)
-}
 
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
 // Each consignment groups one or more application records.
 type ConsignmentRecord struct {
-	ID        string    `gorm:"type:text;primaryKey"`
-	Status    string    `gorm:"type:varchar(50);not null;default:'PENDING'"`
-	Data      JSONB     `gorm:"type:text;serializer:json"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	ID        string          `gorm:"type:text;primaryKey"`
+	Status    string          `gorm:"type:varchar(50);not null;default:'PENDING'"`
+	NSWData   json.RawMessage `gorm:"type:jsonb"`
+	CreatedAt time.Time       `gorm:"autoCreateTime"`
+	UpdatedAt time.Time       `gorm:"autoUpdateTime"`
 }
 
 // TableName returns the table name for ConsignmentRecord
@@ -64,13 +35,11 @@ func (ConsignmentRecord) TableName() string {
 
 // Summary represents a unique consignment with its most recent activity.
 type Summary struct {
-	ConsignmentID          string    `json:"consignmentId"`
-	TraderCompanyName      string    `json:"traderCompanyName,omitempty"`
-	ExporterRegistrationNo string    `json:"exporterRegistrationNo,omitempty"`
-	CusdecNumber           string    `json:"cusdecNumber,omitempty"`
-	UpdatedAt              time.Time `json:"updatedAt"`
-	Status                 string    `json:"status"`    // Status of the most recent application
-	TaskCount              int       `json:"taskCount"` // Total number of applications in this consignment
+	ConsignmentID     string    `json:"consignmentId"`
+	TraderCompanyName string    `json:"traderCompanyName,omitempty"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	Status            string    `json:"status"`    // Status of the most recent application
+	TaskCount         int       `json:"taskCount"` // Total number of applications in this consignment
 }
 
 // Store handles database operations for consignments.
@@ -88,30 +57,17 @@ func NewConsignmentStore(db *gorm.DB) *Store {
 // extras have not been filled in (the NSW fetch failed or has not completed).
 func (s *Store) GetData(ctx context.Context, id string) (JSONB, error) {
 	var rec ConsignmentRecord
-	if err := s.db.WithContext(ctx).Select("data").First(&rec, "id = ?", id).Error; err != nil {
+	if err := s.db.WithContext(ctx).Select("nsw_data").First(&rec, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
-	return rec.Data, nil
+	return decodeNSWData(rec.NSWData)
 }
 
-// FillData writes extras onto a consignment that does not yet have them.
-// Rows that already have data are left unchanged so a later inject cannot
-// overwrite a successful first fetch.
-func (s *Store) FillData(ctx context.Context, id string, data JSONB) error {
-	if len(data) == 0 {
-		return nil
-	}
-	return s.db.WithContext(ctx).Model(&ConsignmentRecord{}).
-		Where("id = ? AND data IS NULL", id).
-		Update("data", data).Error
-}
-
-// MergeData copies extra keys into consignments.data. Existing keys are
-// overwritten so a later inject can fill exporter/CUSDEC fields that the
-// first NSW extras fetch did not have.
+// MergeData copies extra keys into consignments.nsw_data. Existing keys are
+// overwritten.
 func (s *Store) MergeData(ctx context.Context, id string, extra JSONB) error {
 	if len(extra) == 0 {
 		return nil
@@ -134,9 +90,13 @@ func (s *Store) MergeData(ctx context.Context, id string, extra JSONB) error {
 	if !changed {
 		return nil
 	}
+	raw, err := encodeNSWData(current)
+	if err != nil {
+		return err
+	}
 	return s.db.WithContext(ctx).Model(&ConsignmentRecord{}).
 		Where("id = ?", id).
-		Update("data", current).Error
+		Update("nsw_data", raw).Error
 }
 
 // Upsert upserts a consignment record using the given connection or
@@ -144,19 +104,23 @@ func (s *Store) MergeData(ctx context.Context, id string, extra JSONB) error {
 // internal/application) should pass a transaction so the FK reference exists
 // atomically.
 //
-// Only status and updated_at are touched on conflict — created_at and data
+// Only status and updated_at are touched on conflict — created_at and nsw_data
 // must survive every later upsert of an already-existing consignment (e.g. when a
 // second application is injected into the same consignment).
 func (s *Store) Upsert(tx *gorm.DB, id, status string) error {
 	return s.UpsertWithData(tx, id, status, nil)
 }
 
-// UpsertWithData upserts a consignment record along with its metadata JSONB.
+// UpsertWithData upserts a consignment record along with its NSW metadata.
 func (s *Store) UpsertWithData(tx *gorm.DB, id, status string, data JSONB) error {
+	raw, err := encodeNSWData(data)
+	if err != nil {
+		return err
+	}
 	record := &ConsignmentRecord{
-		ID:     id,
-		Status: status,
-		Data:   data,
+		ID:      id,
+		Status:  status,
+		NSWData: raw,
 	}
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},
@@ -175,11 +139,11 @@ func (s *Store) UpdateStatus(tx *gorm.DB, id, status string, updatedAt time.Time
 }
 
 type summaryRow struct {
-	ConsignmentID string    `gorm:"column:consignment_id"`
-	Status        string    `gorm:"column:status"`
-	UpdatedAt     time.Time `gorm:"column:updated_at"`
-	Data          JSONB     `gorm:"column:data;type:text;serializer:json"`
-	TaskCount     int       `gorm:"column:task_count"`
+	ConsignmentID string          `gorm:"column:consignment_id"`
+	Status        string          `gorm:"column:status"`
+	UpdatedAt     time.Time       `gorm:"column:updated_at"`
+	NSWData       json.RawMessage `gorm:"column:nsw_data;type:jsonb"`
+	TaskCount     int             `gorm:"column:task_count"`
 }
 
 // List returns a paginated list of consignments with task count and optional search.
@@ -195,9 +159,9 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 	}
 
 	dataQ := s.db.WithContext(ctx).Model(&ConsignmentRecord{}).
-		Select("consignments.id AS consignment_id, consignments.status, consignments.updated_at, consignments.data, COUNT(applications.task_id) AS task_count").
+		Select("consignments.id AS consignment_id, consignments.status, consignments.updated_at, consignments.nsw_data, COUNT(applications.task_id) AS task_count").
 		Joins("LEFT JOIN applications ON applications.consignment_id = consignments.id").
-		Group("consignments.id, consignments.status, consignments.updated_at, consignments.data").
+		Group("consignments.id, consignments.status, consignments.updated_at, consignments.nsw_data").
 		Order("consignments.updated_at DESC").
 		Offset(offset).
 		Limit(limit)
@@ -213,46 +177,23 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 
 	summaries := make([]Summary, len(rows))
 	for i, r := range rows {
-		summaries[i] = summaryFrom(r.ConsignmentID, r.Status, r.UpdatedAt, r.Data, r.TaskCount)
-	}
-	if err := s.overlayFormFields(ctx, summaries); err != nil {
-		return nil, 0, err
+		data, err := decodeNSWData(r.NSWData)
+		if err != nil {
+			return nil, 0, fmt.Errorf("decode nsw_data for %s: %w", r.ConsignmentID, err)
+		}
+		summaries[i] = summaryFrom(r.ConsignmentID, r.Status, r.UpdatedAt, data, r.TaskCount)
 	}
 
 	return summaries, total, nil
 }
 
-// Get returns a single consignment summary by exact ID, including task count.
-func (s *Store) Get(ctx context.Context, id string) (*Summary, error) {
-	var rec ConsignmentRecord
-	if err := s.db.WithContext(ctx).First(&rec, "id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-
-	var taskCount int64
-	if err := s.db.WithContext(ctx).Table("applications").Where("consignment_id = ?", id).Count(&taskCount).Error; err != nil {
-		return nil, err
-	}
-
-	summaries := []Summary{summaryFrom(rec.ID, rec.Status, rec.UpdatedAt, rec.Data, int(taskCount))}
-	if err := s.overlayFormFields(ctx, summaries); err != nil {
-		return nil, err
-	}
-	return &summaries[0], nil
-}
-
 func summaryFrom(id, status string, updatedAt time.Time, data JSONB, taskCount int) Summary {
 	return Summary{
-		ConsignmentID:          id,
-		TraderCompanyName:      stringField(data, "traderCompanyName"),
-		ExporterRegistrationNo: stringField(data, "exporterRegistrationNo", "exporter_registration_no"),
-		CusdecNumber:           stringField(data, "cusdecNumber", "cusdec_number"),
-		Status:                 status,
-		UpdatedAt:              updatedAt,
-		TaskCount:              taskCount,
+		ConsignmentID:     id,
+		TraderCompanyName: stringField(data, "traderCompanyName"),
+		Status:            status,
+		UpdatedAt:         updatedAt,
+		TaskCount:         taskCount,
 	}
 }
 
@@ -270,57 +211,20 @@ func stringField(data JSONB, keys ...string) string {
 	return ""
 }
 
-type appDataRow struct {
-	ConsignmentID string `gorm:"column:consignment_id"`
-	Data          JSONB  `gorm:"column:data;type:text;serializer:json"`
+func decodeNSWData(raw json.RawMessage) (JSONB, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var out JSONB
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
-// overlayFormFields fills exporter registration / CUSDEC from injected
-// application rows when consignments.data does not yet have them (already-
-// injected consignments).
-func (s *Store) overlayFormFields(ctx context.Context, summaries []Summary) error {
-	var ids []string
-	for _, sm := range summaries {
-		if sm.ExporterRegistrationNo == "" || sm.CusdecNumber == "" {
-			ids = append(ids, sm.ConsignmentID)
-		}
+func encodeNSWData(data JSONB) (json.RawMessage, error) {
+	if data == nil {
+		return nil, nil
 	}
-	if len(ids) == 0 {
-		return nil
-	}
-
-	var rows []appDataRow
-	if err := s.db.WithContext(ctx).Table("applications").
-		Select("consignment_id, data").
-		Where("consignment_id IN ?", ids).
-		Find(&rows).Error; err != nil {
-		return err
-	}
-
-	byID := map[string]JSONB{}
-	for _, r := range rows {
-		cur := byID[r.ConsignmentID]
-		if cur == nil {
-			cur = JSONB{}
-		}
-		if v := stringField(r.Data, "exporter_registration_no", "exporterRegistrationNo"); v != "" {
-			cur["exporterRegistrationNo"] = v
-		}
-		if v := stringField(r.Data, "cusdec_number", "cusdecNumber"); v != "" {
-			cur["cusdecNumber"] = v
-		}
-		byID[r.ConsignmentID] = cur
-	}
-
-	for i := range summaries {
-		extra := byID[summaries[i].ConsignmentID]
-		if summaries[i].ExporterRegistrationNo == "" {
-			summaries[i].ExporterRegistrationNo = stringField(extra, "exporterRegistrationNo")
-		}
-		if summaries[i].CusdecNumber == "" {
-			summaries[i].CusdecNumber = stringField(extra, "cusdecNumber")
-		}
-	}
-	return nil
+	return json.Marshal(data)
 }
-

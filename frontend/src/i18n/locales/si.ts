@@ -53,8 +53,7 @@ const si = {
       loading: 'භාණ්ඩ තොග පූරණය වෙමින් පවතී...',
       table: {
         consignment: 'භාණ්ඩ තොගය',
-        exporterRegistrationNo: 'ලියාපදිංචි අංකය',
-        cusdecNumber: 'CUSDEC අංකය',
+        companyName: 'සමාගමේ නම',
         id: 'භාණ්ඩ තොග හැඳුනුම්පත',
         tasks: 'කාර්යයන්',
         latestStatus: 'නවතම තත්ත්වය',
@@ -66,8 +65,6 @@ const si = {
     tasks: {
       title: 'භාණ්ඩ තොග කාර්යයන්',
       consignmentIdLabel: 'භාණ්ඩ තොග හැඳුනුම්පත: {{consignmentId}}',
-      exporterRegistrationLabel: 'ලියාපදිංචි අංකය: {{exporterRegistrationNo}}',
-      cusdecNumberLabel: 'CUSDEC අංකය: {{cusdecNumber}}',
       badge: 'මුළු කාර්යයන් {{total}}',
       empty: 'මෙම භාණ්ඩ තොගය සඳහා කාර්යයන් කිසිවක් හමු නොවීය.',
       loading: 'කාර්යයන් පූරණය වෙමින් පවතී...',

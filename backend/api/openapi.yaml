@@ -271,9 +271,8 @@ paths:
         Returns a paginated list of unique consignments with their task count
         and latest status from the Agency database. Results can be filtered by
         a free-text search that matches the consignment ID. Each item may
-        include `traderCompanyName` cached at inject time, and registration /
-        CUSDEC numbers from the injected form when present.
-        Those fields are omitted when they were never stored.
+        include `traderCompanyName` cached at inject time.
+        It is omitted when it was never stored.
       tags:
         - Consignments
       parameters:
@@ -310,44 +309,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /api/v1/consignments/{consignmentId}:
-    get:
-      operationId: getConsignment
-      summary: Get consignment
-      security:
-        - BearerAuth: []
-      description: |
-        Returns a single consignment summary from the Agency database. The
-        trader company name (`traderCompanyName`) and registration /
-        CUSDEC numbers are served from the local cache written at inject time
-        (or overlaid from injected application data). They are omitted when
-        they were never stored.
-      tags:
-        - Consignments
-      parameters:
-        - name: consignmentId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Consignment summary
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ConsignmentSummary"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -764,14 +725,6 @@ components:
           type: string
           description: Trader company name from NSW, omitted if NSW is unreachable
           example: ADAM PVT LTD
-        exporterRegistrationNo:
-          type: string
-          description: Registration number from the injected form, omitted when not submitted
-          example: SLTB/EXP/2026/0498
-        cusdecNumber:
-          type: string
-          description: CUSDEC number from the injected form, omitted when not submitted
-          example: CUSDEC-2026-778120
         updatedAt:
           type: string
           format: date-time

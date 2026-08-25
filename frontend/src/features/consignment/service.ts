@@ -19,13 +19,3 @@ export async function fetchConsignments(
   })
   return res.data as PaginatedResponse<ConsignmentSummary>
 }
-
-export async function fetchConsignment(consignmentId: string, signal?: AbortSignal): Promise<ConsignmentSummary> {
-  const res = await http.request({
-    url: `${API_BASE_URL}/api/v1/consignments/${encodeURIComponent(consignmentId)}`,
-    method: 'GET',
-    attachToken: true,
-    signal,
-  })
-  return res.data as ConsignmentSummary
-}

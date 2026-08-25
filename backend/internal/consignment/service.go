@@ -11,8 +11,6 @@ import (
 type Service interface {
 	// GetConsignments returns a paginated list of unique consignments with their latest status (optionally filtered by search)
 	GetConsignments(ctx context.Context, search string, page, pageSize int) (*httputil.PagedResponse[Summary], error)
-	// GetConsignment returns a single consignment summary from the local store.
-	GetConsignment(ctx context.Context, consignmentID string) (*Summary, error)
 }
 
 type service struct {
@@ -41,9 +39,4 @@ func (s *service) GetConsignments(ctx context.Context, search string, page, page
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
-}
-
-// GetConsignment returns one consignment by ID directly from local store.
-func (s *service) GetConsignment(ctx context.Context, consignmentID string) (*Summary, error) {
-	return s.store.Get(ctx, consignmentID)
 }

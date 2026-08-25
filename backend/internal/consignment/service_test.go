@@ -2,7 +2,6 @@ package consignment
 
 import (
 	"context"
-	"errors"
 	"testing"
 )
 
@@ -39,23 +38,5 @@ func TestGetConsignments_WithoutExtras_KeepsMainFields(t *testing.T) {
 	}
 	if item.TraderCompanyName != "" {
 		t.Errorf("trader company name must stay empty without extras, got %q", item.TraderCompanyName)
-	}
-}
-
-func TestGetConsignment_ReturnsLocalStoreData(t *testing.T) {
-	store := newTestStore(t)
-	seedConsignmentWithData(t, store, "wf1", "PENDING", JSONB{"traderCompanyName": "ADAM PVT LTD"}, "t1")
-	svc := NewService(store)
-
-	got, err := svc.GetConsignment(context.Background(), "wf1")
-	if err != nil {
-		t.Fatalf("GetConsignment: %v", err)
-	}
-	if got.TraderCompanyName != "ADAM PVT LTD" || got.TaskCount != 1 {
-		t.Errorf("unexpected summary: %+v", got)
-	}
-
-	if _, err := svc.GetConsignment(context.Background(), "missing"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }

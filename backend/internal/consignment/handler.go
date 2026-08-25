@@ -1,7 +1,6 @@
 package consignment
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -43,32 +42,6 @@ func (h *Handler) HandleGetConsignments(w http.ResponseWriter, r *http.Request) 
 	result, err := h.service.GetConsignments(ctx, search, page, pageSize)
 	if err != nil {
 		httputil.InternalServerError(w, r, "failed to get consignments", err)
-		return
-	}
-
-	httputil.JSON(w, http.StatusOK, result)
-}
-
-// HandleGetConsignment handles GET /api/v1/consignments/{consignmentId}
-func (h *Handler) HandleGetConsignment(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	consignmentID := r.PathValue("consignmentId")
-	if consignmentID == "" {
-		httputil.Error(w, r, http.StatusBadRequest, "consignmentId is required")
-		return
-	}
-
-	result, err := h.service.GetConsignment(r.Context(), consignmentID)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			httputil.Error(w, r, http.StatusNotFound, "consignment not found")
-			return
-		}
-		httputil.InternalServerError(w, r, "failed to get consignment", err)
 		return
 	}
 

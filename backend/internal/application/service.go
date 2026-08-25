@@ -190,7 +190,6 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		if err := s.store.UpdateDataAndResetStatus(req.TaskID, req.Data); err != nil {
 			return err
 		}
-		s.cacheInjectedDisplayFields(ctx, req.ConsignmentID, req.Data)
 		return nil
 	}
 
@@ -215,7 +214,6 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 	if err := s.store.CreateOrUpdate(appRecord); err != nil {
 		return err
 	}
-	s.cacheInjectedDisplayFields(ctx, req.ConsignmentID, req.Data)
 
 	data, err := s.store.ConsignmentStore().GetData(ctx, req.ConsignmentID)
 	if err != nil {
@@ -231,39 +229,6 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 			"consignmentID", req.ConsignmentID, "error", err)
 	}
 	return nil
-}
-
-func (s *service) cacheInjectedDisplayFields(ctx context.Context, consignmentID string, data map[string]any) {
-	fields := displayFieldsFromInject(data)
-	if len(fields) == 0 {
-		return
-	}
-	if err := s.store.ConsignmentStore().MergeData(ctx, consignmentID, fields); err != nil {
-		slog.WarnContext(ctx, "failed to store injected consignment display fields",
-			"consignmentID", consignmentID, "error", err)
-	}
-}
-
-func displayFieldsFromInject(data map[string]any) consignment.JSONB {
-	out := consignment.JSONB{}
-	if v := nonEmptyString(data, "exporter_registration_no"); v != "" {
-		out["exporterRegistrationNo"] = v
-	}
-	if v := nonEmptyString(data, "cusdec_number"); v != "" {
-		out["cusdecNumber"] = v
-	}
-	return out
-}
-
-func nonEmptyString(data map[string]any, key string) string {
-	if data == nil {
-		return ""
-	}
-	v, ok := data[key].(string)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(v)
 }
 
 func traderCompanyName(data consignment.JSONB) string {

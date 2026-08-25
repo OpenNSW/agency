@@ -54,8 +54,7 @@ const en = {
       loading: 'Loading consignments...',
       table: {
         consignment: 'Consignment',
-        exporterRegistrationNo: 'Registration Number',
-        cusdecNumber: 'CUSDEC Number',
+        companyName: 'Company Name',
         id: 'Consignment ID',
         tasks: 'Tasks',
         latestStatus: 'Latest Status',
@@ -66,9 +65,7 @@ const en = {
     // ConsignmentTasksScreen.tsx
     tasks: {
       title: 'Consignment Tasks',
-      consignmentIdLabel: 'Consignment ID: {{consignmentId}}',
-      exporterRegistrationLabel: 'Registration Number: {{exporterRegistrationNo}}',
-      cusdecNumberLabel: 'CUSDEC Number: {{cusdecNumber}}',
+      consignmentIdLabel: 'ConsignmentId: {{consignmentId}}',
       badge: '{{total}} Total Tasks',
       empty: 'No tasks found for this consignment.',
       loading: 'Loading tasks...',

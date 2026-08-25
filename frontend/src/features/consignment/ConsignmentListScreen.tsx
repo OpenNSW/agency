@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import { Badge, Text, TextField, Spinner, IconButton } from '@radix-ui/themes'
 import { MagnifyingGlassIcon, ChevronLeftIcon, ChevronRightIcon, ArchiveIcon } from '@radix-ui/react-icons'
 import { useConsignmentList } from './hooks/useConsignmentList'
-import { officerDisplayName } from './displayName'
 import { formatDateForTable } from '@/utils/date'
 
 export function ConsignmentListScreen() {
@@ -90,10 +89,7 @@ export function ConsignmentListScreen() {
                       {t('consignments.list.table.consignment')}
                     </th>
                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      {t('consignments.list.table.exporterRegistrationNo')}
-                    </th>
-                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      {t('consignments.list.table.cusdecNumber')}
+                      {t('consignments.list.table.companyName')}
                     </th>
                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">
                       {t('consignments.list.table.tasks')}
@@ -108,8 +104,7 @@ export function ConsignmentListScreen() {
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
                   {data.map((consignment) => {
-                    const exporterRegistrationNo = officerDisplayName(consignment.exporterRegistrationNo)
-                    const cusdecNumber = officerDisplayName(consignment.cusdecNumber)
+                    const companyName = consignment.traderCompanyName?.trim()
                     return (
                       <tr
                         key={consignment.consignmentId}
@@ -123,10 +118,7 @@ export function ConsignmentListScreen() {
                             {consignment.consignmentId}
                           </Text>
                         </td>
-                        <td className="px-6 py-4 text-gray-900 whitespace-nowrap">
-                          {exporterRegistrationNo || '—'}
-                        </td>
-                        <td className="px-6 py-4 text-gray-900 whitespace-nowrap">{cusdecNumber || '—'}</td>
+                        <td className="px-6 py-4 text-gray-900 whitespace-nowrap">{companyName || '—'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">{consignment.taskCount}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
                           <Badge
