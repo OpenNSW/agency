@@ -74,6 +74,8 @@ const si = {
         task: 'කාර්යය',
         category: 'ප්‍රවර්ගය',
         status: 'තත්ත්වය',
+        claimedBy: 'හිමිකම් කියන ලද්දේ',
+        unclaimed: 'හිමිකම් නොකියූ',
         lastUpdated: 'අවසන් වරට යාවත්කාලීන කරන ලද්දේ',
       },
     },
@@ -87,6 +89,8 @@ const si = {
       success: 'සමාලෝචනය සාර්ථකව ඉදිරිපත් කරන ලදී! යොමු වෙමින් පවතී...',
       statusCallout: 'මෙම අයදුම්පත {{status}} කර ඇත.',
       notFound: 'අයදුම්පත හමු නොවීය',
+      claimedByYou: 'ඔබ විසින් හිමිකම් කියන ලදී',
+      claimedBy: '{{name}} විසින් හිමිකම් කියන ලදී',
       section: {
         review: 'සමාලෝචනය',
         applicationDetails: 'අයදුම්පත් විස්තර',
@@ -105,10 +109,13 @@ const si = {
         cancel: 'අවලංගු කරන්න',
         submitReview: 'සමාලෝචනය ඉදිරිපත් කරන්න',
         generateCertificate: 'සහතිකය ජනනය කරන්න',
+        claim: 'හිමිකම් කියන්න',
+        release: 'මුදා හරින්න',
       },
       empty: {
         noSubmissionData: 'ඉදිරිපත් කළ දත්ත නොමැත',
         noReviewPermission: 'මෙම අයදුම්පත සමාලෝචනය කිරීමට ඔබට අවසර නොමැත.',
+        claimedByOther: 'මෙම අයදුම්පත දැනට {{name}} විසින් හිමිකම් කියා ඇත. ඔවුන්ට පමණක් එය සමාලෝචනය කළ හැක.',
       },
       feedback: {
         round: 'වටය {{round}}',

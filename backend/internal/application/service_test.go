@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
 	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
+	"github.com/OpenNSW/nsw-agency/backend/internal/user"
 	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
 )
 
@@ -208,6 +210,22 @@ func newAuthContext(ctx context.Context, userID string) context.Context {
 	return authn.ContextWithPrincipal(ctx, &authn.Principal{Kind: authn.KindUser, UserID: userID})
 }
 
+// claimAs claims taskID on behalf of userID and returns an auth context
+// carrying that principal, ready to pass to ReviewApplication (which
+// requires the caller to currently hold the claim). Seeds a users row for
+// userID if one doesn't already exist, since claimant name/email are now
+// looked up live rather than stored on the claim.
+func (h *serviceHarness) claimAs(taskID, userID string) context.Context {
+	h.t.Helper()
+	if err := h.store.db.FirstOrCreate(&user.UserRecord{UserID: userID, Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", userID).Error; err != nil {
+		h.t.Fatalf("failed to seed user %s: %v", userID, err)
+	}
+	if err := h.store.ClaimApplication(taskID, userID); err != nil {
+		h.t.Fatalf("failed to claim %s for %s: %v", taskID, userID, err)
+	}
+	return newAuthContext(context.Background(), userID)
+}
+
 // seed inserts an application record with the harness's callback URL as ServiceURL.
 func (h *serviceHarness) seed(taskID, taskCode string, data JSONB) {
 	h.t.Helper()
@@ -267,7 +285,8 @@ func TestReviewApplication_StatusFromStatusMap(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.outcome, func(t *testing.T) {
-			err := h.service.ReviewApplication(context.Background(), tc.taskID, map[string]any{
+			ctx := h.claimAs(tc.taskID, "officer-1")
+			err := h.service.ReviewApplication(ctx, tc.taskID, map[string]any{
 				"review_outcome": tc.outcome,
 			})
 			if err != nil {
@@ -289,7 +308,8 @@ func TestReviewApplication_DefaultsToDONE_OutcomeNotInMap(t *testing.T) {
 	})
 	h.seed("t-unknown", "alpha", nil)
 
-	err := h.service.ReviewApplication(context.Background(), "t-unknown", map[string]any{
+	ctx := h.claimAs("t-unknown", "officer-1")
+	err := h.service.ReviewApplication(ctx, "t-unknown", map[string]any{
 		"review_outcome": "totally_made_up",
 	})
 	if err != nil {
@@ -307,7 +327,8 @@ func TestReviewApplication_DefaultsToDONE_NoStatusMap(t *testing.T) {
 	})
 	h.seed("t-no-map", "alpha", nil)
 
-	err := h.service.ReviewApplication(context.Background(), "t-no-map", map[string]any{
+	ctx := h.claimAs("t-no-map", "officer-1")
+	err := h.service.ReviewApplication(ctx, "t-no-map", map[string]any{
 		"review_outcome": "approve",
 	})
 	if err != nil {
@@ -322,7 +343,8 @@ func TestReviewApplication_DefaultsToDONE_NoConfig(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	h.seed("t-no-config", "no-such-task", nil)
 
-	err := h.service.ReviewApplication(context.Background(), "t-no-config", map[string]any{
+	ctx := h.claimAs("t-no-config", "officer-1")
+	err := h.service.ReviewApplication(ctx, "t-no-config", map[string]any{
 		"review_outcome": "approve",
 	})
 	if err != nil {
@@ -348,7 +370,8 @@ func TestReviewApplication_OutcomeFieldOverride(t *testing.T) {
 
 	t.Run("custom field hit", func(t *testing.T) {
 		h.seed("t-pass", "labs", nil)
-		err := h.service.ReviewApplication(context.Background(), "t-pass", map[string]any{
+		ctx := h.claimAs("t-pass", "officer-1")
+		err := h.service.ReviewApplication(ctx, "t-pass", map[string]any{
 			"decision": "pass",
 		})
 		if err != nil {
@@ -363,7 +386,8 @@ func TestReviewApplication_OutcomeFieldOverride(t *testing.T) {
 		h.seed("t-defaultignored", "labs", nil)
 		// review_outcome is the default name but the config asked for "decision",
 		// so the default name should NOT be honored.
-		err := h.service.ReviewApplication(context.Background(), "t-defaultignored", map[string]any{
+		ctx := h.claimAs("t-defaultignored", "officer-1")
+		err := h.service.ReviewApplication(ctx, "t-defaultignored", map[string]any{
 			"review_outcome": "pass",
 		})
 		if err != nil {
@@ -386,7 +410,8 @@ func TestReviewApplication_CallsServiceURL(t *testing.T) {
 	})
 	h.seed("t-callback", "alpha", nil)
 
-	err := h.service.ReviewApplication(context.Background(), "t-callback", map[string]any{
+	ctx := h.claimAs("t-callback", "officer-1")
+	err := h.service.ReviewApplication(ctx, "t-callback", map[string]any{
 		"review_outcome": "approve",
 		"comment":        "lgtm",
 	})
@@ -755,5 +780,167 @@ func TestGetApplication_NoConfig_EmptyAllowedActions(t *testing.T) {
 	// No config → falls back to full access.
 	if len(app.AllowedActions) != 3 {
 		t.Errorf("expected 3 default allowed actions, got %v", app.AllowedActions)
+	}
+}
+
+// ---------- ClaimApplication / ReleaseApplication ----------
+
+func TestClaimApplication_Success(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-claim", "no-such-task", nil)
+	seedUser(t, h.store, "officer-1", "Officer One", "officer@example.com")
+
+	ctx := newAuthContext(context.Background(), "officer-1")
+	if err := h.service.ClaimApplication(ctx, "t-claim"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	app, err := h.service.GetApplication(context.Background(), "t-claim")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.ClaimedByEmail == nil || *app.ClaimedByEmail != "officer@example.com" {
+		t.Errorf("expected ClaimedByEmail looked up from users table, got %v", app.ClaimedByEmail)
+	}
+}
+
+func TestClaimApplication_ConflictWithOtherOfficer(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-claim-conflict", "no-such-task", nil)
+
+	ctx1 := newAuthContext(context.Background(), "officer-1")
+	if err := h.service.ClaimApplication(ctx1, "t-claim-conflict"); err != nil {
+		t.Fatalf("first ClaimApplication failed: %v", err)
+	}
+
+	ctx2 := newAuthContext(context.Background(), "officer-2")
+	err := h.service.ClaimApplication(ctx2, "t-claim-conflict")
+	if err != ErrApplicationAlreadyClaimed {
+		t.Errorf("expected ErrApplicationAlreadyClaimed, got %v", err)
+	}
+}
+
+func TestClaimApplication_NotFound(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	ctx := newAuthContext(context.Background(), "officer-1")
+	err := h.service.ClaimApplication(ctx, "does-not-exist")
+	if err != ErrApplicationNotFound {
+		t.Errorf("expected ErrApplicationNotFound, got %v", err)
+	}
+}
+
+func TestReleaseApplication_Success(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-release", "no-such-task", nil)
+
+	ctx := newAuthContext(context.Background(), "officer-1")
+	if err := h.service.ClaimApplication(ctx, "t-release"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+	if err := h.service.ReleaseApplication(ctx, "t-release"); err != nil {
+		t.Fatalf("ReleaseApplication failed: %v", err)
+	}
+
+	app, err := h.service.GetApplication(context.Background(), "t-release")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.ClaimedByEmail != nil {
+		t.Errorf("expected claim cleared, got %v", app.ClaimedByEmail)
+	}
+}
+
+func TestReleaseApplication_NotClaimedByCaller(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-release-other", "no-such-task", nil)
+
+	ctx1 := newAuthContext(context.Background(), "officer-1")
+	if err := h.service.ClaimApplication(ctx1, "t-release-other"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	ctx2 := newAuthContext(context.Background(), "officer-2")
+	err := h.service.ReleaseApplication(ctx2, "t-release-other")
+	if err != ErrApplicationNotClaimedByYou {
+		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	}
+}
+
+// ---------- ReviewApplication: claim enforcement ----------
+
+func TestReviewApplication_RejectsWhenUnclaimed(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-review-unclaimed", "no-such-task", nil)
+
+	ctx := newAuthContext(context.Background(), "officer-1")
+	err := h.service.ReviewApplication(ctx, "t-review-unclaimed", map[string]any{"review_outcome": "approve"})
+	if err != ErrApplicationNotClaimedByYou {
+		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	}
+}
+
+func TestReviewApplication_RejectsWhenClaimedByAnotherOfficer(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-review-other-claim", "no-such-task", nil)
+
+	if err := h.store.ClaimApplication("t-review-other-claim", "officer-1"); err != nil {
+		t.Fatalf("ClaimApplication failed: %v", err)
+	}
+
+	ctx := newAuthContext(context.Background(), "officer-2")
+	err := h.service.ReviewApplication(ctx, "t-review-other-claim", map[string]any{"review_outcome": "approve"})
+	if err != ErrApplicationNotClaimedByYou {
+		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	}
+}
+
+// TestReviewApplication_ConflictOnDoubleSubmit simulates a claimant
+// submitting a review twice (e.g. a double-click, or two concurrent
+// requests that both pass the initial ownership check). The claim is left
+// in place after a review, so without an atomic finalize the second call
+// would silently record a conflicting outcome; it must instead be rejected.
+func TestReviewApplication_ConflictOnDoubleSubmit(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-review-double", "no-such-task", nil)
+
+	ctx := h.claimAs("t-review-double", "officer-1")
+
+	if err := h.service.ReviewApplication(ctx, "t-review-double", map[string]any{"review_outcome": "approve"}); err != nil {
+		t.Fatalf("first ReviewApplication failed: %v", err)
+	}
+
+	err := h.service.ReviewApplication(ctx, "t-review-double", map[string]any{"review_outcome": "reject"})
+	if !errors.Is(err, ErrApplicationReviewConflict) {
+		t.Errorf("expected ErrApplicationReviewConflict on double submit, got %v", err)
+	}
+
+	// The first outcome must stick; the second call must not have overwritten it.
+	if h.statusOf("t-review-double") != "DONE" {
+		t.Errorf("expected status to remain 'DONE' from the first review, got %q", h.statusOf("t-review-double"))
+	}
+}
+
+func TestReleaseApplication_RejectedOnceReviewed(t *testing.T) {
+	h := newServiceHarness(t, nil)
+	h.seed("t-release-reviewed", "no-such-task", nil)
+
+	ctx := h.claimAs("t-release-reviewed", "officer-1")
+	if err := h.service.ReviewApplication(ctx, "t-release-reviewed", map[string]any{
+		"review_outcome": "approve",
+	}); err != nil {
+		t.Fatalf("ReviewApplication failed: %v", err)
+	}
+
+	err := h.service.ReleaseApplication(ctx, "t-release-reviewed")
+	if err != ErrApplicationNotPending {
+		t.Errorf("expected ErrApplicationNotPending, got %v", err)
+	}
+
+	app, err := h.service.GetApplication(context.Background(), "t-release-reviewed")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.ClaimedByEmail == nil {
+		t.Error("expected claim to remain in place after rejected release")
 	}
 }

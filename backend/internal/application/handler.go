@@ -182,9 +182,14 @@ func (h *Handler) HandleReviewApplication(w http.ResponseWriter, r *http.Request
 
 	// Process review and send response to service
 	if err := h.service.ReviewApplication(ctx, taskID, requestBody); err != nil {
-		if errors.Is(err, ErrApplicationNotFound) {
+		switch {
+		case errors.Is(err, ErrApplicationNotFound):
 			httputil.Error(w, r, http.StatusNotFound, "Application not found")
-		} else {
+		case errors.Is(err, ErrApplicationNotClaimedByYou):
+			httputil.Error(w, r, http.StatusForbidden, "You must claim this application before reviewing it")
+		case errors.Is(err, ErrApplicationReviewConflict):
+			httputil.Error(w, r, http.StatusConflict, "This application was already reviewed or your claim has changed; please refresh and try again")
+		default:
 			httputil.InternalServerError(w, r, "failed to review application", err, "taskID", taskID)
 		}
 		return
@@ -197,5 +202,80 @@ func (h *Handler) HandleReviewApplication(w http.ResponseWriter, r *http.Request
 	httputil.JSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": "Application reviewed successfully",
+	})
+}
+
+// HandleClaimApplication handles POST /api/v1/applications/{taskId}/claim
+// Marks the application as claimed by the calling officer, required before
+// they can review it.
+func (h *Handler) HandleClaimApplication(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	taskID, err := h.parseTaskID(w, r)
+	if err != nil {
+		return
+	}
+
+	ctx := r.Context()
+
+	if err := h.service.ClaimApplication(ctx, taskID); err != nil {
+		switch {
+		case errors.Is(err, ErrApplicationNotFound):
+			httputil.Error(w, r, http.StatusNotFound, "Application not found")
+		case errors.Is(err, ErrApplicationAlreadyClaimed):
+			httputil.Error(w, r, http.StatusConflict, "Application already claimed by another officer")
+		case errors.Is(err, ErrApplicationNotPending):
+			httputil.Error(w, r, http.StatusConflict, "Application has already been reviewed and can no longer be claimed")
+		default:
+			httputil.InternalServerError(w, r, "failed to claim application", err, "taskID", taskID)
+		}
+		return
+	}
+
+	slog.InfoContext(ctx, "application claimed", "taskID", taskID)
+
+	httputil.JSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"message": "Application claimed successfully",
+	})
+}
+
+// HandleReleaseApplication handles POST /api/v1/applications/{taskId}/release
+// Releases the calling officer's claim on the application.
+func (h *Handler) HandleReleaseApplication(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httputil.Error(w, r, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	taskID, err := h.parseTaskID(w, r)
+	if err != nil {
+		return
+	}
+
+	ctx := r.Context()
+
+	if err := h.service.ReleaseApplication(ctx, taskID); err != nil {
+		switch {
+		case errors.Is(err, ErrApplicationNotFound):
+			httputil.Error(w, r, http.StatusNotFound, "Application not found")
+		case errors.Is(err, ErrApplicationNotClaimedByYou):
+			httputil.Error(w, r, http.StatusForbidden, "Application is not claimed by you")
+		case errors.Is(err, ErrApplicationNotPending):
+			httputil.Error(w, r, http.StatusConflict, "Application has already been reviewed and its claim can no longer be released")
+		default:
+			httputil.InternalServerError(w, r, "failed to release application", err, "taskID", taskID)
+		}
+		return
+	}
+
+	slog.InfoContext(ctx, "application released", "taskID", taskID)
+
+	httputil.JSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"message": "Application released successfully",
 	})
 }

@@ -55,6 +55,24 @@ export async function submitReview(
   return res.data as ReviewResponse
 }
 
+export async function claimApplication(taskId: string, signal?: AbortSignal): Promise<void> {
+  await http.request({
+    url: `${API_BASE_URL}/api/v1/applications/${taskId}/claim`,
+    method: 'POST',
+    attachToken: true,
+    signal,
+  })
+}
+
+export async function releaseApplication(taskId: string, signal?: AbortSignal): Promise<void> {
+  await http.request({
+    url: `${API_BASE_URL}/api/v1/applications/${taskId}/release`,
+    method: 'POST',
+    attachToken: true,
+    signal,
+  })
+}
+
 export async function submitFeedback(
   taskId: string,
   content: Record<string, unknown>,

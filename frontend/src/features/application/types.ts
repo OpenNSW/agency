@@ -57,6 +57,13 @@ export interface AgencyApplication {
   feedbackHistory?: FeedbackEntry[]
   reviewerNotes?: string
   reviewedAt?: string
+
+  // Set when an officer has claimed the application to work on it; required
+  // before a review can be submitted.
+  claimedByName?: string
+  claimedByEmail?: string
+  claimedAt?: string
+
   createdAt: string
   updatedAt: string
 }

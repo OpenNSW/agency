@@ -75,6 +75,8 @@ const en = {
         task: 'Task',
         category: 'Category',
         status: 'Status',
+        claimedBy: 'Claimed By',
+        unclaimed: 'Unclaimed',
         lastUpdated: 'Last Updated',
       },
     },
@@ -88,6 +90,8 @@ const en = {
       success: 'Review submitted successfully! Redirecting...',
       statusCallout: 'This application has been {{status}}.',
       notFound: 'Application not found',
+      claimedByYou: 'Claimed by you',
+      claimedBy: 'Claimed by {{name}}',
       section: {
         review: 'Review',
         applicationDetails: 'Application Details',
@@ -106,10 +110,13 @@ const en = {
         cancel: 'Cancel',
         submitReview: 'Submit Review',
         generateCertificate: 'Generate Certificate',
+        claim: 'Claim',
+        release: 'Release',
       },
       empty: {
         noSubmissionData: 'No submission data available',
         noReviewPermission: 'You do not have permission to review this application.',
+        claimedByOther: 'This application is currently claimed by {{name}}. Only they can review it.',
       },
       feedback: {
         round: 'Round {{round}}',
