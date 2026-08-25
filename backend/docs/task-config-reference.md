@@ -5,8 +5,7 @@ This document explains every field of the `taskconfig.TaskConfig` Go struct
 actually consumed by the codebase. For the artifact-loading mechanics
 (manifest, storage backends, resolution flow) see [`task-configs.md`](./task-configs.md) —
 this doc focuses on the struct itself, field by field, including
-`permissions` and `certificate`, which are newer additions not yet covered
-there.
+`certificate`, which is a newer addition not yet covered there.
 
 ## The struct
 
@@ -300,8 +299,7 @@ will reject the request for that application.
 - Storage/manifest mechanics, the resolution flow for `GET /applications/{taskId}`,
   and how to add a brand-new task config file are covered in
   [`task-configs.md`](./task-configs.md) — nothing here changes that flow, this
-  document only adds the `permissions` and `certificate` fields that file
-  doesn't yet mention.
+  document only adds the `certificate` field that file doesn't yet mention.
 - Parsing/validation entry point: `internal/taskconfig/taskconfigart/taskconfigart.go`
   (`loadable.Parse` → `json.Unmarshal` into `taskconfig.TaskConfig`).
 - Primary struct definition: `internal/taskconfig/task_config.go`.

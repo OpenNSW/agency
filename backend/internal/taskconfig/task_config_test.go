@@ -36,6 +36,16 @@ func TestValidate_PermissionMissingActions(t *testing.T) {
 	}
 }
 
+func TestValidate_PermissionEmptyAction(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "officer", Actions: []string{"VIEW", ""}}},
+	}
+	if err := c.Validate(); err == nil {
+		t.Error("expected error when a permission entry has an empty action")
+	}
+}
+
 func TestValidate_Valid(t *testing.T) {
 	c := TaskConfig{
 		TaskCode:    "alpha",

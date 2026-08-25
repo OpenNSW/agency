@@ -219,7 +219,13 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 			UpdatedAt:      record.UpdatedAt,
 		}
 
-		if config, err := taskconfigart.Load(ctx, s.artifactRegistry, record.TaskCode); err == nil {
+		config, err := taskconfigart.Load(ctx, s.artifactRegistry, record.TaskCode)
+		if err != nil {
+			if !errors.Is(err, artifact.ErrNotFound) {
+				return nil, fmt.Errorf("failed to load task config for task %s: %w", record.TaskCode, err)
+			}
+			slog.WarnContext(ctx, "task config not found for application", "taskID", record.TaskID, "taskCode", record.TaskCode)
+		} else {
 			app.Title = config.Meta.Title
 			app.Category = config.Meta.Category
 			app.Icon = config.Meta.Icon

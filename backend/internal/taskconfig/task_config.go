@@ -3,6 +3,7 @@ package taskconfig
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // TaskConfig is the per-taskCode configuration: UI metadata, references to
@@ -31,6 +32,11 @@ func (c TaskConfig) Validate() error {
 		}
 		if len(p.Actions) == 0 {
 			return fmt.Errorf("taskconfig %q: permissions[%d].actions must include at least one entry", c.TaskCode, i)
+		}
+		for j, action := range p.Actions {
+			if strings.TrimSpace(action) == "" {
+				return fmt.Errorf("taskconfig %q: permissions[%d].actions[%d] must not be empty", c.TaskCode, i, j)
+			}
 		}
 	}
 	return nil
