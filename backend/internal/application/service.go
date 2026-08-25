@@ -464,13 +464,6 @@ func (s *service) ReleaseApplication(ctx context.Context, taskID string) error {
 	return nil
 }
 
-func resolveAccess(roles []rbac.RoleRecord, permissions []taskconfig.Permission) (bool, []string) {
-	if len(permissions) == 0 {
-		return true, []string{"VIEW", "REVIEW", "FEEDBACK"}
-	}
-	return rbac.ResolveAccess(roles, permissions)
-}
-
 func (s *service) Close() error {
 	if s.store != nil {
 		return s.store.Close()
