@@ -3,7 +3,7 @@
     {
       "name": "SLPA Officer",
       "email": "slpa_officer@government.dev",
-      "roles": ["lab_officer"]
+      "roles": ["officer"]
     }
   ]
 }
