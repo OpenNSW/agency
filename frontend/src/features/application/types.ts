@@ -24,8 +24,10 @@ export interface FormDefinition {
 export interface AgencyApplication {
   taskId: string
   consignmentId: string
-  serviceUrl: string
-  data: Record<string, unknown>
+
+  // Trader-submitted data and reviewer action data — only present on the
+  // detail response (GET /applications/{taskId}), omitted from list results.
+  data?: Record<string, unknown>
   agencyActionData?: Record<string, unknown>
 
   // Task metadata from config
