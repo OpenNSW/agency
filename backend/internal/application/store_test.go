@@ -650,8 +650,24 @@ func TestApplicationStore_ClaimApplication_IdempotentForSameUser(t *testing.T) {
 	if err := store.ClaimApplication("task-claim-2", "user-1"); err != nil {
 		t.Fatalf("first ClaimApplication failed: %v", err)
 	}
+	app, err := store.GetByTaskID("task-claim-2")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	firstClaimedAt := app.ClaimedAt
+
 	if err := store.ClaimApplication("task-claim-2", "user-1"); err != nil {
 		t.Fatalf("re-claim by same user should succeed, got: %v", err)
+	}
+
+	// Re-claiming by the same user must be a no-op: claimed_at should not
+	// be refreshed.
+	app, err = store.GetByTaskID("task-claim-2")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if app.ClaimedAt == nil || firstClaimedAt == nil || !app.ClaimedAt.Equal(*firstClaimedAt) {
+		t.Errorf("expected ClaimedAt to remain %v after no-op re-claim, got %v", firstClaimedAt, app.ClaimedAt)
 	}
 }
 
