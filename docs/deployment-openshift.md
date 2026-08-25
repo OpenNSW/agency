@@ -161,7 +161,7 @@ data:
   VITE_APP_URL: "https://agency.apps.example.com"
   VITE_IDP_BASE_URL: "https://idp.example.com"
   VITE_IDP_CLIENT_ID: "<AGENCY_PORTAL_CLIENT_ID>"
-  VITE_IDP_SCOPES: "openid,profile,email,ou,role"
+  VITE_IDP_SCOPES: "openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write"
   # Must equal AUTH_AUDIENCE above, or the agency:* scopes are dropped.
   VITE_IDP_EXTRA_QUERY_PARAMS: "resource=https://api.nsw-agency.local"
   VITE_IDP_EXPECTED_OU_HANDLE: "fcau"

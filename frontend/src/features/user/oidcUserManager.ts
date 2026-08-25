@@ -7,7 +7,7 @@ const scope = rawScopes
       .split(',')
       .map((s) => s.trim())
       .join(' ')
-  : 'openid profile email ou'
+  : 'openid profile email ou role agency:application:read agency:application:review agency:application:feedback agency:consignment:read agency:storage:read agency:storage:write'
 
 // Named by config rather than hard-coded, so the portal is not tied to one IdP's
 // dialect: ThunderID wants RFC 8707 `resource`, another might want `audience`.
