@@ -164,7 +164,7 @@ func (s *ApplicationStore) List(ctx context.Context, status string, consignmentI
 	var total int64
 
 	query := s.db.WithContext(ctx).Model(&ApplicationRecord{}).
-		Select("task_id", "task_code", "consignment_id", "status", "reviewed_at", "created_at", "updated_at")
+		Select("task_id", "task_code", "consignment_id", "status", "claimed_by", "claimed_at", "reviewed_at", "created_at", "updated_at")
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}

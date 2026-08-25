@@ -177,6 +177,13 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		Data:          req.Data,
 		Status:        "PENDING",
 	}
+	if existing != nil {
+		// CreateOrUpdate does a full-row Save, so any field left unset here
+		// would be overwritten to NULL. Carry the claim forward so
+		// re-injecting an already-claimed application doesn't erase it.
+		appRecord.ClaimedBy = existing.ClaimedBy
+		appRecord.ClaimedAt = existing.ClaimedAt
+	}
 
 	return s.store.CreateOrUpdate(appRecord)
 }
