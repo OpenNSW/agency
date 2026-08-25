@@ -34,7 +34,11 @@ type DownloadMetadata struct {
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
-const storageBasePath = "storage"
+// storageBasePath is the NSW API's storage endpoint path, including its
+// version segment. BaseURL points only at the NSW service origin, so a
+// future v2 migration changes this constant, not every deployment's
+// NSW_API_BASE_URL.
+const storageBasePath = "api/v1/storage"
 
 // GetDownloadURL fetches a (possibly presigned) download URL for a key from the
 // NSW backend's storage metadata endpoint.
