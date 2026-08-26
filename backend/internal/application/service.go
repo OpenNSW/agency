@@ -379,10 +379,13 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 	}
 
 	config, configErr := taskconfigart.Load(ctx, s.artifactRegistry, app.TaskCode)
-	behavior := config.Behavior
 	if configErr != nil {
-		behavior = nil
+		// Without a config we don't know how this task's review outcome
+		// should be interpreted. Fail closed rather than trusting an
+		// arbitrary reviewer-supplied field as the command and status.
+		return fmt.Errorf("failed to load task config for task %s: %w", app.TaskCode, configErr)
 	}
+	behavior := config.Behavior
 
 	command := "approve"
 	status := "DONE"

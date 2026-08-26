@@ -334,6 +334,87 @@ func TestReviewApplication_AutoApprove(t *testing.T) {
 	}
 }
 
+// succeedThenFailLoader returns data on the first Load call and a
+// non-ErrNotFound error on every subsequent call. This simulates a task
+// config load that succeeds when buildApplication reads it but fails
+// transiently on ReviewApplication's own read of the same config.
+type succeedThenFailLoader struct {
+	mu    sync.Mutex
+	calls int
+	data  []byte
+}
+
+func (l *succeedThenFailLoader) Load(_ context.Context, _ string) ([]byte, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls++
+	if l.calls > 1 {
+		return nil, fmt.Errorf("simulated remote store failure")
+	}
+	return l.data, nil
+}
+
+// TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed covers a task
+// config load that succeeds during buildApplication but fails with a
+// genuine (non-ErrNotFound) error on ReviewApplication's own load. The
+// review must fail closed rather than silently falling back to default
+// status-map behavior, which could send the wrong command and persist the
+// wrong status for what is actually an autoApprove task.
+func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
+	store := newTestStore(t)
+	srv, capture := newCallbackServer(t)
+	if err := store.CreateOrUpdate(&ApplicationRecord{
+		TaskID:        "t-load-fail-review",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-test",
+		ServiceURL:    srv.URL,
+		Data:          JSONB{"field": "value"},
+		Status:        "PENDING",
+	}); err != nil {
+		t.Fatalf("failed to seed record: %v", err)
+	}
+
+	loader := &succeedThenFailLoader{data: []byte(`{
+		"schemaVersion": 1,
+		"meta": {"title": "Alpha"},
+		"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+		"behavior": {"type": "autoApprove"}
+	}`)}
+	reg := artifact.NewRegistry(loader)
+	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
+
+	hc := httpclient.NewClientBuilder().Build()
+	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
+	t.Cleanup(func() { _ = svc.Close() })
+
+	if err := store.db.FirstOrCreate(&user.UserRecord{UserID: "officer-1", Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", "officer-1").Error; err != nil {
+		t.Fatalf("failed to seed user: %v", err)
+	}
+	if err := store.ClaimApplication("t-load-fail-review", "officer-1"); err != nil {
+		t.Fatalf("failed to claim record: %v", err)
+	}
+	ctx := newAuthContext(context.Background(), "officer-1")
+
+	err := svc.ReviewApplication(ctx, "t-load-fail-review", map[string]any{
+		"review_outcome": "approve",
+	})
+	if err == nil {
+		t.Fatalf("expected an error when the task config fails to load on review")
+	}
+
+	if body := capture.lastCall(); body != nil {
+		t.Errorf("expected no callback to be sent on load error, got %v", body)
+	}
+
+	rec, getErr := store.GetByTaskID("t-load-fail-review")
+	if getErr != nil {
+		t.Fatalf("failed to load record: %v", getErr)
+	}
+	if rec.Status != "PENDING" {
+		t.Errorf("status: got %q, want PENDING (review must not finalize on load error)", rec.Status)
+	}
+}
+
 func TestReviewApplication_DefaultsToDONE_OutcomeNotInMap(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
@@ -380,7 +461,12 @@ func TestReviewApplication_DefaultsToDONE_NoStatusMap(t *testing.T) {
 	}
 }
 
-func TestReviewApplication_DefaultsToDONE_NoConfig(t *testing.T) {
+// TestReviewApplication_NoConfig_FailsClosed covers a task code with no
+// registered config at all. Without a config we don't know how this task's
+// review outcome should be interpreted, so the review must fail closed
+// rather than trusting an arbitrary reviewer-supplied field as the command
+// and defaulting the status to DONE.
+func TestReviewApplication_NoConfig_FailsClosed(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	h.seed("t-no-config", "no-such-task", nil)
 
@@ -388,11 +474,14 @@ func TestReviewApplication_DefaultsToDONE_NoConfig(t *testing.T) {
 	err := h.service.ReviewApplication(ctx, "t-no-config", map[string]any{
 		"review_outcome": "approve",
 	})
-	if err != nil {
-		t.Fatalf("ReviewApplication failed: %v", err)
+	if err == nil {
+		t.Fatalf("expected an error when no task config is registered")
 	}
-	if got := h.statusOf("t-no-config"); got != "DONE" {
-		t.Errorf("status: got %q, want DONE", got)
+	if got := h.statusOf("t-no-config"); got != "PENDING" {
+		t.Errorf("status: got %q, want PENDING (review must not finalize without a config)", got)
+	}
+	if body := h.capture.lastCall(); body != nil {
+		t.Errorf("expected no callback to be sent without a config, got %v", body)
 	}
 }
 
@@ -1006,8 +1095,14 @@ func TestReviewApplication_RejectsWhenClaimedByAnotherOfficer(t *testing.T) {
 // in place after a review, so without an atomic finalize the second call
 // would silently record a conflicting outcome; it must instead be rejected.
 func TestReviewApplication_ConflictOnDoubleSubmit(t *testing.T) {
-	h := newServiceHarness(t, nil)
-	h.seed("t-review-double", "no-such-task", nil)
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+		}`)
+	})
+	h.seed("t-review-double", "alpha", nil)
 
 	ctx := h.claimAs("t-review-double", "officer-1")
 
@@ -1027,8 +1122,14 @@ func TestReviewApplication_ConflictOnDoubleSubmit(t *testing.T) {
 }
 
 func TestReleaseApplication_RejectedOnceReviewed(t *testing.T) {
-	h := newServiceHarness(t, nil)
-	h.seed("t-release-reviewed", "no-such-task", nil)
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+		}`)
+	})
+	h.seed("t-release-reviewed", "alpha", nil)
 
 	ctx := h.claimAs("t-release-reviewed", "officer-1")
 	if err := h.service.ReviewApplication(ctx, "t-release-reviewed", map[string]any{
