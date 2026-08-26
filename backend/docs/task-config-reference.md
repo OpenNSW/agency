@@ -181,10 +181,15 @@ References to separately-stored form definitions (artifact kind
 | `view`   | no       | Form ID for the **read-only** rendering of the trader's submitted data. Attached to the response as `dataForm`. Omit if the task has nothing trader-submitted to show. |
 | `review` | no       | Form ID for the **officer's review action** form (approve/reject/etc). Attached as `agencyForm`. Omit if the task has no review action.                                |
 
-Resolution is best-effort per form: if a referenced form ID isn't found in
-the registry, the field is simply omitted from the response and a warning is
-logged (`"view form not found"` / `"review form not found"`) — it does not
-fail the whole request.
+When building an application response (`GET`), resolution is best-effort per
+form: if a referenced form ID isn't found in the registry, the field is
+simply omitted from the response and a warning is logged (`"view form not
+found"` / `"review form not found"`) — it does not fail the whole request.
+
+Injection (`CreateApplication`) is different: when `forms.view` is set, the
+injected `data` is validated against that form's schema, and a load,
+parse, or resolve failure for the form fails the request closed rather than
+silently skipping validation.
 
 ## `behavior` (`*TaskBehavior`) — required whenever `forms.review` is set
 
