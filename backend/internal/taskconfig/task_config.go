@@ -6,15 +6,26 @@ import (
 	"strings"
 )
 
+// CurrentSchemaVersion is the only TaskConfig shape this build understands.
+// A breaking change to the struct (a field changing meaning or required-ness,
+// not an additive optional field) bumps this and adds a case for the old
+// value where a migration period is needed; until then, Validate rejects
+// anything else outright rather than silently misinterpreting a shape it
+// wasn't built for.
+const CurrentSchemaVersion = 1
+
 // TaskConfig is the per-taskCode configuration: UI metadata, references to
 // forms, and outcome-to-status behavior.
 type TaskConfig struct {
-	TaskCode    string           `json:"taskCode"`
-	Meta        TaskMeta         `json:"meta"`
-	Forms       TaskForms        `json:"forms"`
-	Behavior    *TaskBehavior    `json:"behavior,omitempty"`
-	Permissions []Permission     `json:"permissions,omitempty"`
-	Certificate *TaskCertificate `json:"certificate,omitempty"`
+	// SchemaVersion declares which TaskConfig shape this file conforms to.
+	// Required, and must equal CurrentSchemaVersion (enforced by Validate).
+	SchemaVersion int              `json:"schemaVersion"`
+	TaskCode      string           `json:"taskCode"`
+	Meta          TaskMeta         `json:"meta"`
+	Forms         TaskForms        `json:"forms"`
+	Behavior      *TaskBehavior    `json:"behavior,omitempty"`
+	Permissions   []Permission     `json:"permissions,omitempty"`
+	Certificate   *TaskCertificate `json:"certificate,omitempty"`
 }
 
 // Validate reports an error if the config is missing required fields. Every
@@ -23,8 +34,24 @@ type TaskConfig struct {
 // closes off the old implicit default of granting every authenticated user
 // full access whenever a config omitted permissions.
 func (c TaskConfig) Validate() error {
+	if c.SchemaVersion != CurrentSchemaVersion {
+		return fmt.Errorf("taskconfig %q: schemaVersion must be %d, got %d", c.TaskCode, CurrentSchemaVersion, c.SchemaVersion)
+	}
 	if len(c.Permissions) == 0 {
 		return fmt.Errorf("taskconfig %q: permissions is required and must include at least one entry", c.TaskCode)
+	}
+	if c.Behavior != nil {
+		switch c.Behavior.Type {
+		case BehaviorTypeStatusMap:
+			// OutcomeField/StatusMap are both optional here: an unmatched or
+			// absent outcome simply falls through to the DONE default.
+		case BehaviorTypeAutoApprove:
+			if c.Behavior.OutcomeField != "" || len(c.Behavior.StatusMap) > 0 {
+				return fmt.Errorf("taskconfig %q: behavior.type %q cannot be combined with outcomeField or statusMap", c.TaskCode, BehaviorTypeAutoApprove)
+			}
+		default:
+			return fmt.Errorf("taskconfig %q: behavior.type must be %q or %q, got %q", c.TaskCode, BehaviorTypeStatusMap, BehaviorTypeAutoApprove, c.Behavior.Type)
+		}
 	}
 	for i, p := range c.Permissions {
 		if strings.TrimSpace(p.Role) == "" {
@@ -85,8 +112,30 @@ type TaskCertificate struct {
 // body when TaskBehavior.OutcomeField is not set.
 const DefaultOutcomeField = "review_outcome"
 
-// TaskBehavior defines automated logic based on task outcomes.
+// BehaviorType selects how a review submission resolves to a final
+// application status. Required whenever Behavior is present (enforced by
+// Validate); the two variants are mutually exclusive by construction.
+type BehaviorType string
+
+const (
+	// BehaviorTypeStatusMap resolves the outcome by reading OutcomeField
+	// from the review submission body and looking its value up in
+	// StatusMap.
+	BehaviorTypeStatusMap BehaviorType = "statusMap"
+
+	// BehaviorTypeAutoApprove declares that the task's review form carries
+	// no officer decision (pure data-capture/confirmation/issuance). Any
+	// successful review submission resolves unconditionally to APPROVED —
+	// no body field is read, no StatusMap lookup happens.
+	BehaviorTypeAutoApprove BehaviorType = "autoApprove"
+)
+
+// TaskBehavior defines automated logic based on task outcomes. Type
+// selects the resolution mode; OutcomeField/StatusMap are only meaningful
+// for BehaviorTypeStatusMap (enforced by Validate).
 type TaskBehavior struct {
+	Type BehaviorType `json:"type"`
+
 	// OutcomeField names the key in the review submission body whose value
 	// is looked up in StatusMap. Defaults to "review_outcome" when empty.
 	OutcomeField string            `json:"outcomeField,omitempty"`

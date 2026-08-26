@@ -23,6 +23,7 @@ func TestLoad_MissingPermissions_Errors(t *testing.T) {
 func TestLoad_ValidConfig(t *testing.T) {
 	mem := testutil.MemLoader{
 		"alpha.json": []byte(`{
+			"schemaVersion": 1,
 			"taskCode": "alpha",
 			"meta": {"title": "Alpha"},
 			"permissions": [{"role": "officer", "actions": ["VIEW"]}]
