@@ -96,12 +96,11 @@ func newCallbackServer(t *testing.T) (*httptest.Server, *callbackCapture) {
 // serviceHarness wires the in-memory dependencies required to exercise
 // Service end-to-end against a stub callback server.
 type serviceHarness struct {
-	t           *testing.T
-	store       *ApplicationStore
-	httpClient  *httpclient.Client
-	callbackURL string
-	capture     *callbackCapture
-	service     Service
+	t          *testing.T
+	store      *ApplicationStore
+	httpClient *httpclient.Client
+	capture    *callbackCapture
+	service    Service
 }
 
 // newTestRegistry builds an artifact registry backed by a local loader rooted at
@@ -189,19 +188,20 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 	reg := newTestRegistry(t, root)
 
 	srv, capture := newCallbackServer(t)
-	hc := httpclient.NewClientBuilder().Build()
+	// The client derives callback paths from its base URL, so pointing it at the
+	// stub server is what routes callbacks there.
+	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
 
 	roleService := rbac.NewRoleService(store.db)
 	svc := NewService(store, reg, nswclient.NewWithClient(hc), roleService)
 	t.Cleanup(func() { _ = svc.Close() })
 
 	return &serviceHarness{
-		t:           t,
-		store:       store,
-		httpClient:  hc,
-		callbackURL: srv.URL,
-		capture:     capture,
-		service:     svc,
+		t:          t,
+		store:      store,
+		httpClient: hc,
+		capture:    capture,
+		service:    svc,
 	}
 }
 
@@ -226,7 +226,7 @@ func (h *serviceHarness) claimAs(taskID, userID string) context.Context {
 	return newAuthContext(context.Background(), userID)
 }
 
-// seed inserts an application record with the harness's callback URL as ServiceURL.
+// seed inserts a PENDING application record.
 func (h *serviceHarness) seed(taskID, taskCode string, data JSONB) {
 	h.t.Helper()
 	if data == nil {
@@ -236,7 +236,6 @@ func (h *serviceHarness) seed(taskID, taskCode string, data JSONB) {
 		TaskID:        taskID,
 		TaskCode:      taskCode,
 		ConsignmentID: "wf-test",
-		ServiceURL:    h.callbackURL,
 		Data:          data,
 		Status:        "PENDING",
 	})
@@ -486,7 +485,6 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 		TaskID:        "t-load-fail-review",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		ServiceURL:    srv.URL,
 		Data:          JSONB{"field": "value"},
 		Status:        "PENDING",
 	}); err != nil {
@@ -502,7 +500,7 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 	reg := artifact.NewRegistry(loader)
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
-	hc := httpclient.NewClientBuilder().Build()
+	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
 	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
 	t.Cleanup(func() { _ = svc.Close() })
 
@@ -653,7 +651,7 @@ func TestReviewApplication_OutcomeFieldOverride(t *testing.T) {
 
 // ---------- ReviewApplication: callback dispatch ----------
 
-func TestReviewApplication_CallsServiceURL(t *testing.T) {
+func TestReviewApplication_SendsCallback(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
@@ -674,7 +672,7 @@ func TestReviewApplication_CallsServiceURL(t *testing.T) {
 	}
 
 	lastPath := h.capture.lastPath()
-	expectedPath := "/t-callback"
+	expectedPath := "/api/v1/tasks/t-callback"
 	if lastPath != expectedPath {
 		t.Errorf("callback URL path: got %q, want %q", lastPath, expectedPath)
 	}
@@ -695,7 +693,7 @@ func TestReviewApplication_CallsServiceURL(t *testing.T) {
 	}
 }
 
-func TestFeedbackApplication_CallsServiceURL(t *testing.T) {
+func TestFeedbackApplication_SendsCallback(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	h.seed("t-feedback-cb", "alpha", nil)
 
@@ -707,7 +705,7 @@ func TestFeedbackApplication_CallsServiceURL(t *testing.T) {
 	}
 
 	lastPath := h.capture.lastPath()
-	expectedPath := "/t-feedback-cb"
+	expectedPath := "/api/v1/tasks/t-feedback-cb"
 	if lastPath != expectedPath {
 		t.Errorf("callback URL path: got %q, want %q", lastPath, expectedPath)
 	}
@@ -879,7 +877,6 @@ func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 		TaskID:        "t-load-fail",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		ServiceURL:    "http://unused.example",
 		Data:          JSONB{"field": "value"},
 		Status:        "PENDING",
 	}); err != nil {
@@ -1023,7 +1020,6 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 		TaskID:        "t-load-fail",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		ServiceURL:    "http://unused.example",
 		Data:          JSONB{"field": "value"},
 		Status:        "PENDING",
 	}); err != nil {

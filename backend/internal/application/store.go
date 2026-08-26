@@ -52,7 +52,6 @@ type ApplicationRecord struct {
 	TaskCode              string                        `gorm:"type:varchar(100);not null"`
 	ConsignmentID         string                        `gorm:"type:text;index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	Consignment           consignment.ConsignmentRecord `gorm:"foreignKey:ConsignmentID;references:ID"`
-	ServiceURL            string                        `gorm:"type:varchar(512);not null"`                  // URL to send response back to
 	Data                  JSONB                         `gorm:"type:text"`                                   // Injected data from service
 	ReviewerResponse      JSONB                         `gorm:"type:text"`                                   // Response from reviewer
 	Status                string                        `gorm:"type:varchar(50);not null;default:'PENDING'"` // PENDING, FEEDBACK_REQUESTED, DONE

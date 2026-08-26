@@ -16,7 +16,7 @@ Each agency runs its own instance with its own database, ensuring data isolation
 │                 │ ──────────────────────────────────────▶│                  │
 │  NSW Core       │                                        │   Agency Service    │
 │    Service      │◀────────────────────────────────────── │   (per agency)   │
-│                 │     POST {serviceUrl} (callback)       │                  │
+│                 │   POST /api/v1/tasks/{id} (callback)   │                  │
 └─────────────────┘                                        └──────────────────┘
                                                                    │
                                                             ┌──────┴──────┐

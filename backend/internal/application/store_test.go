@@ -96,7 +96,6 @@ func seedRecord(t *testing.T, store *ApplicationStore, taskID string, data JSONB
 		TaskID:        taskID,
 		TaskCode:      "verification:123",
 		ConsignmentID: "wf-seed",
-		ServiceURL:    "http://test",
 		Data:          data,
 		Status:        "PENDING",
 	})
@@ -157,7 +156,6 @@ func TestApplicationStore_GetByConsignmentAndTaskCode(t *testing.T) {
 		TaskID:        "task-by-code-1",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-by-code",
-		ServiceURL:    "http://test",
 		Data:          JSONB{"key": "value"},
 		Status:        "PENDING",
 	}); err != nil {
@@ -357,7 +355,6 @@ func TestApplicationStore_JSONB_NilData(t *testing.T) {
 		TaskID:        "task-nil-data",
 		TaskCode:      "verification:123",
 		ConsignmentID: "wf-1",
-		ServiceURL:    "http://test",
 		Data:          nil,
 	})
 	if err != nil {
@@ -431,9 +428,9 @@ func TestApplicationStore_List_OrderingPriority(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed records out of order
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-done", TaskCode: "test", ConsignmentID: "wf-order", ServiceURL: "http://test", Status: "DONE"})
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", ServiceURL: "http://test", Status: "FEEDBACK_REQUESTED"})
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", ServiceURL: "http://test", Status: "PENDING"})
+	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-done", TaskCode: "test", ConsignmentID: "wf-order", Status: "DONE"})
+	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", Status: "FEEDBACK_REQUESTED"})
+	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", Status: "PENDING"})
 
 	apps, _, err := store.List(ctx, "", "wf-order", "", 0, 10)
 	if err != nil {
@@ -576,7 +573,6 @@ func TestApplicationStore_ConsignmentUpsert(t *testing.T) {
 		TaskID:        "dup-t1",
 		TaskCode:      "test",
 		ConsignmentID: "dup-wf",
-		ServiceURL:    "http://test",
 		Status:        "PENDING",
 	}); err != nil {
 		t.Fatalf("first CreateOrUpdate failed: %v", err)
@@ -585,7 +581,6 @@ func TestApplicationStore_ConsignmentUpsert(t *testing.T) {
 		TaskID:        "dup-t2",
 		TaskCode:      "test",
 		ConsignmentID: "dup-wf",
-		ServiceURL:    "http://test",
 		Status:        "PENDING",
 	}); err != nil {
 		t.Fatalf("second CreateOrUpdate failed: %v", err)
