@@ -278,8 +278,9 @@ func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
-			"forms": {"view": "alpha_view"}
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"view": "alpha_view", "review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 		writeFormFile(t, root, "alpha_view.json", `{
 			"schema": {
@@ -326,7 +327,9 @@ func TestCreateApplication_NoViewForm_SkipsDataValidation(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 
@@ -346,8 +349,9 @@ func TestCreateApplication_ViewFormLoadFailure_FailsClosed(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
-			"forms": {"view": "does_not_exist"}
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"view": "does_not_exist", "review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 
@@ -375,7 +379,8 @@ func TestReviewApplication_StatusFromStatusMap(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
 			"behavior": {
 				"type": "statusMap",
 				"statusMap": {
@@ -420,7 +425,8 @@ func TestReviewApplication_AutoApprove(t *testing.T) {
 		writeTaskConfigFile(t, root, "sample_wait.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Sample Wait"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "sample_wait_review"},
 			"behavior": {"type": "autoApprove"}
 		}`)
 	})
@@ -489,7 +495,8 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 	loader := &succeedThenFailLoader{data: []byte(`{
 		"schemaVersion": 1,
 		"meta": {"title": "Alpha"},
-		"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+		"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+		"forms": {"review": "alpha_review"},
 		"behavior": {"type": "autoApprove"}
 	}`)}
 	reg := artifact.NewRegistry(loader)
@@ -532,7 +539,8 @@ func TestReviewApplication_DefaultsToDONE_OutcomeNotInMap(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
 			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
@@ -552,11 +560,14 @@ func TestReviewApplication_DefaultsToDONE_OutcomeNotInMap(t *testing.T) {
 
 func TestReviewApplication_DefaultsToDONE_NoStatusMap(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
-		// Config exists but defines no behavior/statusMap.
+		// Config declares statusMap behavior but leaves the map empty (behavior
+		// itself is required, so a config can no longer omit it entirely).
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap"}
 		}`)
 	})
 	h.seed("t-no-map", "alpha", nil)
@@ -604,7 +615,8 @@ func TestReviewApplication_OutcomeFieldOverride(t *testing.T) {
 		writeTaskConfigFile(t, root, "labs.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Lab Results"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "labs_review"},
 			"behavior": {
 				"type": "statusMap",
 				"outcomeField": "decision",
@@ -651,7 +663,8 @@ func TestReviewApplication_SendsCallback(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
 			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
@@ -728,8 +741,9 @@ func TestGetApplication_ResolvesFormReferences(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha", "category": "Test", "description": "Test task", "icon": "emoji:📋"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
-			"forms": {"view": "alpha_view", "review": "alpha_review"}
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"view": "alpha_view", "review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 		writeFormFile(t, root, "alpha_view.json", `{"schema":{"type":"object","title":"View"},"uiSchema":{"type":"VerticalLayout"}}`)
 		writeFormFile(t, root, "alpha_review.json", `{"schema":{"type":"object","title":"Review"},"uiSchema":{"type":"VerticalLayout"}}`)
@@ -784,7 +798,9 @@ func TestGetApplication_CertificateTemplateID(t *testing.T) {
 			writeTaskConfigFile(t, root, "alpha.json", `{
 				"schemaVersion": 1,
 				"meta": {"title": "Alpha"},
-				"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+				"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+				"forms": {"review": "alpha_review"},
+				"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
 				"certificate": {
 					"templateId": "fcau-issue-certificate--certificate-template",
 					"dataSchema": {
@@ -819,7 +835,9 @@ func TestGetApplication_CertificateTemplateID(t *testing.T) {
 			writeTaskConfigFile(t, root, "alpha.json", `{
 				"schemaVersion": 1,
 				"meta": {"title": "Alpha"},
-				"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+				"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+				"forms": {"review": "alpha_review"},
+				"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 			}`)
 		})
 		h.seed("t-no-cert", "alpha", nil)
@@ -839,8 +857,9 @@ func TestGetApplication_MissingFormRef_OmitsForms(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
-			"forms": {"view": "missing_view", "review": "missing_review"}
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"view": "missing_view", "review": "missing_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 	h.seed("t-missing-forms", "alpha", nil)
@@ -929,7 +948,9 @@ func TestGetApplicationByTaskCode(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 	h.seed("t-by-code", "alpha", JSONB{"exporter_name": "ACME"})
@@ -964,7 +985,9 @@ func TestGetApplications_FiltersInaccessibleItems(t *testing.T) {
 		writeTaskConfigFile(t, root, "restricted.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Restricted"},
-			"permissions": [{"role": "manager", "actions": ["VIEW"]}]
+			"permissions": [{"role": "manager", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "restricted_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 	h.seed("t-restricted", "restricted", nil)
@@ -984,7 +1007,9 @@ func TestGetApplications_IncludesAccessibleItems(t *testing.T) {
 		writeTaskConfigFile(t, root, "open.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Open"},
-			"permissions": [{"role": "officer", "actions": ["VIEW"]}]
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "open_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 	h.seed("t-open", "open", nil)
@@ -1047,7 +1072,9 @@ func TestGetApplication_PopulatesAllowedActions(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 	h.seed("t-actions", "alpha", nil)
@@ -1069,8 +1096,8 @@ func TestGetApplication_PopulatesAllowedActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetApplication failed: %v", err)
 	}
-	if len(app.AllowedActions) != 2 {
-		t.Errorf("expected 2 allowed actions, got %v", app.AllowedActions)
+	if len(app.AllowedActions) != 3 {
+		t.Errorf("expected 3 allowed actions, got %v", app.AllowedActions)
 	}
 }
 
@@ -1209,7 +1236,9 @@ func TestReviewApplication_ConflictOnDoubleSubmit(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap"}
 		}`)
 	})
 	h.seed("t-review-double", "alpha", nil)
@@ -1236,7 +1265,9 @@ func TestReleaseApplication_RejectedOnceReviewed(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"schemaVersion": 1,
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap"}
 		}`)
 	})
 	h.seed("t-release-reviewed", "alpha", nil)

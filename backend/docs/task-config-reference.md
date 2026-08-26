@@ -14,25 +14,30 @@ type TaskConfig struct {
     TaskCode    string           `json:"taskCode"`
     Meta        TaskMeta         `json:"meta"`
     Forms       TaskForms        `json:"forms"`
-    Behavior    *TaskBehavior    `json:"behavior,omitempty"`
+    Behavior    TaskBehavior     `json:"behavior"`
     Permissions []Permission     `json:"permissions,omitempty"`
     Certificate *TaskCertificate `json:"certificate,omitempty"`
 }
 ```
 
 A single JSON file is loaded per `taskCode` from the artifact registry (kind
-`task_config`). Every field is optional **except `permissions`, which is
-required and must be non-empty** (see the `permissions` section below) —
-enforced by `TaskConfig.Validate` at load time. A config with only
-`meta.title` and a non-empty `permissions` is valid; a config with no
-`permissions` at all fails to load.
+`task_config`). Every task is something an officer reviews, so three things
+are required and enforced by `TaskConfig.Validate` at load time — a config
+missing any of them fails to load:
 
-`behavior.statusMap` is also becoming a required field, conditional on
-`forms.review` being set — see [Application status
+- **`permissions`** — non-empty, and collectively grants `VIEW` and `REVIEW`
+  to at least one role each (`FEEDBACK` is a valid action too, but optional —
+  see the `permissions` section below).
+- **`forms.review`** — every task has a review form for the officer to act
+  on (see the `forms` section below).
+- **`behavior`** — every task needs a resolution mode for the review outcome
+  (see the `behavior` section below).
+
+`behavior.statusMap`'s *values* being restricted to `APPROVED`/`REJECTED`/
+`FEEDBACK_REQUESTED`, and `outcomeField`/`statusMap` themselves being
+non-empty, are not enforced yet — see [Application status
 lifecycle](#application-status-lifecycle-canonical-applies-to-every-task)
-and the `behavior` section below for the exact contract. **This part of
-`TaskConfig.Validate` is not live yet** — treat it as the target contract to
-bring existing configs into line with ahead of enforcement landing.
+and the `behavior` section below for that target contract.
 
 ## Full example
 
@@ -53,6 +58,7 @@ This example exercises every field, including the two not shown in
     "review": "moh_fcau_health_cert_v1_review"
   },
   "behavior": {
+    "type": "statusMap",
     "outcomeField": "review_outcome",
     "statusMap": {
       "approve": "APPROVED",
@@ -108,13 +114,15 @@ Rules that fall out of this:
   is also rejected; `PENDING` means "awaiting first review," not "open for
   edits."
 
-> **Status:** this is the target contract. Today, `CreateApplication`
-> preserves the claim on re-injection but does not yet reject re-injection
-> outright for terminal or already-`PENDING` applications, and
-> `TaskConfig.Validate` does not yet enforce the `statusMap` restrictions
-> below. Both are tracked as follow-up implementation work — task configs
-> should be updated to comply now so that enforcement can land without
-> breaking any deployment.
+> **Status:** the terminal-status and resubmission rules above are the
+> target contract, not yet live. Today, `CreateApplication` preserves the
+> claim on re-injection but does not yet reject re-injection outright for
+> terminal or already-`PENDING` applications, and `TaskConfig.Validate` does
+> not yet enforce the `statusMap` value restrictions below. Both are tracked
+> as follow-up implementation work — task configs should be updated to
+> comply now so that enforcement can land without breaking any deployment.
+> (`forms.review`, `behavior`, and the closed `permissions` action set
+> described elsewhere in this doc *are* enforced today.)
 
 ---
 
@@ -169,7 +177,7 @@ loads.
 ```go
 type TaskForms struct {
     View   string `json:"view,omitempty"`
-    Review string `json:"review,omitempty"`
+    Review string `json:"review"`
 }
 ```
 
@@ -179,7 +187,7 @@ References to separately-stored form definitions (artifact kind
 | Field    | Required | Purpose                                                                                                                                                                |
 |----------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `view`   | no       | Form ID for the **read-only** rendering of the trader's submitted data. Attached to the response as `dataForm`. Omit if the task has nothing trader-submitted to show. |
-| `review` | no       | Form ID for the **officer's review action** form (approve/reject/etc). Attached as `agencyForm`. Omit if the task has no review action.                                |
+| `review` | **yes**  | Form ID for the **officer's review action** form (approve/reject/etc). Attached as `agencyForm`. Every task is reviewable, so this is required — enforced by `TaskConfig.Validate`. |
 
 When building an application response (`GET`), resolution is best-effort per
 form: if a referenced form ID isn't found in the registry, the field is
@@ -191,12 +199,13 @@ injected `data` is validated against that form's schema, and a load,
 parse, or resolve failure for the form fails the request closed rather than
 silently skipping validation.
 
-## `behavior` (`*TaskBehavior`) — required whenever `forms.review` is set
+## `behavior` (`TaskBehavior`, required)
 
 ```go
 const DefaultOutcomeField = "review_outcome" // target: to be removed, see below
 
 type TaskBehavior struct {
+    Type         BehaviorType      `json:"type"`
     OutcomeField string            `json:"outcomeField,omitempty"`
     StatusMap    map[string]string `json:"statusMap,omitempty"`
 }
@@ -204,26 +213,30 @@ type TaskBehavior struct {
 
 Declaratively wires the officer's review submission to a final application
 status, so the service doesn't need hardcoded outcome logic per task type.
+`Behavior` is a value type, not a pointer — there's no meaningful "absent"
+state to represent now that it's mandatory. `behavior` itself (a valid
+`type`) is required — enforced by `TaskConfig.Validate` — since every task
+is reviewable and so every task needs a resolution mode for the outcome.
 
 > **Target contract (see [Application status
 > lifecycle](#application-status-lifecycle-canonical-applies-to-every-task);
-> validation not yet enforced):** `behavior`, `behavior.outcomeField`, and
-> `behavior.statusMap` are all becoming **required** for any task that has
-> `forms.review` set — i.e. any task an officer can actually review. A task
-> with no `forms.review` has no review outcome to map and may keep omitting
-> `behavior` entirely.
+> not yet enforced):** beyond `behavior` itself being required, its
+> internals are getting tighter too: `outcomeField` and `statusMap` are
+> becoming required whenever `behavior.type` is `statusMap` (an `autoApprove`
+> task legitimately has neither).
 >
 > `outcomeField`'s default (`DefaultOutcomeField`, `"review_outcome"`) is
-> being removed along with it — every task config with `forms.review` set
-> will have to state `outcomeField` explicitly, even when the value happens
-> to be `"review_outcome"`. This closes an implicit default the same way the
-> `permissions` and `statusMap` fallbacks are being closed: nothing about
-> how a review outcome is resolved should be left unstated in the config.
+> being removed along with it — every `statusMap` task will have to state
+> `outcomeField` explicitly, even when the value happens to be
+> `"review_outcome"`. This closes an implicit default the same way the
+> `permissions`/`forms.review`/`behavior` fallbacks already have been:
+> nothing about how a review outcome is resolved should be left unstated in
+> the config.
 
-| Field          | Required                                | Purpose                                                                                                                                                                                                            |
-|----------------|-----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `outcomeField` | **yes**, whenever `forms.review` is set | Key read from the `POST /api/v1/applications/{taskId}/review` request body. No default — must be spelled out explicitly.                                                                                           |
-| `statusMap`    | **yes**, whenever `forms.review` is set | Maps the outcome field's value (e.g. `"approve"`) to the status stored on the application. Must be non-empty and cover every outcome value the review form's schema can produce — no more, no fewer left unmapped. |
+| Field          | Required                                             | Purpose                                                                                                                                                                                                                    |
+|----------------|------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `outcomeField` | target: yes, whenever `behavior.type` is `statusMap` | Key read from the `POST /api/v1/applications/{taskId}/review` request body. Currently defaults to `"review_outcome"` when unset; that default is being removed.                                                            |
+| `statusMap`    | target: yes, whenever `behavior.type` is `statusMap` | Maps the outcome field's value (e.g. `"approve"`) to the status stored on the application. Target: must be non-empty and cover every outcome value the review form's schema can produce — no more, no fewer left unmapped. |
 
 ### Allowed `statusMap` values
 
@@ -253,11 +266,12 @@ The set of valid outcome values (`approve`, `reject`, `pass`, `fail`, …) is
 whatever the **review form's own schema** allows (typically a `oneOf`) —
 `statusMap` must have one entry per value that form can actually produce.
 
-Being a pointer, `Behavior` is optional at the JSON level only for tasks with
-no `forms.review`. Once enforcement lands, a task with `forms.review` set
-but no `behavior`/`statusMap`, or a `statusMap` containing a value outside
-the three above, will fail `TaskConfig.Validate` at load time — the same way
-a missing `permissions` does today.
+`Behavior.Type` being empty (i.e. `behavior` omitted from the JSON, leaving
+the field at its zero value) or unrecognized already fails
+`TaskConfig.Validate` today — the same way a missing `permissions` does.
+Once the target contract above lands, a `statusMap`-type behavior with no
+`statusMap`/`outcomeField`, or a `statusMap` containing a value outside the
+three above, will fail to load the same way.
 
 ## `permissions` (`[]Permission`, required, non-empty)
 
@@ -280,6 +294,18 @@ config, and the artifact registry surfaces a genuine (non-`ErrNotFound`)
 error for it. This closes off what used to be an implicit default: earlier,
 an empty `Permissions` was interpreted as "every authenticated user may
 perform every action" on that task.
+
+**Actions are a closed set: `VIEW`, `REVIEW`, and `FEEDBACK`. `VIEW` and
+`REVIEW` must each be granted to at least one role, collectively, across the
+config's `permissions` entries; `FEEDBACK` is a valid action but not
+required.** Also enforced by `TaskConfig.Validate`. An action string outside
+that set (a typo, or a leftover from before this was enforced) fails the
+config to load, rather than silently 403ing whoever tries to use it later.
+`VIEW`/`REVIEW` don't have to go to the same role — a config might grant
+`trader` only `VIEW` and `officer` `REVIEW` — but every task, having a
+review form, needs someone who can view it and someone who can decide it.
+`FEEDBACK` is left optional because not every task's officer workflow sends
+data back to the trader for changes.
 
 **A task code with no config at all is denied by default, not opened.**
 Both `rbac.Middleware.RequireAction` and the application service's access
@@ -319,10 +345,11 @@ Two places consume the result differently:
   | `POST /api/v1/applications/{taskId}/release`     | `REVIEW`        |
   | `POST /api/v1/applications/{taskId}/certificate` | `REVIEW`        |
 
-  Action strings are otherwise free-form (whatever the config's `actions`
-  arrays contain is compared verbatim against the route's required string —
-  there's no fixed enum in Go), but in practice the deployed configs use
-  `VIEW`, `REVIEW`, and `FEEDBACK` to line up with these routes.
+  The route wiring in `cmd/server/main.go` still compares the required
+  action against the config's `actions` as a plain string (no shared Go
+  constant between the two), but since `TaskConfig.Validate` now restricts
+  `actions` to exactly `VIEW`/`REVIEW`/`FEEDBACK`, those are the only values
+  that can appear on either side.
 
 If the task config can't be resolved at all for a request (`ErrNotFound`),
 both call sites deny access: the RBAC route middleware responds 403 directly
@@ -372,11 +399,18 @@ will reject the request for that application.
 
 ## Migration checklist for existing task configs
 
-Existing task config JSON files need to be brought in line with the
-`statusMap` contract above before validation is turned on. For every task
-config where `forms.review` is set:
+`permissions` (non-empty, must collectively grant `VIEW`/`REVIEW`, no actions
+outside the `VIEW`/`REVIEW`/`FEEDBACK` set), `forms.review`, and `behavior`
+being present are already enforced — a config missing any of them fails to
+load today, not just under the target contract below.
 
-1. Add a `behavior.statusMap` entry if one is missing.
+What's *not* enforced yet is the `statusMap` value contract. Existing task
+configs need to be brought in line with it before that validation is turned
+on. For every task config (i.e. all of them, since `forms.review` is now
+mandatory):
+
+1. Add a `behavior.statusMap` entry if one is missing (only relevant for
+   `behavior.type: "statusMap"` — `autoApprove` tasks have neither).
 2. List every outcome value the review form's schema (`forms.review`) can
    actually produce, and map each one to exactly one of `APPROVED`,
    `REJECTED`, or `FEEDBACK_REQUESTED`.
@@ -385,8 +419,6 @@ config where `forms.review` is set:
 4. Double-check there's no outcome value the form can produce that's
    missing from the map — once enforcement lands, an unmapped outcome will
    be rejected outright (400) instead of silently becoming `"DONE"`.
-5. Tasks with no `forms.review` (no review action) need no change — leave
-   `behavior` out entirely.
 
 ---
 

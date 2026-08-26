@@ -405,13 +405,13 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 	command := "approve"
 	status := "DONE"
 
-	if behavior != nil && behavior.Type == taskconfig.BehaviorTypeAutoApprove {
+	if behavior.Type == taskconfig.BehaviorTypeAutoApprove {
 		// No decision field to read: a successful submission always means
 		// "record the data and move the application forward."
 		status = "APPROVED"
 	} else {
 		outcomeField := taskconfig.DefaultOutcomeField
-		if behavior != nil && behavior.OutcomeField != "" {
+		if behavior.OutcomeField != "" {
 			outcomeField = behavior.OutcomeField
 		}
 
@@ -419,7 +419,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 			command = outcome
 		}
 
-		if behavior != nil && behavior.StatusMap != nil {
+		if behavior.StatusMap != nil {
 			if outcome, ok := reviewerResponse[outcomeField].(string); ok {
 				if mappedStatus, ok := behavior.StatusMap[outcome]; ok {
 					status = mappedStatus
