@@ -1,0 +1,20 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- $effectiveMin := .Values.replicaCount }}
+{{- if .Values.autoscaling.enabled }}
+  {{- $effectiveMin = .Values.autoscaling.minReplicas }}
+{{- end }}
+{{- if and (eq (int .Values.podDisruptionBudget.minAvailable) 1) (lt (int $effectiveMin) 2) }}
+  {{- fail "podDisruptionBudget with minAvailable: 1 requires replicaCount (or autoscaling.minReplicas) >= 2 to allow pod eviction during node drains" }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "agency.fullname" . }}
+  labels:
+    {{- include "agency.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "agency.selectorLabels" . | nindent 6 }}
+{{- end }}
