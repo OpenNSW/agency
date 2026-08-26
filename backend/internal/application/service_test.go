@@ -263,7 +263,6 @@ func TestCreateApplication_UnknownTaskCode_Rejected(t *testing.T) {
 		TaskID:        "t-ghost",
 		TaskCode:      "ghost",
 		ConsignmentID: "wf-test",
-		ServiceURL:    h.callbackURL,
 		Data:          map[string]any{},
 	})
 	if !errors.Is(err, ErrInvalidInjectRequest) {
@@ -296,7 +295,6 @@ func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
 			TaskID:        "t-bad",
 			TaskCode:      "alpha",
 			ConsignmentID: "wf-test",
-			ServiceURL:    h.callbackURL,
 			Data:          map[string]any{},
 		})
 		if !errors.Is(err, ErrInvalidInjectRequest) {
@@ -312,7 +310,6 @@ func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
 			TaskID:        "t-good",
 			TaskCode:      "alpha",
 			ConsignmentID: "wf-test",
-			ServiceURL:    h.callbackURL,
 			Data:          map[string]any{"consignee_name": "Acme Traders"},
 		})
 		if err != nil {
@@ -337,7 +334,6 @@ func TestCreateApplication_NoViewForm_SkipsDataValidation(t *testing.T) {
 		TaskID:        "t-no-view",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		ServiceURL:    h.callbackURL,
 		Data:          map[string]any{"anything": "goes"},
 	})
 	if err != nil {
@@ -359,7 +355,6 @@ func TestCreateApplication_ViewFormLoadFailure_FailsClosed(t *testing.T) {
 		TaskID:        "t-missing-form",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		ServiceURL:    h.callbackURL,
 		Data:          map[string]any{},
 	})
 	if err == nil {

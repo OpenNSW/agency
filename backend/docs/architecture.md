@@ -59,9 +59,12 @@ Key design decisions:
 
 Responsible for:
 - Database connection management (SQLite via GORM)
-- Auto-migration on startup
 - CRUD operations on `ApplicationRecord`
 - Custom `JSONB` type that serializes `map[string]any` as JSON text in SQLite
+
+The store opens a connection but never changes the schema. Schema comes from the
+SQL files in [`migrations/`](../migrations), applied by `cmd/migrate` -- see
+[Database Schema](#database-schema) below.
 
 ### Form Store (`form.go`)
 

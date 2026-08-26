@@ -63,7 +63,8 @@ DB_DRIVER=postgres DB_NAME=npqs_db DB_USER=postgres DB_PASSWORD=changeme \
   ARTIFACT_LOCAL_ROOT=../../one-trade-artifacts/npqs go run ./cmd/server
 ```
 
-The database is auto-created and auto-migrated on first startup.
+The SQLite file is created on first connection, but the schema is not -- apply
+migrations with `go run ./cmd/migrate up` before starting the server.
 
 ### Build
 
