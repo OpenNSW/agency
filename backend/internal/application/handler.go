@@ -64,6 +64,10 @@ func (h *Handler) HandleInjectData(w http.ResponseWriter, r *http.Request) {
 
 	// Create application in database
 	if err := h.service.CreateApplication(ctx, &req); err != nil {
+		if errors.Is(err, ErrInvalidInjectRequest) {
+			httputil.Error(w, r, http.StatusBadRequest, err.Error())
+			return
+		}
 		httputil.InternalServerError(w, r, "failed to create application", err)
 		return
 	}

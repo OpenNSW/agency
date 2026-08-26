@@ -27,6 +27,13 @@ enforced by `TaskConfig.Validate` at load time. A config with only
 `meta.title` and a non-empty `permissions` is valid; a config with no
 `permissions` at all fails to load.
 
+`behavior.statusMap` is also becoming a required field, conditional on
+`forms.review` being set — see [Application status
+lifecycle](#application-status-lifecycle-canonical-applies-to-every-task)
+and the `behavior` section below for the exact contract. **This part of
+`TaskConfig.Validate` is not live yet** — treat it as the target contract to
+bring existing configs into line with ahead of enforcement landing.
+
 ## Full example
 
 This example exercises every field, including the two not shown in
@@ -70,6 +77,45 @@ This example exercises every field, including the two not shown in
 }
 ```
 
+## Application status lifecycle (canonical, applies to every task)
+
+Every application, regardless of task type, moves through one fixed set of
+statuses. This set is closed — no task config may resolve a review outcome
+to a custom status string, and the old `"DONE"` fallback status is being
+retired entirely.
+
+| Status               | Set by                                                                                                | Terminal? |
+|----------------------|-------------------------------------------------------------------------------------------------------|-----------|
+| `PENDING`            | Injection (initial submission), and automatically when a trader resubmits after `FEEDBACK_REQUESTED`. | No        |
+| `FEEDBACK_REQUESTED` | Officer review outcome, via `behavior.statusMap`.                                                     | No        |
+| `APPROVED`           | Officer review outcome, via `behavior.statusMap`.                                                     | Yes       |
+| `REJECTED`           | Officer review outcome, via `behavior.statusMap`.                                                     | Yes       |
+
+Rules that fall out of this:
+
+- **`statusMap` values are restricted to `APPROVED`, `REJECTED`, and
+  `FEEDBACK_REQUESTED`.** `PENDING` is never a review outcome — it's only
+  ever the injection default or the automatic result of a resubmission.
+  `DONE` is retired: no review outcome may resolve to it.
+- **`APPROVED` and `REJECTED` are terminal.** Once an application reaches
+  either, re-injecting data for that task is rejected — the record is
+  locked.
+- **Resubmission only happens from `FEEDBACK_REQUESTED`.** A trader
+  resubmitting data resets the application to `PENDING` and preserves
+  whatever officer claim was already in place. Re-injecting data while an
+  application is `PENDING` — including a `PENDING` application that was
+  previously claimed and then released without feedback being requested —
+  is also rejected; `PENDING` means "awaiting first review," not "open for
+  edits."
+
+> **Status:** this is the target contract. Today, `CreateApplication`
+> preserves the claim on re-injection but does not yet reject re-injection
+> outright for terminal or already-`PENDING` applications, and
+> `TaskConfig.Validate` does not yet enforce the `statusMap` restrictions
+> below. Both are tracked as follow-up implementation work — task configs
+> should be updated to comply now so that enforcement can land without
+> breaking any deployment.
+
 ---
 
 ## `taskCode` (string, optional)
@@ -106,12 +152,12 @@ Pure UI display metadata, surfaced verbatim on `Application.Title` /
 whenever the config is found (both in the list endpoint and the single-task
 `GET` endpoint).
 
-| Field         | Required | Purpose                                                                                    |
-|---------------|----------|---------------------------------------------------------------------------------------------|
-| `title`       | yes      | Shown in the task list and as the review screen header.                                     |
-| `description` | no       | One-line subtitle shown under the title.                                                    |
+| Field         | Required | Purpose                                                                                                  |
+|---------------|----------|----------------------------------------------------------------------------------------------------------|
+| `title`       | yes      | Shown in the task list and as the review screen header.                                                  |
+| `description` | no       | One-line subtitle shown under the title.                                                                 |
 | `icon`        | no       | Icon hint. The frontend currently only renders `emoji:<char>`-prefixed values; anything else is ignored. |
-| `category`    | no       | Grouping label shown in the task list, e.g. `Food Control`.                                  |
+| `category`    | no       | Grouping label shown in the task list, e.g. `Food Control`.                                              |
 
 If the task config can't be loaded at all (not in the manifest, or a
 transient loader miss), `Meta` is left zero-valued and these fields are
@@ -130,20 +176,20 @@ type TaskForms struct {
 References to separately-stored form definitions (artifact kind
 `generic_template`, see `forms.md`), resolved via `generictemplate.Load`.
 
-| Field    | Required | Purpose                                                                                          |
-|----------|----------|---------------------------------------------------------------------------------------------------|
+| Field    | Required | Purpose                                                                                                                                                                |
+|----------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `view`   | no       | Form ID for the **read-only** rendering of the trader's submitted data. Attached to the response as `dataForm`. Omit if the task has nothing trader-submitted to show. |
-| `review` | no       | Form ID for the **officer's review action** form (approve/reject/etc). Attached as `agencyForm`. Omit if the task has no review action. |
+| `review` | no       | Form ID for the **officer's review action** form (approve/reject/etc). Attached as `agencyForm`. Omit if the task has no review action.                                |
 
 Resolution is best-effort per form: if a referenced form ID isn't found in
 the registry, the field is simply omitted from the response and a warning is
 logged (`"view form not found"` / `"review form not found"`) — it does not
 fail the whole request.
 
-## `behavior` (`*TaskBehavior`, optional — nil-able)
+## `behavior` (`*TaskBehavior`) — required whenever `forms.review` is set
 
 ```go
-const DefaultOutcomeField = "review_outcome"
+const DefaultOutcomeField = "review_outcome" // target: to be removed, see below
 
 type TaskBehavior struct {
     OutcomeField string            `json:"outcomeField,omitempty"`
@@ -154,34 +200,59 @@ type TaskBehavior struct {
 Declaratively wires the officer's review submission to a final application
 status, so the service doesn't need hardcoded outcome logic per task type.
 
-| Field          | Required | Purpose                                                                                                   |
-|----------------|----------|-------------------------------------------------------------------------------------------------------------|
-| `outcomeField` | no       | Key read from the `POST /api/v1/applications/{taskId}/review` request body. Defaults to `"review_outcome"` (`DefaultOutcomeField`) when empty. |
-| `statusMap`    | no       | Maps the outcome field's value (e.g. `"approve"`) to the status stored on the application (e.g. `"APPROVED"`). |
+> **Target contract (see [Application status
+> lifecycle](#application-status-lifecycle-canonical-applies-to-every-task);
+> validation not yet enforced):** `behavior`, `behavior.outcomeField`, and
+> `behavior.statusMap` are all becoming **required** for any task that has
+> `forms.review` set — i.e. any task an officer can actually review. A task
+> with no `forms.review` has no review outcome to map and may keep omitting
+> `behavior` entirely.
+>
+> `outcomeField`'s default (`DefaultOutcomeField`, `"review_outcome"`) is
+> being removed along with it — every task config with `forms.review` set
+> will have to state `outcomeField` explicitly, even when the value happens
+> to be `"review_outcome"`. This closes an implicit default the same way the
+> `permissions` and `statusMap` fallbacks are being closed: nothing about
+> how a review outcome is resolved should be left unstated in the config.
+
+| Field          | Required                                | Purpose                                                                                                                                                                                                            |
+|----------------|-----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `outcomeField` | **yes**, whenever `forms.review` is set | Key read from the `POST /api/v1/applications/{taskId}/review` request body. No default — must be spelled out explicitly.                                                                                           |
+| `statusMap`    | **yes**, whenever `forms.review` is set | Maps the outcome field's value (e.g. `"approve"`) to the status stored on the application. Must be non-empty and cover every outcome value the review form's schema can produce — no more, no fewer left unmapped. |
+
+### Allowed `statusMap` values
+
+Every value in `statusMap` must be exactly one of these three
+(case-sensitive, uppercase):
+
+| Value                | Meaning                                               |
+|----------------------|-------------------------------------------------------|
+| `APPROVED`           | Officer approved. Terminal.                           |
+| `REJECTED`           | Officer rejected. Terminal.                           |
+| `FEEDBACK_REQUESTED` | Officer sent the task back to the trader for changes. |
+
+`PENDING` and `DONE` are **not** valid `statusMap` values: `PENDING` is only
+ever set by injection or an automatic resubmission-reset, never by a review
+outcome, and `DONE` is retired entirely — see the lifecycle section above.
 
 Resolution, on review submission:
 1. Read `body[outcomeField]` (or `body["review_outcome"]` if `outcomeField` is unset).
 2. Look that value up in `statusMap`.
-3. If `Behavior` is nil, `statusMap` doesn't contain the value, or the field
-   is missing from the body entirely, the status defaults to `"DONE"`.
+3. **Target behavior:** if `statusMap` doesn't contain the value, or the
+   field is missing from the body entirely, the review request is rejected
+   (400) rather than silently resolving to a status.
+   **Current behavior, until enforcement lands:** the status silently
+   defaults to `"DONE"` — this is exactly the fallback being removed.
 
 The set of valid outcome values (`approve`, `reject`, `pass`, `fail`, …) is
 whatever the **review form's own schema** allows (typically a `oneOf`) —
-`statusMap` should have one entry per value that form can actually produce.
+`statusMap` must have one entry per value that form can actually produce.
 
-Common resulting statuses:
-
-| Status               | Meaning                                          |
-|----------------------|---------------------------------------------------|
-| `PENDING`             | Awaiting officer review (set at injection).       |
-| `APPROVED`            | Officer approved.                                 |
-| `REJECTED`            | Officer rejected.                                 |
-| `FEEDBACK_REQUESTED`  | Officer sent the task back to the trader.         |
-| `DONE`                | Generic completion when nothing else matched.     |
-
-Being a pointer, `Behavior` is entirely optional at the JSON level — a config
-with no `"behavior"` key is functionally identical to one whose review always
-falls through to `DONE`.
+Being a pointer, `Behavior` is optional at the JSON level only for tasks with
+no `forms.review`. Once enforcement lands, a task with `forms.review` set
+but no `behavior`/`statusMap`, or a `statusMap` containing a value outside
+the three above, will fail `TaskConfig.Validate` at load time — the same way
+a missing `permissions` does today.
 
 ## `permissions` (`[]Permission`, required, non-empty)
 
@@ -234,14 +305,14 @@ Two places consume the result differently:
   `cmd/server/main.go` and 403s if the resolved actions don't contain the
   route's required action:
 
-  | Route                                         | Required action |
-  |------------------------------------------------|------------------|
-  | `GET /api/v1/applications/{taskId}`             | `VIEW`           |
-  | `POST /api/v1/applications/{taskId}/review`     | `REVIEW`         |
-  | `POST /api/v1/applications/{taskId}/feedback`   | `FEEDBACK`       |
-  | `POST /api/v1/applications/{taskId}/claim`      | `REVIEW`         |
-  | `POST /api/v1/applications/{taskId}/release`    | `REVIEW`         |
-  | `POST /api/v1/applications/{taskId}/certificate`| `REVIEW`         |
+  | Route                                            | Required action |
+  |--------------------------------------------------|-----------------|
+  | `GET /api/v1/applications/{taskId}`              | `VIEW`          |
+  | `POST /api/v1/applications/{taskId}/review`      | `REVIEW`        |
+  | `POST /api/v1/applications/{taskId}/feedback`    | `FEEDBACK`      |
+  | `POST /api/v1/applications/{taskId}/claim`       | `REVIEW`        |
+  | `POST /api/v1/applications/{taskId}/release`     | `REVIEW`        |
+  | `POST /api/v1/applications/{taskId}/certificate` | `REVIEW`        |
 
   Action strings are otherwise free-form (whatever the config's `actions`
   arrays contain is compared verbatim against the route's required string —
@@ -291,6 +362,26 @@ just what's needed to generate the certificate.
 If `Certificate` is nil, `Application.CertificateTemplateID` and
 `.CertificateDataSchema` are left empty, and the certificate-generation route
 will reject the request for that application.
+
+---
+
+## Migration checklist for existing task configs
+
+Existing task config JSON files need to be brought in line with the
+`statusMap` contract above before validation is turned on. For every task
+config where `forms.review` is set:
+
+1. Add a `behavior.statusMap` entry if one is missing.
+2. List every outcome value the review form's schema (`forms.review`) can
+   actually produce, and map each one to exactly one of `APPROVED`,
+   `REJECTED`, or `FEEDBACK_REQUESTED`.
+3. Remove or fix any value that isn't one of those three — in particular,
+   nothing should map to `"DONE"` or `"PENDING"`.
+4. Double-check there's no outcome value the form can produce that's
+   missing from the map — once enforcement lands, an unmapped outcome will
+   be rejected outright (400) instead of silently becoming `"DONE"`.
+5. Tasks with no `forms.review` (no review action) need no change — leave
+   `behavior` out entirely.
 
 ---
 
