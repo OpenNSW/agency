@@ -5,11 +5,11 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/taskconfig"
+	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/httputil"
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
-	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
 )
 
 // TaskCodeResolver resolves a task's task_code from its task_id.

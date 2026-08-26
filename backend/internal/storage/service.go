@@ -5,7 +5,7 @@ package storage
 import (
 	"context"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
+	"github.com/OpenNSW/agency/backend/internal/nswclient"
 )
 
 // Wire DTOs are owned by nswclient (they mirror the NSW backend contract).

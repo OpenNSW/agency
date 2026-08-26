@@ -1,7 +1,7 @@
 apiVersion: openchoreo.dev/v1alpha1
 
 metadata:
-  name: nsw-agency-portal
+  name: agency-portal
 
 endpoints:
   - name: web

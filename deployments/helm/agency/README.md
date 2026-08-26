@@ -22,7 +22,7 @@ deployments/helm/
 ## Usage
 
 ```bash
-helm install nsw-agency ./agency -f ../values-example.yaml
+helm install agency ./agency -f ../values-example.yaml
 ```
 
 `values.yaml` holds only neutral defaults. The image, port, environment, and
@@ -129,7 +129,7 @@ when asked for explicitly, and you must supply the dev `image.tag` to test
 against:
 
 ```bash
-helm install nsw-agency oci://ghcr.io/opennsw/charts/agency \
+helm install agency oci://ghcr.io/opennsw/charts/agency \
   --version 0.0.0-dev.42 \
   --set image.tag=dev-42-<sha> -f your-values.yaml
 # or pull the latest prerelease:
@@ -141,7 +141,7 @@ helm pull oci://ghcr.io/opennsw/charts/agency --devel
 OCI charts need no `helm repo add`. Install directly by reference:
 
 ```bash
-helm install nsw-agency \
+helm install agency \
   oci://ghcr.io/opennsw/charts/agency --version 0.1.0 \
   -f values-example.yaml
 ```

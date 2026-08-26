@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
+	"github.com/OpenNSW/agency/backend/pkg/httpclient"
 )
 
 // defaultTimeout is the HTTP timeout applied to NSW service calls.

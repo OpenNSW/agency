@@ -8,14 +8,14 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/feedback"
+	"github.com/OpenNSW/agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/taskconfig"
+	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
+	"github.com/OpenNSW/agency/backend/pkg/httputil"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
-	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
-	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
-	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
 	"gorm.io/gorm"
 )
 

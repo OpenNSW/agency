@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/OpenNSW/agency/backend/internal/application"
 	"github.com/OpenNSW/core/artifact"
-	"github.com/OpenNSW/nsw-agency/backend/internal/application"
 )
 
 // mockService is a mock implementation of Service for testing.

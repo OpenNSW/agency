@@ -1,5 +1,5 @@
 # Override values for the NSW Agency app (single image: API + officer portal).
-#   helm install nsw-agency ./agency -f values-example.yaml
+#   helm install agency ./agency -f values-example.yaml
 #
 # One image now serves both the API and the SPA from one process and one port,
 # so this is a single release (there is no separate frontend deployment).

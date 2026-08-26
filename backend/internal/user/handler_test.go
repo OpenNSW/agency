@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/rbac"
 )
 
 func newTestProfileHandler(t *testing.T) (*ProfileHandler, *rbac.RoleService) {

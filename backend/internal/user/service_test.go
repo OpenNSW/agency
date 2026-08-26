@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

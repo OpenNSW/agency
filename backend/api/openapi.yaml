@@ -40,7 +40,7 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
               example:
                 status: ok
-                service: nsw-agency-portal
+                service: agency-portal
 
   /api/v1/inject:
     post:
@@ -526,7 +526,7 @@ components:
           example: ok
         service:
           type: string
-          example: nsw-agency-portal
+          example: agency-portal
 
     InjectRequest:
       type: object

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/internal/database"
 )
 
 // testApplicationRow is a minimal stand-in for internal/application's

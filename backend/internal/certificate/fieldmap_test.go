@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/application"
+	"github.com/OpenNSW/agency/backend/internal/application"
 )
 
 // fakeApplicationLookup is a fake ApplicationLookup for testing.

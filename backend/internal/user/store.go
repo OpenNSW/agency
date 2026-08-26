@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/internal/database"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

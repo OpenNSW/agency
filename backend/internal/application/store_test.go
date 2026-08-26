@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/consignment"
-	"github.com/OpenNSW/nsw-agency/backend/internal/database"
-	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
-	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
-	"github.com/OpenNSW/nsw-agency/backend/internal/user"
+	"github.com/OpenNSW/agency/backend/internal/consignment"
+	"github.com/OpenNSW/agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/internal/feedback"
+	"github.com/OpenNSW/agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/user"
 )
 
 // ---------- helpers ----------

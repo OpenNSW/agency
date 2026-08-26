@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/application"
+	"github.com/OpenNSW/agency/backend/internal/application"
 )
 
 // certificateDateFormat matches the certificate spec's date style (e.g. "09/07/2026").

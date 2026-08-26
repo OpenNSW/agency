@@ -1,6 +1,6 @@
 package main
 
-import "github.com/OpenNSW/nsw-agency/backend/internal/authn"
+import "github.com/OpenNSW/agency/backend/internal/authn"
 
 // authzPrincipal adapts *authn.Principal to core/authz.Principal so the
 // generic authz package can gate routes on OAuth2 scopes without importing

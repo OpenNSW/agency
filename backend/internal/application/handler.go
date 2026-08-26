@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/OpenNSW/agency/backend/internal/version"
 	"github.com/OpenNSW/core/httputil"
-	"github.com/OpenNSW/nsw-agency/backend/internal/version"
 )
 
 // Handler handles HTTP requests for agency portal operations
@@ -144,7 +144,7 @@ func (h *Handler) HandleGetApplication(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	httputil.JSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
-		"service": "nsw-agency-portal",
+		"service": "agency-portal",
 		"version": version.Get(),
 	})
 }

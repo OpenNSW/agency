@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/internal/nswclient"
+	"github.com/OpenNSW/agency/backend/internal/web"
 	"github.com/OpenNSW/core/artifact/loaders"
 	"github.com/OpenNSW/core/artifact/loaders/github"
 	"github.com/OpenNSW/core/artifact/loaders/local"
 	"github.com/OpenNSW/core/artifact/loaders/s3"
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/database"
-	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
-	"github.com/OpenNSW/nsw-agency/backend/internal/web"
 )
 
 type Config struct {

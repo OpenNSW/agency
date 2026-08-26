@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/authn"
 )
 
 // fakeUserStore returns whatever the test dictates and records the arguments it

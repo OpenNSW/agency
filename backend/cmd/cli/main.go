@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/database"
-	"github.com/OpenNSW/nsw-agency/backend/internal/user"
+	"github.com/OpenNSW/agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/internal/user"
 	"gorm.io/gorm"
 )
 
