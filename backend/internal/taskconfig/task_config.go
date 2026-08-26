@@ -6,15 +6,26 @@ import (
 	"strings"
 )
 
+// CurrentSchemaVersion is the only TaskConfig shape this build understands.
+// A breaking change to the struct (a field changing meaning or required-ness,
+// not an additive optional field) bumps this and adds a case for the old
+// value where a migration period is needed; until then, Validate rejects
+// anything else outright rather than silently misinterpreting a shape it
+// wasn't built for.
+const CurrentSchemaVersion = 1
+
 // TaskConfig is the per-taskCode configuration: UI metadata, references to
 // forms, and outcome-to-status behavior.
 type TaskConfig struct {
-	TaskCode    string           `json:"taskCode"`
-	Meta        TaskMeta         `json:"meta"`
-	Forms       TaskForms        `json:"forms"`
-	Behavior    *TaskBehavior    `json:"behavior,omitempty"`
-	Permissions []Permission     `json:"permissions,omitempty"`
-	Certificate *TaskCertificate `json:"certificate,omitempty"`
+	// SchemaVersion declares which TaskConfig shape this file conforms to.
+	// Required, and must equal CurrentSchemaVersion (enforced by Validate).
+	SchemaVersion int              `json:"schemaVersion"`
+	TaskCode      string           `json:"taskCode"`
+	Meta          TaskMeta         `json:"meta"`
+	Forms         TaskForms        `json:"forms"`
+	Behavior      *TaskBehavior    `json:"behavior,omitempty"`
+	Permissions   []Permission     `json:"permissions,omitempty"`
+	Certificate   *TaskCertificate `json:"certificate,omitempty"`
 }
 
 // Validate reports an error if the config is missing required fields. Every
@@ -23,6 +34,9 @@ type TaskConfig struct {
 // closes off the old implicit default of granting every authenticated user
 // full access whenever a config omitted permissions.
 func (c TaskConfig) Validate() error {
+	if c.SchemaVersion != CurrentSchemaVersion {
+		return fmt.Errorf("taskconfig %q: schemaVersion must be %d, got %d", c.TaskCode, CurrentSchemaVersion, c.SchemaVersion)
+	}
 	if len(c.Permissions) == 0 {
 		return fmt.Errorf("taskconfig %q: permissions is required and must include at least one entry", c.TaskCode)
 	}

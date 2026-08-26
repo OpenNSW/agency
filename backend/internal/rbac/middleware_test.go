@@ -167,7 +167,7 @@ func TestRequireAction_ConfigMissingPermissions_FailsClosed(t *testing.T) {
 	m := NewMiddleware(svc,
 		&mockTaskCodeResolver{taskCode: "fcau_lab_test_v1"},
 		newTestRegistry(t, map[string]taskconfig.TaskConfig{
-			"fcau_lab_test_v1": {TaskCode: "fcau_lab_test_v1", Permissions: nil},
+			"fcau_lab_test_v1": {SchemaVersion: taskconfig.CurrentSchemaVersion, TaskCode: "fcau_lab_test_v1", Permissions: nil},
 		}),
 	)
 
@@ -206,8 +206,9 @@ func TestRequireAction_UserHasRole_Allows(t *testing.T) {
 		&mockTaskCodeResolver{taskCode: "fcau_lab_test_v1"},
 		newTestRegistry(t, map[string]taskconfig.TaskConfig{
 			"fcau_lab_test_v1": {
-				TaskCode:    "fcau_lab_test_v1",
-				Permissions: []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW", "REVIEW"}}},
+				SchemaVersion: taskconfig.CurrentSchemaVersion,
+				TaskCode:      "fcau_lab_test_v1",
+				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW", "REVIEW"}}},
 			},
 		}),
 	)
@@ -239,8 +240,9 @@ func TestRequireAction_UserLacksRole_Forbidden(t *testing.T) {
 		&mockTaskCodeResolver{taskCode: "fcau_lab_test_v1"},
 		newTestRegistry(t, map[string]taskconfig.TaskConfig{
 			"fcau_lab_test_v1": {
-				TaskCode:    "fcau_lab_test_v1",
-				Permissions: []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW"}}},
+				SchemaVersion: taskconfig.CurrentSchemaVersion,
+				TaskCode:      "fcau_lab_test_v1",
+				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW"}}},
 			},
 		}),
 	)
@@ -267,8 +269,9 @@ func TestRequireAction_NoAuthContext_Unauthorized(t *testing.T) {
 		&mockTaskCodeResolver{taskCode: "fcau_lab_test_v1"},
 		newTestRegistry(t, map[string]taskconfig.TaskConfig{
 			"fcau_lab_test_v1": {
-				TaskCode:    "fcau_lab_test_v1",
-				Permissions: []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW"}}},
+				SchemaVersion: taskconfig.CurrentSchemaVersion,
+				TaskCode:      "fcau_lab_test_v1",
+				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW"}}},
 			},
 		}),
 	)
