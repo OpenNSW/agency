@@ -255,6 +255,125 @@ func (h *serviceHarness) statusOf(taskID string) string {
 	return rec.Status
 }
 
+// ---------- CreateApplication (inject) ----------
+
+func TestCreateApplication_UnknownTaskCode_Rejected(t *testing.T) {
+	h := newServiceHarness(t, nil)
+
+	err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-ghost",
+		TaskCode:      "ghost",
+		ConsignmentID: "wf-test",
+		ServiceURL:    h.callbackURL,
+		Data:          map[string]any{},
+	})
+	if !errors.Is(err, ErrInvalidInjectRequest) {
+		t.Fatalf("expected ErrInvalidInjectRequest, got %v", err)
+	}
+	if _, getErr := h.store.GetByTaskID("t-ghost"); getErr == nil {
+		t.Errorf("expected no record to be created for an unknown task code")
+	}
+}
+
+func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"view": "alpha_view"}
+		}`)
+		writeFormFile(t, root, "alpha_view.json", `{
+			"schema": {
+				"type": "object",
+				"required": ["consignee_name"],
+				"properties": {"consignee_name": {"type": "string", "minLength": 1}}
+			}
+		}`)
+	})
+
+	t.Run("data missing a required field is rejected", func(t *testing.T) {
+		err := h.service.CreateApplication(context.Background(), &InjectRequest{
+			TaskID:        "t-bad",
+			TaskCode:      "alpha",
+			ConsignmentID: "wf-test",
+			ServiceURL:    h.callbackURL,
+			Data:          map[string]any{},
+		})
+		if !errors.Is(err, ErrInvalidInjectRequest) {
+			t.Fatalf("expected ErrInvalidInjectRequest, got %v", err)
+		}
+		if _, getErr := h.store.GetByTaskID("t-bad"); getErr == nil {
+			t.Errorf("expected no record to be created when data fails schema validation")
+		}
+	})
+
+	t.Run("data satisfying the schema is accepted", func(t *testing.T) {
+		err := h.service.CreateApplication(context.Background(), &InjectRequest{
+			TaskID:        "t-good",
+			TaskCode:      "alpha",
+			ConsignmentID: "wf-test",
+			ServiceURL:    h.callbackURL,
+			Data:          map[string]any{"consignee_name": "Acme Traders"},
+		})
+		if err != nil {
+			t.Fatalf("CreateApplication failed: %v", err)
+		}
+		if _, getErr := h.store.GetByTaskID("t-good"); getErr != nil {
+			t.Errorf("expected record to be created: %v", getErr)
+		}
+	})
+}
+
+func TestCreateApplication_NoViewForm_SkipsDataValidation(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
+		}`)
+	})
+
+	err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-no-view",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-test",
+		ServiceURL:    h.callbackURL,
+		Data:          map[string]any{"anything": "goes"},
+	})
+	if err != nil {
+		t.Fatalf("expected no validation to be enforced without a view form, got %v", err)
+	}
+}
+
+func TestCreateApplication_ViewFormLoadFailure_FailsClosed(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"view": "does_not_exist"}
+		}`)
+	})
+
+	err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-missing-form",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-test",
+		ServiceURL:    h.callbackURL,
+		Data:          map[string]any{},
+	})
+	if err == nil {
+		t.Fatal("expected CreateApplication to fail closed when the view form can't be loaded")
+	}
+	if errors.Is(err, ErrInvalidInjectRequest) {
+		t.Errorf("expected a config-drift error, not ErrInvalidInjectRequest: %v", err)
+	}
+	if _, getErr := h.store.GetByTaskID("t-missing-form"); getErr == nil {
+		t.Errorf("expected no record to be created when the view form can't be loaded")
+	}
+}
+
 // ---------- ReviewApplication: status derivation ----------
 
 func TestReviewApplication_StatusFromStatusMap(t *testing.T) {

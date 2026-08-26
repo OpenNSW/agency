@@ -41,6 +41,11 @@ var ErrApplicationNotPending = errors.New("application has already been reviewed
 // review already completed, or the claim was released and re-claimed).
 var ErrApplicationReviewConflict = errors.New("application was already reviewed or your claim has changed")
 
+// ErrInvalidInjectRequest is returned when an inject request is malformed:
+// missing required fields, references a task code with no task
+// configuration, or submits data that fails the task's view form schema.
+var ErrInvalidInjectRequest = errors.New("invalid inject request")
+
 // Service handles Agency portal operations
 type Service interface {
 	// CreateApplication creates a new application from injected data
@@ -155,7 +160,21 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 // CreateApplication creates a new application from injected data.
 func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) error {
 	if req.TaskID == "" || req.TaskCode == "" || req.ConsignmentID == "" || req.ServiceURL == "" {
-		return fmt.Errorf("missing required fields in InjectRequest")
+		return fmt.Errorf("%w: missing required fields in InjectRequest", ErrInvalidInjectRequest)
+	}
+
+	config, err := taskconfigart.Load(ctx, s.artifactRegistry, req.TaskCode)
+	if err != nil {
+		if errors.Is(err, artifact.ErrNotFound) {
+			return fmt.Errorf("%w: unknown task code %q", ErrInvalidInjectRequest, req.TaskCode)
+		}
+		return fmt.Errorf("failed to load task config for task code %s: %w", req.TaskCode, err)
+	}
+
+	if config.Forms.View != "" {
+		if err := validateAgainstViewForm(ctx, s.artifactRegistry, config.Forms.View, req.Data); err != nil {
+			return err
+		}
 	}
 
 	existing, err := s.store.GetByTaskID(req.TaskID)
