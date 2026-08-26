@@ -16,7 +16,7 @@ Each agency runs its own instance with its own database, ensuring data isolation
 │                 │ ──────────────────────────────────────▶│                  │
 │  NSW Core       │                                        │   Agency Service    │
 │    Service      │◀────────────────────────────────────── │   (per agency)   │
-│                 │     POST {serviceUrl} (callback)       │                  │
+│                 │   POST /api/v1/tasks/{id} (callback)   │                  │
 └─────────────────┘                                        └──────────────────┘
                                                                    │
                                                             ┌──────┴──────┐
@@ -63,7 +63,8 @@ DB_DRIVER=postgres DB_NAME=npqs_db DB_USER=postgres DB_PASSWORD=changeme \
   ARTIFACT_LOCAL_ROOT=../../one-trade-artifacts/npqs go run ./cmd/server
 ```
 
-The database is auto-created and auto-migrated on first startup.
+The SQLite file is created on first connection, but the schema is not -- apply
+migrations with `go run ./cmd/migrate up` before starting the server.
 
 ### Build
 
@@ -180,7 +181,7 @@ When working on the Agency module:
 1. All application code lives in `internal/` (unexported package)
 2. Task configs and form definitions live outside this repo and load through the artifact loader (a `manifest.json` plus the artifacts it catalogs). See [`docs/task-configs.md`](docs/task-configs.md) and [`docs/forms.md`](docs/forms.md).
 3. The service uses Go's standard `net/http` with `http.ServeMux` -- no external routing frameworks
-4. Database migrations are handled automatically by GORM's `AutoMigrate`
+4. Database schema comes from the SQL files in [`migrations/`](migrations) -- apply pending ones with `go run ./cmd/migrate up` (or `../start-dev.sh --clean-run <agency>` to wipe and re-migrate). Nothing is applied automatically at server start.
 5. Run `go vet ./...` and `go build ./...` before submitting PRs
 
 ## License

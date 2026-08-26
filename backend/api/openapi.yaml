@@ -66,7 +66,6 @@ paths:
               taskId: 927adaaa-b959-4648-880a-16508acafc12
               taskCode: moa:npqs:phytosanitary:001
               consignmentId: cefda05e-3071-4e94-b001-328094e570a7
-              serviceUrl: http://localhost:8080/api/v1/tasks
               data:
                 countryOfOrigin: LK
                 countryOfDestination: UK
@@ -186,7 +185,8 @@ paths:
         - BearerAuth: []
       description: |
         Submit a review decision for an application. The reviewer response is
-        forwarded as a callback POST to the originating service's `serviceUrl`,
+        forwarded as a callback POST to the NSW task endpoint derived from
+        `NSW_API_BASE_URL`,
         and the application status is updated to `DONE` (or a configured mapped
         status based on the outcome field value).
       tags:
@@ -232,7 +232,7 @@ paths:
         Send a change-request feedback message to the trader. The application
         status is set to `FEEDBACK_REQUESTED` and the feedback is forwarded as
         a callback POST (action: `NSW_AGENCY_VERIFICATION_FEEDBACK`) to the
-        originating service's `serviceUrl`.
+        NSW task endpoint derived from `NSW_API_BASE_URL`.
       tags:
         - Applications
       parameters:
@@ -534,7 +534,6 @@ components:
         - taskId
         - taskCode
         - consignmentId
-        - serviceUrl
       properties:
         taskId:
           type: string
@@ -548,11 +547,6 @@ components:
           type: string
           description: Parent consignment identifier
           example: cefda05e-3071-4e94-b001-328094e570a7
-        serviceUrl:
-          type: string
-          format: uri
-          description: Callback URL where review results will be POSTed
-          example: http://localhost:8080/api/v1/tasks
         data:
           type: object
           additionalProperties: true

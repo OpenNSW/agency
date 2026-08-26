@@ -89,7 +89,6 @@ type InjectRequest struct {
 	TaskCode              string           `json:"taskCode"`
 	ConsignmentID         string           `json:"consignmentId"`
 	Data                  map[string]any   `json:"data"`
-	ServiceURL            string           `json:"serviceUrl"` // URL to send response back to
 	AgencyFeedbackHistory []map[string]any `json:"agencyFeedbackHistory,omitempty"`
 }
 
@@ -98,7 +97,6 @@ type Application struct {
 	TaskID           string         `json:"taskId"`
 	TaskCode         string         `json:"taskCode"`
 	ConsignmentID    string         `json:"consignmentId"`
-	ServiceURL       string         `json:"-"`                          // internal NSW callback URL; not part of the API response
 	Data             map[string]any `json:"data,omitempty"`             // Data from NSW service to be rendered in the UI
 	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
 	AllowedActions   []string       `json:"allowedActions,omitempty"`
@@ -132,9 +130,9 @@ type Application struct {
 // NSW wire protocol out of the domain service.
 type NSWClient interface {
 	// SendOutcome sends a review outcome (command + payload) for a task.
-	SendOutcome(ctx context.Context, serviceURL, taskID, command string, payload any) error
+	SendOutcome(ctx context.Context, taskID, command string, payload any) error
 	// RequestAmendment asks the trader to amend a submission.
-	RequestAmendment(ctx context.Context, serviceURL, taskID string, payload any) error
+	RequestAmendment(ctx context.Context, taskID string, payload any) error
 }
 
 type service struct {
@@ -159,7 +157,7 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 
 // CreateApplication creates a new application from injected data.
 func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) error {
-	if req.TaskID == "" || req.TaskCode == "" || req.ConsignmentID == "" || req.ServiceURL == "" {
+	if req.TaskID == "" || req.TaskCode == "" || req.ConsignmentID == "" {
 		return fmt.Errorf("%w: missing required fields in InjectRequest", ErrInvalidInjectRequest)
 	}
 
@@ -192,7 +190,6 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		TaskID:        req.TaskID,
 		TaskCode:      req.TaskCode,
 		ConsignmentID: req.ConsignmentID,
-		ServiceURL:    req.ServiceURL,
 		Data:          req.Data,
 		Status:        "PENDING",
 	}
@@ -318,7 +315,6 @@ func (s *service) buildApplication(ctx context.Context, record *ApplicationRecor
 		TaskID:           record.TaskID,
 		TaskCode:         record.TaskCode,
 		ConsignmentID:    record.ConsignmentID,
-		ServiceURL:       record.ServiceURL,
 		Data:             record.Data,
 		AgencyActionData: record.ReviewerResponse,
 		Status:           record.Status,
@@ -432,7 +428,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 		}
 	}
 
-	if err := s.nsw.SendOutcome(ctx, app.ServiceURL, app.TaskID, command, reviewerResponse); err != nil {
+	if err := s.nsw.SendOutcome(ctx, app.TaskID, command, reviewerResponse); err != nil {
 		return fmt.Errorf("failed to send response to service: %w", err)
 	}
 
@@ -464,7 +460,7 @@ func (s *service) FeedbackApplication(ctx context.Context, taskID string, conten
 		Round:     len(app.FeedbackHistory) + 1,
 	}
 
-	if err := s.nsw.RequestAmendment(ctx, app.ServiceURL, app.TaskID, content); err != nil {
+	if err := s.nsw.RequestAmendment(ctx, app.TaskID, content); err != nil {
 		return fmt.Errorf("failed to send feedback to service: %w", err)
 	}
 

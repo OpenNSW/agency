@@ -84,7 +84,7 @@ Key fields:
 
 ## Callback Contract
 
-When an Agency officer reviews an application, the Agency service POSTs a callback to the `serviceUrl` (typically `http://localhost:8080/api/v1/tasks`):
+When an Agency officer reviews an application, the Agency service POSTs a callback to the NSW task endpoint it derives from its own `NSW_API_BASE_URL` -- `{NSW_API_BASE_URL}/api/v1/tasks/{taskId}` (typically `http://localhost:8080/api/v1/tasks/{taskId}`):
 
 ```json
 {

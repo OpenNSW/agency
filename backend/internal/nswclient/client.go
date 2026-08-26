@@ -55,19 +55,19 @@ func NewWithClient(hc *httpclient.Client) *Client {
 	return &Client{http: hc}
 }
 
-// postEnvelope marshals body to JSON, POSTs it to url, and returns an error
-// unless the response status is 2xx. The response body is drained and closed.
-func (c *Client) postEnvelope(ctx context.Context, url, taskID string, body any) error {
+// postEnvelope marshals body to JSON, POSTs it to path (resolved against the
+// configured base URL), and returns an error unless the response status is 2xx.
+// The response body is drained and closed.
+func (c *Client) postEnvelope(ctx context.Context, path, taskID string, body any) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	// The URL may carry callback credentials in its query string and the payload
-	// may carry reviewer responses, so neither is logged.
-	slog.DebugContext(ctx, "nswclient: sending callback request", "taskID", taskID)
+	// The payload may carry reviewer responses, so it is not logged.
+	slog.DebugContext(ctx, "nswclient: sending callback request", "taskID", taskID, "path", path)
 
-	resp, err := c.http.Post(url, "application/json", data)
+	resp, err := c.http.Post(path, "application/json", data)
 	if err != nil {
 		return err
 	}

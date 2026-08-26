@@ -59,9 +59,12 @@ Key design decisions:
 
 Responsible for:
 - Database connection management (SQLite via GORM)
-- Auto-migration on startup
 - CRUD operations on `ApplicationRecord`
 - Custom `JSONB` type that serializes `map[string]any` as JSON text in SQLite
+
+The store opens a connection but never changes the schema. Schema comes from the
+SQL files in [`migrations/`](../migrations), applied by `cmd/migrate` -- see
+[Database Schema](#database-schema) below.
 
 ### Form Store (`form.go`)
 
@@ -93,7 +96,6 @@ Single table: `applications`
 |---------------------|--------------|----------------------------------------------------|
 | `task_id`           | TEXT         | Primary key (provided by NSW workflow)             |
 | `consignment_id`    | TEXT         | Related consignment identifier                     |
-| `service_url`       | VARCHAR(512) | Callback URL for review responses                  |
 | `data`              | TEXT (JSON)  | Trader-submitted data                              |
 | `meta`              | TEXT (JSON)  | Form selection metadata (`type`, `verificationId`) |
 | `reviewer_response` | TEXT (JSON)  | Complete reviewer response payload                 |
@@ -126,7 +128,7 @@ Officer UI ──POST──▶ HandleReviewApplication ──▶ ReviewApplicati
                                                  validate decision field
                                                  update status in DB
                                                  build TaskResponse payload
-                                                 POST callback to serviceUrl
+                                                 POST callback to /api/v1/tasks/{id}
                                                       │
                                                 ◀── 200 OK
                                                       │

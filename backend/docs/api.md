@@ -31,7 +31,6 @@ POST /api/v1/inject
 |---|---|---|---|
 | `taskId` | string | Yes | Task identifier from the workflow |
 | `consignmentId` | string | Yes | Parent consignment identifier |
-| `serviceUrl` | string | Yes | Callback URL where review results will be POSTed |
 | `data` | object | No | Trader-submitted data to display during review |
 | `meta` | object | No | Metadata for form selection (see [Dynamic Forms](dynamic-forms.md)) |
 | `meta.type` | string | -- | Verification type (e.g., `"consignment"`) |
@@ -45,7 +44,6 @@ curl -X POST http://localhost:8081/api/v1/inject \
   -d '{
     "taskId": "927adaaa-b959-4648-880a-16508acafc12",
     "consignmentId": "cefda05e-3071-4e94-b001-328094e570a7",
-    "serviceUrl": "http://localhost:8080/api/v1/tasks",
     "data": {
       "countryOfOrigin": "LK",
       "countryOfDestination": "UK",
@@ -105,8 +103,7 @@ curl "http://localhost:8081/api/v1/applications?status=PENDING&page=1&pageSize=1
     {
       "taskId": "927adaaa-b959-4648-880a-16508acafc12",
       "consignmentId": "cefda05e-3071-4e94-b001-328094e570a7",
-      "serviceUrl": "http://localhost:8080/api/v1/tasks",
-      "data": {
+        "data": {
         "countryOfOrigin": "LK",
         "countryOfDestination": "UK"
       },
@@ -151,7 +148,6 @@ curl "http://localhost:8081/api/v1/applications/927adaaa-b959-4648-880a-16508aca
 {
   "taskId": "927adaaa-b959-4648-880a-16508acafc12",
   "consignmentId": "cefda05e-3071-4e94-b001-328094e570a7",
-  "serviceUrl": "http://localhost:8080/api/v1/tasks",
   "data": {
     "countryOfOrigin": "LK",
     "countryOfDestination": "UK"
@@ -246,7 +242,8 @@ curl -X POST http://localhost:8081/api/v1/applications/927adaaa-b959-4648-880a-1
 
 **Callback Payload**
 
-After a successful review, the service POSTs the following to the `serviceUrl`:
+After a successful review, the service POSTs the following to the NSW task
+endpoint (`{NSW_API_BASE_URL}/api/v1/tasks/{taskId}`):
 
 ```json
 {
