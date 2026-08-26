@@ -29,6 +29,13 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.BaseURL) == "" {
 		return fmt.Errorf("NSW_API_BASE_URL is required")
 	}
+	u, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return fmt.Errorf("NSW_API_BASE_URL must be a valid URL: %w", err)
+	}
+	if path := strings.Trim(u.Path, "/"); path != "" {
+		return fmt.Errorf("NSW_API_BASE_URL must be the NSW service origin only, with no path (got %q): endpoint paths are set by the client, not configured", u.Path)
+	}
 	if strings.TrimSpace(c.ClientID) == "" {
 		return fmt.Errorf("NSW_CLIENT_ID is required")
 	}
