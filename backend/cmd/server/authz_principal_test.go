@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/authn"
 )
 
 func TestAuthzPrincipal_Subject(t *testing.T) {

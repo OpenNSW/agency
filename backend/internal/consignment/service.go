@@ -3,7 +3,7 @@ package consignment
 import (
 	"context"
 
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httputil"
+	"github.com/OpenNSW/agency/backend/pkg/httputil"
 )
 
 // Service handles consignment read operations.

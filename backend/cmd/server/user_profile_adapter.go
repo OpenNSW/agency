@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/authn"
 )
 
 // userStore is the slice of user.UserStore the adapter needs. Declaring it here

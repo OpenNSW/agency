@@ -3,7 +3,7 @@
 # One image serves both the API and the officer portal, so this chart deploys a
 # single release. Layer the example override file on top of these defaults:
 #
-#   helm install nsw-agency ./agency -f values-example.yaml
+#   helm install agency ./agency -f values-example.yaml
 #
 # The image, containerPort, env, and ingress/route settings are intentionally
 # left as neutral defaults here and are filled in by the override file.

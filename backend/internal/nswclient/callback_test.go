@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
+	"github.com/OpenNSW/agency/backend/pkg/httpclient"
 )
 
 func TestBuildCallbackURL(t *testing.T) {

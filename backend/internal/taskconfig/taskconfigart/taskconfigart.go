@@ -10,7 +10,7 @@ import (
 
 	"github.com/OpenNSW/core/artifact"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
+	"github.com/OpenNSW/agency/backend/internal/taskconfig"
 )
 
 // Kind is the artifact kind owned by this adapter.

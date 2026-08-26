@@ -1,4 +1,4 @@
-module github.com/OpenNSW/nsw-agency/backend
+module github.com/OpenNSW/agency/backend
 
 go 1.26.4
 

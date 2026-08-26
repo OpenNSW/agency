@@ -13,7 +13,7 @@ GET /health
 ```json
 {
   "status": "ok",
-  "service": "nsw-agency-portal"
+  "service": "agency-portal"
 }
 ```
 

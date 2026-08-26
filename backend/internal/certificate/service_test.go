@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/OpenNSW/agency/backend/internal/application"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/testutil"
-	"github.com/OpenNSW/nsw-agency/backend/internal/application"
 )
 
 func TestServiceGenerate(t *testing.T) {

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/internal/database"
 )
 
 // Config holds all configuration for the CLI command.

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"gorm.io/gorm"
 )
 

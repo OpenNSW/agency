@@ -14,15 +14,15 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/nswclient"
+	"github.com/OpenNSW/agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
+	"github.com/OpenNSW/agency/backend/internal/user"
+	"github.com/OpenNSW/agency/backend/pkg/httpclient"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
 	"github.com/OpenNSW/core/artifact/loaders/local"
-	"github.com/OpenNSW/nsw-agency/backend/internal/authn"
-	"github.com/OpenNSW/nsw-agency/backend/internal/nswclient"
-	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
-	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig/taskconfigart"
-	"github.com/OpenNSW/nsw-agency/backend/internal/user"
-	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
 )
 
 // writeTaskConfigFile writes content to <root>/task-configs/<name>.

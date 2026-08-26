@@ -30,15 +30,15 @@ jobs:
 
       - name: Render templates (default values + explicit tag)
         # image.tag is required and has no default, so supply one here.
-        run: helm template nsw-agency deployments/helm/agency --set image.tag=ci
+        run: helm template agency deployments/helm/agency --set image.tag=ci
 
       - name: Render templates (example values)
-        run: helm template nsw-agency deployments/helm/agency -f deployments/helm/values-example.yaml
+        run: helm template agency deployments/helm/agency -f deployments/helm/values-example.yaml
 
       - name: Assert image.tag is required
         # Rendering with no tag MUST fail — guards against re-introducing a default.
         run: |
-          if helm template nsw-agency deployments/helm/agency >/dev/null 2>&1; then
+          if helm template agency deployments/helm/agency >/dev/null 2>&1; then
             echo "::error::chart rendered without image.tag — the required guard is missing"
             exit 1
           fi

@@ -10,8 +10,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/OpenNSW/nsw-agency/backend/internal/database"
-	"github.com/OpenNSW/nsw-agency/backend/internal/migrator"
+	"github.com/OpenNSW/agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/internal/migrator"
 )
 
 func main() {

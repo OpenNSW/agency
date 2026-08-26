@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/OpenNSW/agency/backend/internal/application"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/httputil"
-	"github.com/OpenNSW/nsw-agency/backend/internal/application"
 )
 
 // GenerateRequest is the payload sent by the frontend to populate a certificate template.
