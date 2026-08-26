@@ -12,7 +12,7 @@ import (
 
 func TestClient_CreateUploadURL(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/storage", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/storage", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -59,7 +59,7 @@ func TestClient_GetDownloadURL(t *testing.T) {
 	)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/storage/"+storageKey, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/storage/"+storageKey, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return

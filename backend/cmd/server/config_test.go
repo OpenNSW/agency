@@ -17,7 +17,7 @@ func setBaseConfigEnv(t *testing.T) {
 
 func setRequiredNSWOAuth2Env(t *testing.T) {
 	t.Helper()
-	t.Setenv("NSW_API_BASE_URL", "http://localhost:8080/api/v1")
+	t.Setenv("NSW_API_BASE_URL", "http://localhost:8080")
 	t.Setenv("NSW_CLIENT_ID", "NPQS_TO_NSW")
 	t.Setenv("NSW_CLIENT_SECRET", "secret")
 	t.Setenv("NSW_TOKEN_URL", "https://localhost:8090/oauth2/token")

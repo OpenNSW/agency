@@ -147,7 +147,7 @@ data:
   AUTH_EXPECTED_OU: "fcau"
 
   # Outbound M2M to NSW API
-  NSW_API_BASE_URL: "https://nsw.example.com/api/v1"
+  NSW_API_BASE_URL: "https://nsw.example.com"
   NSW_CLIENT_ID: "<M2M_AGENCY_TO_NSW>"
   NSW_TOKEN_URL: "https://idp.example.com/oauth2/token"
   NSW_SCOPES: "nsw:task:write,nsw:consignment:read"

@@ -104,7 +104,7 @@ All configuration is via environment variables:
 | `ARTIFACT_LOADER_TYPE`           | Artifact source backend: `local`, `github`, or `s3`                                   | `local`                        |
 | `ARTIFACT_LOCAL_ROOT`            | Root dir the `local` loader resolves task configs, forms, and `manifest.json` against | required for `local`           |
 | `ALLOWED_ORIGINS`                | Comma-separated CORS origins (`*` to allow all)                                       | `*`                            |
-| `NSW_API_BASE_URL`               | NSW API base URL for calling NSW endpoints                                            | `http://localhost:8080/api/v1` |
+| `NSW_API_BASE_URL`               | NSW API base URL for calling NSW endpoints                                            | `http://localhost:8080`        |
 | `NSW_CLIENT_ID`                  | OAuth2 client ID for Agency -> NSW                                                    | required                       |
 | `NSW_CLIENT_SECRET`              | OAuth2 client secret for Agency -> NSW                                                | required                       |
 | `NSW_TOKEN_URL`                  | OAuth2 token endpoint URL                                                             | required                       |

@@ -76,7 +76,7 @@ To add a brand-new NSW Agency, create `<name>.branding.json` the same way and ad
 
 ### 1. NSW backend reachable
 
-NSW Agency calls the NSW core backend's `/api/v1/tasks` endpoint to return review results. Set `NSW_API_BASE_URL` in [backend/.env](backend/.env) accordingly (default: `http://localhost:8080/api/v1`).
+NSW Agency calls the NSW core backend's `/api/v1/tasks` endpoint to return review results. Set `NSW_API_BASE_URL` in [backend/.env](backend/.env) accordingly (default: `http://localhost:8080`).
 
 ### 2. M2M OAuth2 client
 

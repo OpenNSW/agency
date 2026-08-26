@@ -112,7 +112,7 @@ env:
   AUTH_JWKS_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
 
   # --- Outbound auth: this backend calling the NSW API ---
-  NSW_API_BASE_URL: "https://nsw-api.example.com/api/v1"
+  NSW_API_BASE_URL: "https://nsw-api.example.com"
   NSW_CLIENT_ID: "<M2M_AGENCY_TO_NSW>"
   # SECRET — pulled from a Kubernetes Secret, never inlined.
   NSW_CLIENT_SECRET:
