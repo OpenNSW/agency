@@ -65,3 +65,72 @@ func TestValidate_Valid(t *testing.T) {
 		t.Errorf("expected no error for a valid config, got %v", err)
 	}
 }
+
+func TestValidate_Behavior_MissingType(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "officer", Actions: []string{"VIEW", "REVIEW"}}},
+		Behavior:    &TaskBehavior{StatusMap: map[string]string{"approve": "APPROVED"}},
+	}
+	if err := c.Validate(); err == nil {
+		t.Error("expected error when behavior is present but type is empty")
+	}
+}
+
+func TestValidate_Behavior_UnknownType(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "officer", Actions: []string{"VIEW", "REVIEW"}}},
+		Behavior:    &TaskBehavior{Type: "somethingElse"},
+	}
+	if err := c.Validate(); err == nil {
+		t.Error("expected error for an unrecognized behavior.type")
+	}
+}
+
+func TestValidate_StatusMap_Valid(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "officer", Actions: []string{"VIEW", "REVIEW"}}},
+		Behavior: &TaskBehavior{
+			Type:      BehaviorTypeStatusMap,
+			StatusMap: map[string]string{"approve": "APPROVED"},
+		},
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("expected no error for a valid statusMap behavior, got %v", err)
+	}
+}
+
+func TestValidate_AutoApprove_Valid(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "officer", Actions: []string{"VIEW", "REVIEW"}}},
+		Behavior:    &TaskBehavior{Type: BehaviorTypeAutoApprove},
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("expected no error for autoApprove alone, got %v", err)
+	}
+}
+
+func TestValidate_AutoApprove_ConflictsWithOutcomeField(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "officer", Actions: []string{"VIEW", "REVIEW"}}},
+		Behavior:    &TaskBehavior{Type: BehaviorTypeAutoApprove, OutcomeField: "decision"},
+	}
+	if err := c.Validate(); err == nil {
+		t.Error("expected error when autoApprove is combined with outcomeField")
+	}
+}
+
+func TestValidate_AutoApprove_ConflictsWithStatusMap(t *testing.T) {
+	c := TaskConfig{
+		TaskCode:    "alpha",
+		Permissions: []Permission{{Role: "officer", Actions: []string{"VIEW", "REVIEW"}}},
+		Behavior:    &TaskBehavior{Type: BehaviorTypeAutoApprove, StatusMap: map[string]string{"approve": "APPROVED"}},
+	}
+	if err := c.Validate(); err == nil {
+		t.Error("expected error when autoApprove is combined with statusMap")
+	}
+}

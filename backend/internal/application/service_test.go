@@ -263,6 +263,7 @@ func TestReviewApplication_StatusFromStatusMap(t *testing.T) {
 			"meta": {"title": "Alpha"},
 			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"behavior": {
+				"type": "statusMap",
 				"statusMap": {
 					"approve": "APPROVED",
 					"reject":  "REJECTED",
@@ -300,12 +301,43 @@ func TestReviewApplication_StatusFromStatusMap(t *testing.T) {
 	}
 }
 
+func TestReviewApplication_AutoApprove(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "sample_wait.json", `{
+			"meta": {"title": "Sample Wait"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"behavior": {"type": "autoApprove"}
+		}`)
+	})
+	h.seed("t-auto", "sample_wait", nil)
+
+	ctx := h.claimAs("t-auto", "officer-1")
+	// No decision field in the body at all - autoApprove doesn't read one.
+	err := h.service.ReviewApplication(ctx, "t-auto", map[string]any{
+		"sample_received_at": "2026-08-26",
+	})
+	if err != nil {
+		t.Fatalf("ReviewApplication failed: %v", err)
+	}
+	if got := h.statusOf("t-auto"); got != "APPROVED" {
+		t.Errorf("status: got %q, want APPROVED", got)
+	}
+
+	body := h.capture.lastCall()
+	if body == nil {
+		t.Fatalf("expected callback to be invoked, got no calls")
+	}
+	if body["command"] != "approve" {
+		t.Errorf("callback command: got %v, want approve", body["command"])
+	}
+}
+
 func TestReviewApplication_DefaultsToDONE_OutcomeNotInMap(t *testing.T) {
 	h := newServiceHarness(t, func(root string) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"meta": {"title": "Alpha"},
 			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
-			"behavior": {"statusMap": {"approve": "APPROVED"}}
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 	h.seed("t-unknown", "alpha", nil)
@@ -368,6 +400,7 @@ func TestReviewApplication_OutcomeFieldOverride(t *testing.T) {
 			"meta": {"title": "Lab Results"},
 			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
 			"behavior": {
+				"type": "statusMap",
 				"outcomeField": "decision",
 				"statusMap": {"pass": "APPROVED", "fail": "REJECTED"}
 			}
@@ -412,7 +445,7 @@ func TestReviewApplication_CallsServiceURL(t *testing.T) {
 		writeTaskConfigFile(t, root, "alpha.json", `{
 			"meta": {"title": "Alpha"},
 			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
-			"behavior": {"statusMap": {"approve": "APPROVED"}}
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
 	h.seed("t-callback", "alpha", nil)

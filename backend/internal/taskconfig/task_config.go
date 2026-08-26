@@ -26,6 +26,19 @@ func (c TaskConfig) Validate() error {
 	if len(c.Permissions) == 0 {
 		return fmt.Errorf("taskconfig %q: permissions is required and must include at least one entry", c.TaskCode)
 	}
+	if c.Behavior != nil {
+		switch c.Behavior.Type {
+		case BehaviorTypeStatusMap:
+			// OutcomeField/StatusMap are both optional here: an unmatched or
+			// absent outcome simply falls through to the DONE default.
+		case BehaviorTypeAutoApprove:
+			if c.Behavior.OutcomeField != "" || len(c.Behavior.StatusMap) > 0 {
+				return fmt.Errorf("taskconfig %q: behavior.type %q cannot be combined with outcomeField or statusMap", c.TaskCode, BehaviorTypeAutoApprove)
+			}
+		default:
+			return fmt.Errorf("taskconfig %q: behavior.type must be %q or %q, got %q", c.TaskCode, BehaviorTypeStatusMap, BehaviorTypeAutoApprove, c.Behavior.Type)
+		}
+	}
 	for i, p := range c.Permissions {
 		if strings.TrimSpace(p.Role) == "" {
 			return fmt.Errorf("taskconfig %q: permissions[%d].role must not be empty", c.TaskCode, i)
@@ -85,8 +98,30 @@ type TaskCertificate struct {
 // body when TaskBehavior.OutcomeField is not set.
 const DefaultOutcomeField = "review_outcome"
 
-// TaskBehavior defines automated logic based on task outcomes.
+// BehaviorType selects how a review submission resolves to a final
+// application status. Required whenever Behavior is present (enforced by
+// Validate); the two variants are mutually exclusive by construction.
+type BehaviorType string
+
+const (
+	// BehaviorTypeStatusMap resolves the outcome by reading OutcomeField
+	// from the review submission body and looking its value up in
+	// StatusMap.
+	BehaviorTypeStatusMap BehaviorType = "statusMap"
+
+	// BehaviorTypeAutoApprove declares that the task's review form carries
+	// no officer decision (pure data-capture/confirmation/issuance). Any
+	// successful review submission resolves unconditionally to APPROVED —
+	// no body field is read, no StatusMap lookup happens.
+	BehaviorTypeAutoApprove BehaviorType = "autoApprove"
+)
+
+// TaskBehavior defines automated logic based on task outcomes. Type
+// selects the resolution mode; OutcomeField/StatusMap are only meaningful
+// for BehaviorTypeStatusMap (enforced by Validate).
 type TaskBehavior struct {
+	Type BehaviorType `json:"type"`
+
 	// OutcomeField names the key in the review submission body whose value
 	// is looked up in StatusMap. Defaults to "review_outcome" when empty.
 	OutcomeField string            `json:"outcomeField,omitempty"`

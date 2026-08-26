@@ -378,36 +378,40 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 		return err
 	}
 
+	config, configErr := taskconfigart.Load(ctx, s.artifactRegistry, app.TaskCode)
+	behavior := config.Behavior
+	if configErr != nil {
+		behavior = nil
+	}
+
 	command := "approve"
-	if config, err := taskconfigart.Load(ctx, s.artifactRegistry, app.TaskCode); err == nil && config.Behavior != nil {
-		outcomeField := config.Behavior.OutcomeField
-		if outcomeField == "" {
-			outcomeField = taskconfig.DefaultOutcomeField
+	status := "DONE"
+
+	if behavior != nil && behavior.Type == taskconfig.BehaviorTypeAutoApprove {
+		// No decision field to read: a successful submission always means
+		// "record the data and move the application forward."
+		status = "APPROVED"
+	} else {
+		outcomeField := taskconfig.DefaultOutcomeField
+		if behavior != nil && behavior.OutcomeField != "" {
+			outcomeField = behavior.OutcomeField
 		}
+
 		if outcome, ok := reviewerResponse[outcomeField].(string); ok && outcome != "" {
 			command = outcome
 		}
-	} else {
-		if outcome, ok := reviewerResponse[taskconfig.DefaultOutcomeField].(string); ok && outcome != "" {
-			command = outcome
+
+		if behavior != nil && behavior.StatusMap != nil {
+			if outcome, ok := reviewerResponse[outcomeField].(string); ok {
+				if mappedStatus, ok := behavior.StatusMap[outcome]; ok {
+					status = mappedStatus
+				}
+			}
 		}
 	}
 
 	if err := s.nsw.SendOutcome(ctx, app.ServiceURL, app.TaskID, command, reviewerResponse); err != nil {
 		return fmt.Errorf("failed to send response to service: %w", err)
-	}
-
-	status := "DONE"
-	if config, err := taskconfigart.Load(ctx, s.artifactRegistry, app.TaskCode); err == nil && config.Behavior != nil && config.Behavior.StatusMap != nil {
-		outcomeField := config.Behavior.OutcomeField
-		if outcomeField == "" {
-			outcomeField = taskconfig.DefaultOutcomeField
-		}
-		if outcome, ok := reviewerResponse[outcomeField].(string); ok {
-			if mappedStatus, ok := config.Behavior.StatusMap[outcome]; ok {
-				status = mappedStatus
-			}
-		}
 	}
 
 	// Persist the outcome only if userID still holds the claim and the
