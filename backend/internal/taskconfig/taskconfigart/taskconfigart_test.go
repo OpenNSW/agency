@@ -26,7 +26,9 @@ func TestLoad_ValidConfig(t *testing.T) {
 			"schemaVersion": 1,
 			"taskCode": "alpha",
 			"meta": {"title": "Alpha"},
-			"permissions": [{"role": "officer", "actions": ["VIEW"]}]
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"]}]
 		}`),
 	}
 	reg := artifact.NewRegistry(mem)

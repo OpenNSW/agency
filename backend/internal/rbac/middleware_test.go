@@ -208,7 +208,9 @@ func TestRequireAction_UserHasRole_Allows(t *testing.T) {
 			"fcau_lab_test_v1": {
 				SchemaVersion: taskconfig.CurrentSchemaVersion,
 				TaskCode:      "fcau_lab_test_v1",
-				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW", "REVIEW"}}},
+				Forms:         taskconfig.TaskForms{Review: "fcau_lab_test_v1_review"},
+				Behavior:      taskconfig.TaskBehavior{Type: taskconfig.BehaviorTypeStatusMap, StatusMap: map[string]string{"approve": "APPROVED"}},
+				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW", "REVIEW", "FEEDBACK"}}},
 			},
 		}),
 	)
@@ -242,7 +244,9 @@ func TestRequireAction_UserLacksRole_Forbidden(t *testing.T) {
 			"fcau_lab_test_v1": {
 				SchemaVersion: taskconfig.CurrentSchemaVersion,
 				TaskCode:      "fcau_lab_test_v1",
-				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW"}}},
+				Forms:         taskconfig.TaskForms{Review: "fcau_lab_test_v1_review"},
+				Behavior:      taskconfig.TaskBehavior{Type: taskconfig.BehaviorTypeStatusMap, StatusMap: map[string]string{"approve": "APPROVED"}},
+				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW", "REVIEW", "FEEDBACK"}}},
 			},
 		}),
 	)
@@ -271,7 +275,9 @@ func TestRequireAction_NoAuthContext_Unauthorized(t *testing.T) {
 			"fcau_lab_test_v1": {
 				SchemaVersion: taskconfig.CurrentSchemaVersion,
 				TaskCode:      "fcau_lab_test_v1",
-				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW"}}},
+				Forms:         taskconfig.TaskForms{Review: "fcau_lab_test_v1_review"},
+				Behavior:      taskconfig.TaskBehavior{Type: taskconfig.BehaviorTypeStatusMap, StatusMap: map[string]string{"approve": "APPROVED"}},
+				Permissions:   []taskconfig.Permission{{Role: "lab_officer", Actions: []string{"VIEW", "REVIEW", "FEEDBACK"}}},
 			},
 		}),
 	)

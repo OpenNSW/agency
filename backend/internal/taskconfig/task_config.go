@@ -19,20 +19,60 @@ const CurrentSchemaVersion = 1
 type TaskConfig struct {
 	// SchemaVersion declares which TaskConfig shape this file conforms to.
 	// Required, and must equal CurrentSchemaVersion (enforced by Validate).
-	SchemaVersion int              `json:"schemaVersion"`
-	TaskCode      string           `json:"taskCode"`
-	Meta          TaskMeta         `json:"meta"`
-	Forms         TaskForms        `json:"forms"`
-	Behavior      *TaskBehavior    `json:"behavior,omitempty"`
-	Permissions   []Permission     `json:"permissions,omitempty"`
-	Certificate   *TaskCertificate `json:"certificate,omitempty"`
+	SchemaVersion int       `json:"schemaVersion"`
+	TaskCode      string    `json:"taskCode"`
+	Meta          TaskMeta  `json:"meta"`
+	Forms         TaskForms `json:"forms"`
+	// Behavior is required (enforced by Validate) — every task is
+	// reviewable, so every task needs a resolution mode for the review
+	// outcome. A value type, not a pointer: there's no meaningful nil state
+	// to represent now that it's mandatory, so an absent/malformed behavior
+	// shows up as a zero-value Type that Validate's switch rejects like any
+	// other unrecognized type.
+	Behavior    TaskBehavior     `json:"behavior"`
+	Permissions []Permission     `json:"permissions,omitempty"`
+	Certificate *TaskCertificate `json:"certificate,omitempty"`
 }
+
+// Action names a permission action a role can be granted. These are the
+// only actions any route in this service checks (see the route table in
+// docs/task-config-reference.md); Validate rejects anything else outright
+// rather than letting a typo silently 403 an officer at request time.
+type Action = string
+
+const (
+	ActionView     Action = "VIEW"
+	ActionReview   Action = "REVIEW"
+	ActionFeedback Action = "FEEDBACK"
+)
+
+// allowedActions is the closed set Validate checks Permissions actions
+// against.
+var allowedActions = map[Action]bool{
+	ActionView:     true,
+	ActionReview:   true,
+	ActionFeedback: true,
+}
+
+// requiredActions is the subset of allowedActions every task config must
+// collectively grant, regardless of which role(s) hold them: every task is
+// reviewable, so every task needs someone who can view it and someone who
+// can decide it. FEEDBACK is not required — not every task's officer workflow
+// sends data back to the trader for changes.
+var requiredActions = []Action{ActionView, ActionReview}
 
 // Validate reports an error if the config is missing required fields. Every
 // task config must explicitly declare who can access it: Permissions must be
-// non-empty, and each entry must name a role and at least one action. This
-// closes off the old implicit default of granting every authenticated user
-// full access whenever a config omitted permissions.
+// non-empty, each entry must name a role and at least one action, actions
+// must come from the closed set above, and VIEW/REVIEW must each be granted
+// to at least one role. This closes off the old implicit default of granting
+// every authenticated user full access whenever a config omitted
+// permissions.
+//
+// forms.review and behavior are both required unconditionally: every task
+// in this system is something an officer reviews (even an autoApprove task
+// has a review form — it just carries no decision), so there's no task
+// shape where either is legitimately absent.
 func (c TaskConfig) Validate() error {
 	if c.SchemaVersion != CurrentSchemaVersion {
 		return fmt.Errorf("taskconfig %q: schemaVersion must be %d, got %d", c.TaskCode, CurrentSchemaVersion, c.SchemaVersion)
@@ -40,19 +80,21 @@ func (c TaskConfig) Validate() error {
 	if len(c.Permissions) == 0 {
 		return fmt.Errorf("taskconfig %q: permissions is required and must include at least one entry", c.TaskCode)
 	}
-	if c.Behavior != nil {
-		switch c.Behavior.Type {
-		case BehaviorTypeStatusMap:
-			// OutcomeField/StatusMap are both optional here: an unmatched or
-			// absent outcome simply falls through to the DONE default.
-		case BehaviorTypeAutoApprove:
-			if c.Behavior.OutcomeField != "" || len(c.Behavior.StatusMap) > 0 {
-				return fmt.Errorf("taskconfig %q: behavior.type %q cannot be combined with outcomeField or statusMap", c.TaskCode, BehaviorTypeAutoApprove)
-			}
-		default:
-			return fmt.Errorf("taskconfig %q: behavior.type must be %q or %q, got %q", c.TaskCode, BehaviorTypeStatusMap, BehaviorTypeAutoApprove, c.Behavior.Type)
-		}
+	if strings.TrimSpace(c.Forms.Review) == "" {
+		return fmt.Errorf("taskconfig %q: forms.review is required", c.TaskCode)
 	}
+	switch c.Behavior.Type {
+	case BehaviorTypeStatusMap:
+		// OutcomeField/StatusMap are both optional here: an unmatched or
+		// absent outcome simply falls through to the DONE default.
+	case BehaviorTypeAutoApprove:
+		if c.Behavior.OutcomeField != "" || len(c.Behavior.StatusMap) > 0 {
+			return fmt.Errorf("taskconfig %q: behavior.type %q cannot be combined with outcomeField or statusMap", c.TaskCode, BehaviorTypeAutoApprove)
+		}
+	default:
+		return fmt.Errorf("taskconfig %q: behavior.type must be %q or %q, got %q", c.TaskCode, BehaviorTypeStatusMap, BehaviorTypeAutoApprove, c.Behavior.Type)
+	}
+	granted := map[Action]bool{}
 	for i, p := range c.Permissions {
 		if strings.TrimSpace(p.Role) == "" {
 			return fmt.Errorf("taskconfig %q: permissions[%d].role must not be empty", c.TaskCode, i)
@@ -64,6 +106,15 @@ func (c TaskConfig) Validate() error {
 			if strings.TrimSpace(action) == "" {
 				return fmt.Errorf("taskconfig %q: permissions[%d].actions[%d] must not be empty", c.TaskCode, i, j)
 			}
+			if !allowedActions[action] {
+				return fmt.Errorf("taskconfig %q: permissions[%d].actions[%d] must be one of %q, %q, %q, got %q", c.TaskCode, i, j, ActionView, ActionReview, ActionFeedback, action)
+			}
+			granted[action] = true
+		}
+	}
+	for _, action := range requiredActions {
+		if !granted[action] {
+			return fmt.Errorf("taskconfig %q: permissions must grant %q to at least one role", c.TaskCode, action)
 		}
 	}
 	return nil
@@ -89,8 +140,10 @@ type TaskMeta struct {
 
 // TaskForms holds form IDs referenced by the task config.
 type TaskForms struct {
-	View   string `json:"view,omitempty"`
-	Review string `json:"review,omitempty"`
+	View string `json:"view,omitempty"`
+	// Review is required (enforced by Validate): every task is reviewable,
+	// so every task has a review form for the officer to act on.
+	Review string `json:"review"`
 }
 
 // TaskCertificate references a certificate template an officer can generate

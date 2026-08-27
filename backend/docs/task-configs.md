@@ -8,6 +8,11 @@ A **task config** is the per-`taskCode` JSON file that drives the agency officer
 
 Forms themselves are stored separately and referenced by ID; the same form can be reused across multiple task configs. See [`forms.md`](./forms.md) for the form file structure.
 
+For what every field means, whether it's required, and exactly how
+`TaskConfig.Validate` enforces it, see the field-by-field reference in
+[`task-config-reference.md`](./task-config-reference.md) — this document
+only covers how task configs are stored, loaded, and authored.
+
 ## Storage and Loading
 
 Task configs (and forms) are **not** stored in this repo. They are loaded through the
@@ -43,6 +48,7 @@ manifest, loads the bytes through the loader, and parses + validates them into a
     "review": "fcau_general_application_v1_review"
   },
   "behavior": {
+    "type": "statusMap",
     "outcomeField": "review_outcome",
     "statusMap": {
       "approve": "APPROVED",
@@ -56,18 +62,11 @@ manifest, loads the bytes through the loader, and parses + validates them into a
 }
 ```
 
-| Field                   | Required | Description                                                                                                                                                                                                                                                                                                                |
-|-------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `taskCode`              | optional | Logical task code. If omitted, the filename (without `.json`) is used.                                                                                                                                                                                                                                                     |
-| `meta.title`            | yes      | Display title shown in the task list and review screen header.                                                                                                                                                                                                                                                             |
-| `meta.description`      | no       | One-line description shown under the title.                                                                                                                                                                                                                                                                                |
-| `meta.icon`             | no       | Icon hint. Currently the frontend renders only `emoji:<char>`-prefixed values; other formats are ignored.                                                                                                                                                                                                                  |
-| `meta.category`         | no       | Category label shown in the task list (e.g. `Food Control`).                                                                                                                                                                                                                                                               |
-| `forms.view`            | no       | Form ID for the read-only display of the trader's submitted data. Omit if the task has no trader-side data to display.                                                                                                                                                                                                     |
-| `forms.review`          | no       | Form ID for the officer's review action form. Omit if there's no review action.                                                                                                                                                                                                                                            |
-| `behavior.outcomeField` | no       | Name of the field in the review submission body whose value is looked up in `statusMap`. Defaults to `review_outcome`.                                                                                                                                                                                                     |
-| `behavior.statusMap`    | no       | Maps the outcome field's value to a final application status. If absent or no key matches, status defaults to `DONE`.                                                                                                                                                                                                      |
-| `permissions`           | **yes**  | Non-empty list of `{role, actions}` entries controlling who can view/act on this task. A config that omits this, or sets it to `[]`, fails to load. Each entry needs a non-empty `role` and at least one `action`. See [`task-config-reference.md`](./task-config-reference.md#permissions-permission-required-non-empty). |
+`taskCode` is the only field that's genuinely optional (the filename is used
+as a fallback `id` if it's omitted); `meta.title`, `forms.review`,
+`behavior`, and `permissions` are all required — see
+[`task-config-reference.md`](./task-config-reference.md) for the full
+per-field contract.
 
 ## Resolution Flow
 
@@ -80,7 +79,12 @@ When `GET /api/v1/applications/{taskId}` is called:
 3. Each non-empty form reference in the config is resolved from the registry (kind `generic_template`):
    - Hit → form JSON is attached to the response as `dataForm` (view) or `agencyForm` (review).
    - Miss → a warning is logged and the field is omitted.
-4. On review submission via `POST /api/v1/applications/{taskId}/review`, if `behavior.statusMap` is set and the request body contains a matching `review_outcome` value, the application's status is set accordingly. Otherwise it defaults to `DONE`.
+4. On review submission via `POST /api/v1/applications/{taskId}/review`, the
+   outcome resolves to a final status via `behavior` — see
+   [`task-config-reference.md`](./task-config-reference.md#behavior-taskbehavior-required)
+   for exactly how `statusMap`/`autoApprove` resolve, and the
+   [application status lifecycle](./task-config-reference.md#application-status-lifecycle-canonical-applies-to-every-task)
+   for the closed set of statuses that can result.
 
 ## Adding a New Task
 
@@ -104,13 +108,14 @@ These steps happen in the **artifacts source** (the local dir / GitHub repo / S3
        "review": "moh_fcau_health_cert_v1_review"
      },
      "behavior": {
+       "type": "statusMap",
        "statusMap": {
          "approve": "APPROVED",
          "reject":  "REJECTED"
        }
      },
      "permissions": [
-       { "role": "moh_officer", "actions": ["VIEW", "REVIEW"] }
+       { "role": "moh_officer", "actions": ["VIEW", "REVIEW", "FEEDBACK"] }
      ]
    }
    ```
@@ -122,25 +127,6 @@ These steps happen in the **artifacts source** (the local dir / GitHub repo / S3
    ```
 
 5. Restart the Agency service — the manifest is read once at startup, then artifacts are fetched on demand.
-
-## Status Mapping
-
-The `behavior.statusMap` field declaratively wires the officer's review action to the final application status, removing the need for hardcoded outcome logic in the service.
-
-- The review form is expected to produce a field whose value identifies the outcome. By default this field is `review_outcome`; configure `behavior.outcomeField` to read from a different field name.
-- The values that field can produce (`approve`, `reject`, `pass`, `fail`, …) are defined by the review form's schema (typically via `oneOf`).
-- Each possible value should appear as a key in `statusMap`; the mapped value becomes the application's stored status.
-- If `statusMap` is absent, the outcome field is missing from the submission, or the value doesn't match any key, the status defaults to `DONE`.
-
-Common statuses used by the frontend:
-
-| Status               | Meaning                                               |
-|----------------------|-------------------------------------------------------|
-| `PENDING`            | Awaiting officer review (set at injection).           |
-| `APPROVED`           | Officer approved.                                     |
-| `REJECTED`           | Officer rejected.                                     |
-| `FEEDBACK_REQUESTED` | Officer sent the task back to the trader for changes. |
-| `DONE`               | Generic completion when no `statusMap` matches.       |
 
 Task configs and forms are not tracked in this repo. They are provided per deployment through the artifact loader, configured by the variables below.
 
