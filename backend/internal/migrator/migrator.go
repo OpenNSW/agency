@@ -289,7 +289,7 @@ func validateSequence(migrations []*Migration) error {
 	return nil
 }
 
-// execStatements executes the SQL block in tx. Both pgx and go-sqlite3
+// execStatements executes the SQL block in tx. Both pgx and modernc.org/sqlite
 // support multiple statements in a single Exec call, which avoids the fragility
 // of splitting on ";" (semicolons can appear inside string literals or comments).
 func execStatements(tx *sql.Tx, sql string) error {

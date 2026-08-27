@@ -13,7 +13,7 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/testutil"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )

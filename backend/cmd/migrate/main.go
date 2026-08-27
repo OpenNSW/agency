@@ -8,8 +8,9 @@ import (
 	"os"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/mattn/go-sqlite3"
 
+	// "sqlite" is registered transitively via internal/database (glebarez/sqlite);
+	// a direct import here would double-register the driver and panic.
 	"github.com/OpenNSW/agency/backend/internal/database"
 	"github.com/OpenNSW/agency/backend/internal/migrator"
 )
@@ -81,7 +82,7 @@ func openDB(cfg database.Config) (*sql.DB, error) {
 	)
 	switch cfg.Driver {
 	case "sqlite":
-		db, err = sql.Open("sqlite3", cfg.SQLite.Path)
+		db, err = sql.Open("sqlite", cfg.SQLite.Path)
 	case "postgres":
 		pg := cfg.Postgres
 		u := &url.URL{
