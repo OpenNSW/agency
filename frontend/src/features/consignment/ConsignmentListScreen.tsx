@@ -91,7 +91,7 @@ export function ConsignmentListScreen() {
                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">
                       {t('consignments.list.table.tasks')}
                     </th>
-                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">
                       {t('consignments.list.table.latestStatus')}
                     </th>
                     <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -112,7 +112,7 @@ export function ConsignmentListScreen() {
                         {consignment.consignmentId}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">{consignment.taskCount}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
                         <Badge
                           size="1"
                           color={
