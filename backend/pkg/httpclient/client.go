@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -48,6 +49,12 @@ func NewHTTPClient(config Config) *http.Client {
 	return &http.Client{
 		Timeout:   config.Timeout,
 		Transport: transport,
+		// Redirects are not followed: a redirect served by the configured
+		// origin could otherwise retarget the request at an arbitrary host.
+		// Callers treat the 3xx as a non-2xx failure.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 }
 
@@ -174,13 +181,17 @@ func (c *Client) resolveURL(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// If path is already an absolute URL, use it directly
-	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
-		return path, nil
-	}
-	rel, err := url.Parse(strings.TrimPrefix(path, "/"))
+	rel, err := url.Parse(strings.TrimLeft(path, "/"))
 	if err != nil {
 		return "", err
+	}
+	// Get and Post take a path relative to BaseURL. A reference carrying its
+	// own scheme or host would silently escape that origin, so reject it as a
+	// caller error instead of dialing it. TrimLeft above already prevents a
+	// protocol-relative reference ("//host/x") from forming; Host is checked
+	// anyway so the origin cannot be escaped even if that trimming changes.
+	if rel.IsAbs() || rel.Host != "" {
+		return "", fmt.Errorf("httpclient: path %q must be relative to the base URL", path)
 	}
 	return base.ResolveReference(rel).String(), nil
 }
