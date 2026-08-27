@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from 'react-oidc-context'
 import { Badge, Text, Spinner, IconButton, Button, Flex } from '@radix-ui/themes'
 import { ChevronLeftIcon, ChevronRightIcon, ArrowLeftIcon, ArchiveIcon } from '@radix-ui/react-icons'
 import { formatDateForTable } from '@/utils/date'
@@ -13,6 +14,8 @@ export function ApplicationListScreen() {
 function ApplicationListContent({ consignmentId }: { consignmentId: string | undefined }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const auth = useAuth()
+  const currentUserEmail = (auth.user?.profile?.email as string) || ''
   const { data, status, pagination, refetch } = useApplicationList(consignmentId)
 
   if (status.loading) {
@@ -81,10 +84,10 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     {t('consignments.tasks.table.category')}
                   </th>
-                  <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">
                     {t('consignments.tasks.table.status')}
                   </th>
-                  <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center">
                     {t('consignments.tasks.table.claimedBy')}
                   </th>
                   <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -120,7 +123,7 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
                         </Text>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
                       <Badge
                         size="1"
                         color={
@@ -137,10 +140,16 @@ function ApplicationListContent({ consignmentId }: { consignmentId: string | und
                         {t(`common.status.${app.status.toLowerCase()}`, { defaultValue: app.status })}
                       </Badge>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
                       {app.claimedByEmail ? (
-                        <Badge size="1" color="gray" variant="soft">
-                          {app.claimedByName ?? app.claimedByEmail}
+                        <Badge
+                          size="1"
+                          color={app.claimedByEmail === currentUserEmail ? 'green' : 'amber'}
+                          variant="soft"
+                        >
+                          {app.claimedByEmail === currentUserEmail
+                            ? t('consignments.detail.claimedByYou')
+                            : (app.claimedByName ?? app.claimedByEmail)}
                         </Badge>
                       ) : (
                         <Text size="1" color="gray" className="italic">
