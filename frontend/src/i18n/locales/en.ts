@@ -55,7 +55,6 @@ const en = {
       table: {
         consignment: 'Consignment',
         companyName: 'Company Name',
-        id: 'Consignment ID',
         tasks: 'Tasks',
         latestStatus: 'Latest Status',
         lastActivity: 'Last Activity',

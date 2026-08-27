@@ -8,8 +8,11 @@ import (
 	"net/url"
 )
 
+// consignmentInfoPath is the NSW API prefix for the agency consignment view.
+const consignmentInfoPath = "api/v1/consignments"
+
 // ConsignmentAgency is the allowlisted display payload returned by NSW Core
-// GET /consignments/{id}/agency. Extra JSON fields from Core are ignored.
+// GET /api/v1/consignments/{id}/agency. Extra JSON fields from Core are ignored.
 type ConsignmentAgency struct {
 	ConsignmentID     string `json:"consignmentId"`
 	TraderCompanyName string `json:"traderCompanyName"`
@@ -21,12 +24,11 @@ func (c *Client) GetConsignmentAgency(ctx context.Context, consignmentID string)
 		return nil, fmt.Errorf("consignment ID is required")
 	}
 
-	apiURL, err := url.JoinPath("consignments", url.PathEscape(consignmentID), "agency")
+	apiPath, err := url.JoinPath(consignmentInfoPath, url.PathEscape(consignmentID), "agency")
 	if err != nil {
-		return nil, fmt.Errorf("failed to build consignment Agency URL: %w", err)
+		return nil, fmt.Errorf("failed to build consignment agency api path: %w", err)
 	}
-
-	resp, err := c.http.GetContext(ctx, apiURL)
+	resp, err := c.http.GetContext(ctx, apiPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch consignment Agency data: %w", err)
 	}

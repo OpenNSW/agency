@@ -65,11 +65,6 @@ func NewApplicationStore(cfg database.Config) (*ApplicationStore, error) {
 	return &ApplicationStore{db: db, consignmentStore: consignment.NewConsignmentStore(db)}, nil
 }
 
-// ConsignmentStore returns the underlying consignment store.
-func (s *ApplicationStore) ConsignmentStore() *consignment.Store {
-	return s.consignmentStore
-}
-
 // CreateOrUpdate creates or updates an application record and its parent consignment.
 func (s *ApplicationStore) CreateOrUpdate(app *ApplicationRecord) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {

@@ -54,7 +54,6 @@ const si = {
       table: {
         consignment: 'භාණ්ඩ තොගය',
         companyName: 'සමාගමේ නම',
-        id: 'භාණ්ඩ තොග හැඳුනුම්පත',
         tasks: 'කාර්යයන්',
         latestStatus: 'නවතම තත්ත්වය',
         lastActivity: 'අවසාන ක්‍රියාකාරකම',

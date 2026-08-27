@@ -197,6 +197,8 @@ func (c *Client) resolveURL(path string) (string, error) {
 }
 
 // Get performs a GET request relative to the BaseURL.
+// Deprecated: Get uses context.Background and ignores caller cancellation.
+// Use GetContext for outbound calls. See https://github.com/OpenNSW/agency/issues/186
 func (c *Client) Get(path string) (*http.Response, error) {
 	return c.GetContext(context.Background(), path)
 }

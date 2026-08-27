@@ -15,7 +15,7 @@ func TestClient_GetConsignmentAgency(t *testing.T) {
 	const id = "cefda05e-3071-4e94-b001-328094e570a7"
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/consignments/"+id+"/agency", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/consignments/"+id+"/agency", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -55,7 +55,7 @@ func TestClient_GetConsignmentAgency(t *testing.T) {
 
 func TestClient_GetConsignmentAgency_NotFound(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/consignments/missing/agency", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/consignments/missing/agency", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 	})
 	server := httptest.NewServer(mux)

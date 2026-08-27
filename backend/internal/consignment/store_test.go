@@ -43,9 +43,13 @@ func newTestStore(t *testing.T) *Store {
 
 func seedConsignmentWithData(t *testing.T, store *Store, id, status string, data JSONB, taskIDs ...string) {
 	t.Helper()
+	raw, err := encodeNSWData(data)
+	if err != nil {
+		t.Fatalf("encode nsw_data: %v", err)
+	}
 	tx := store.db.Begin()
-	if err := store.UpsertWithData(tx, id, status, data); err != nil {
-		t.Fatalf("UpsertWithData(%s) failed: %v", id, err)
+	if err := tx.Create(&ConsignmentRecord{ID: id, Status: status, NSWData: raw}).Error; err != nil {
+		t.Fatalf("seed consignment %s: %v", id, err)
 	}
 	for _, taskID := range taskIDs {
 		if err := tx.Create(&testApplicationRow{TaskID: taskID, ConsignmentID: id, Status: status}).Error; err != nil {
@@ -130,7 +134,7 @@ func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 
 	// Re-upsert as if a second application landed in the same consignment.
 	tx := store.db.Begin()
-	if err := store.UpsertWithData(tx, "wf-created", "APPROVED", JSONB{"traderCompanyName": "NEW CORP"}); err != nil {
+	if err := store.Upsert(tx, "wf-created", "APPROVED"); err != nil {
 		t.Fatalf("Upsert failed: %v", err)
 	}
 	if err := tx.Commit().Error; err != nil {
@@ -157,53 +161,6 @@ func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 	}
 }
 
-func TestConsignmentStore_GetData(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	if _, err := store.GetData(ctx, "missing"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("GetData(missing): got %v, want ErrNotFound", err)
-	}
-
-	seedConsignment(t, store, "wf-empty", "PENDING")
-	data, err := store.GetData(ctx, "wf-empty")
-	if err != nil {
-		t.Fatalf("GetData(empty): %v", err)
-	}
-	if data != nil {
-		t.Fatalf("expected nil data for unfilled row, got %v", data)
-	}
-}
-
-func TestConsignmentStore_MergeData(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	seedConsignment(t, store, "wf-merge", "PENDING")
-	if err := store.MergeData(ctx, "wf-merge", JSONB{"traderCompanyName": "ADAM PVT LTD"}); err != nil {
-		t.Fatalf("MergeData company name: %v", err)
-	}
-
-	data, err := store.GetData(ctx, "wf-merge")
-	if err != nil {
-		t.Fatalf("GetData: %v", err)
-	}
-	if data["traderCompanyName"] != "ADAM PVT LTD" {
-		t.Errorf("expected ADAM PVT LTD, got %v", data["traderCompanyName"])
-	}
-
-	if err := store.MergeData(ctx, "wf-merge", JSONB{"traderCompanyName": "OTHER"}); err != nil {
-		t.Fatalf("MergeData overwrite: %v", err)
-	}
-	data, err = store.GetData(ctx, "wf-merge")
-	if err != nil {
-		t.Fatalf("GetData after overwrite: %v", err)
-	}
-	if data["traderCompanyName"] != "OTHER" {
-		t.Errorf("MergeData should overwrite, got %v", data["traderCompanyName"])
-	}
-}
-
 func TestConsignmentStore_List_Search(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -221,5 +178,36 @@ func TestConsignmentStore_List_Search(t *testing.T) {
 	}
 	if summaries[0].ConsignmentID != "alpha-wf" {
 		t.Errorf("expected alpha-wf, got %s", summaries[0].ConsignmentID)
+	}
+}
+
+func TestConsignmentStore_Create(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	if err := store.Create(ctx, "c-create", JSONB{"traderCompanyName": "ACME"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := store.Create(ctx, "c-create", JSONB{"traderCompanyName": "OTHER"}); err != nil {
+		t.Fatalf("Create again: %v", err)
+	}
+
+	rec, err := store.Get(ctx, "c-create")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if rec.ID != "c-create" || rec.Status != "PENDING" {
+		t.Errorf("unexpected record: %+v", rec)
+	}
+	data, err := decodeNSWData(rec.NSWData)
+	if err != nil {
+		t.Fatalf("decode nsw_data: %v", err)
+	}
+	if data["traderCompanyName"] != "ACME" {
+		t.Errorf("Create on conflict must keep original extras, got %v", data["traderCompanyName"])
+	}
+
+	if _, err := store.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(missing): got %v, want ErrNotFound", err)
 	}
 }

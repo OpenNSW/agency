@@ -15,7 +15,7 @@ import (
 // ErrNotFound is returned when a consignment does not exist in the agency store.
 var ErrNotFound = errors.New("consignment not found")
 
-// JSONB is an in-memory map used when reading or merging NSW extras.
+// JSONB is an in-memory map used when reading or storing NSW extras.
 type JSONB map[string]any
 
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
@@ -52,51 +52,29 @@ func NewConsignmentStore(db *gorm.DB) *Store {
 	return &Store{db: db}
 }
 
-// GetData returns the cached NSW extras for a consignment.
-// ErrNotFound means no row exists yet; a nil JSONB means the row exists but
-// extras have not been filled in (the NSW fetch failed or has not completed).
-func (s *Store) GetData(ctx context.Context, id string) (JSONB, error) {
+// Create inserts a consignment row with optional NSW extras if one does not
+// already exist. On conflict the existing row (including nsw_data) is left unchanged.
+func (s *Store) Create(ctx context.Context, id string, data JSONB) error {
+	raw, err := encodeNSWData(data)
+	if err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoNothing: true,
+	}).Create(&ConsignmentRecord{ID: id, Status: "PENDING", NSWData: raw}).Error
+}
+
+// Get returns a consignment by id.
+func (s *Store) Get(ctx context.Context, id string) (*ConsignmentRecord, error) {
 	var rec ConsignmentRecord
-	if err := s.db.WithContext(ctx).Select("nsw_data").First(&rec, "id = ?", id).Error; err != nil {
+	if err := s.db.WithContext(ctx).First(&rec, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
-	return decodeNSWData(rec.NSWData)
-}
-
-// MergeData copies extra keys into consignments.nsw_data. Existing keys are
-// overwritten.
-func (s *Store) MergeData(ctx context.Context, id string, extra JSONB) error {
-	if len(extra) == 0 {
-		return nil
-	}
-	current, err := s.GetData(ctx, id)
-	if err != nil {
-		return err
-	}
-	if current == nil {
-		current = JSONB{}
-	}
-	changed := false
-	for k, v := range extra {
-		if current[k] == v {
-			continue
-		}
-		current[k] = v
-		changed = true
-	}
-	if !changed {
-		return nil
-	}
-	raw, err := encodeNSWData(current)
-	if err != nil {
-		return err
-	}
-	return s.db.WithContext(ctx).Model(&ConsignmentRecord{}).
-		Where("id = ?", id).
-		Update("nsw_data", raw).Error
+	return &rec, nil
 }
 
 // Upsert upserts a consignment record using the given connection or
@@ -108,24 +86,10 @@ func (s *Store) MergeData(ctx context.Context, id string, extra JSONB) error {
 // must survive every later upsert of an already-existing consignment (e.g. when a
 // second application is injected into the same consignment).
 func (s *Store) Upsert(tx *gorm.DB, id, status string) error {
-	return s.UpsertWithData(tx, id, status, nil)
-}
-
-// UpsertWithData upserts a consignment record along with its NSW metadata.
-func (s *Store) UpsertWithData(tx *gorm.DB, id, status string, data JSONB) error {
-	raw, err := encodeNSWData(data)
-	if err != nil {
-		return err
-	}
-	record := &ConsignmentRecord{
-		ID:      id,
-		Status:  status,
-		NSWData: raw,
-	}
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"status", "updated_at"}),
-	}).Create(record).Error
+	}).Create(&ConsignmentRecord{ID: id, Status: status}).Error
 }
 
 // UpdateStatus updates a consignment's status using the given connection or transaction.

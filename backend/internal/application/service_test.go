@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/consignment"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
@@ -193,8 +194,7 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
 
 	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), roleService)
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), roleService)
 
 	return &serviceHarness{
 		t:          t,
@@ -203,6 +203,20 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 		capture:    capture,
 		service:    svc,
 	}
+}
+
+func newWiredService(t *testing.T, store *ApplicationStore, reg *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService) Service {
+	t.Helper()
+	cNSW, ok := nsw.(consignment.NSWClient)
+	if !ok {
+		t.Fatal("nsw client must implement consignment.NSWClient")
+	}
+	if roleService == nil {
+		roleService = rbac.NewRoleService(store.db)
+	}
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW))
+	t.Cleanup(func() { _ = svc.Close() })
+	return svc
 }
 
 // newAuthContext injects a minimal auth context carrying the given userID.
@@ -503,8 +517,7 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
 
 	if err := store.db.FirstOrCreate(&user.UserRecord{UserID: "officer-1", Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", "officer-1").Error; err != nil {
 		t.Fatalf("failed to seed user: %v", err)
@@ -904,8 +917,7 @@ func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().Build()
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
 
 	app, err := svc.GetApplication(context.Background(), "t-load-fail")
 	if err == nil {
@@ -1053,8 +1065,7 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().Build()
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
 
 	result, err := svc.GetApplications(context.Background(), "", "", "", 1, 20)
 	if err == nil {
@@ -1335,8 +1346,10 @@ func newEmptyTestRegistry(t *testing.T) *artifact.Registry {
 		writeTaskConfigFile(t, root, code+".json", fmt.Sprintf(`{
 			"schemaVersion": 1,
 			"meta": {"title": %q},
-			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}]
-		}`, code))
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"review": %q},
+			"behavior": {"type": "autoApprove"}
+		}`, code, code+"_review"))
 	}
 	return newTestRegistry(t, root)
 }
@@ -1351,8 +1364,7 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 		},
 	}
 	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswMock, roleService)
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
 
@@ -1372,12 +1384,12 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 	}
 
 	// Verify consignment row in DB has traderCompanyName in data
-	data, err := store.ConsignmentStore().GetData(ctx, "c-100")
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock).GetConsignment(ctx, "c-100")
 	if err != nil {
-		t.Fatalf("ConsignmentStore.GetData failed: %v", err)
+		t.Fatalf("GetConsignment failed: %v", err)
 	}
-	if traderCompanyName(data) != "CEYLON EXPORTS" {
-		t.Errorf("expected TraderCompanyName 'CEYLON EXPORTS', got %q", traderCompanyName(data))
+	if got.TraderCompany != "CEYLON EXPORTS" {
+		t.Errorf("expected TraderCompanyName 'CEYLON EXPORTS', got %q", got.TraderCompany)
 	}
 
 	// 2. Second injection for the SAME consignment c-100
@@ -1412,8 +1424,7 @@ func TestCreateApplication_ConsignmentFetchFailureDegradesGracefully(t *testing.
 		fetchErr: fmt.Errorf("nsw core timeout"),
 	}
 	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswMock, roleService)
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
 
@@ -1447,15 +1458,14 @@ func TestCreateApplication_ConsignmentFetchFailureDegradesGracefully(t *testing.
 	}
 }
 
-func TestCreateApplication_RetriesAgencyFetchWhenExtrasMissing(t *testing.T) {
+func TestCreateApplication_DoesNotRetryAgencyFetchOnceConsignmentExists(t *testing.T) {
 	store := newTestStore(t)
 	reg := newEmptyTestRegistry(t)
 	nswMock := &mockNSWClient{
 		fetchErr: fmt.Errorf("nsw core timeout"),
 	}
 	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswMock, roleService)
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
 	if err := svc.CreateApplication(ctx, &InjectRequest{
@@ -1480,16 +1490,16 @@ func TestCreateApplication_RetriesAgencyFetchWhenExtrasMissing(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("second CreateApplication: %v", err)
 	}
-	if nswMock.fetchCount != 2 {
-		t.Errorf("expected a retry fetch after the first failure, got fetchCount %d", nswMock.fetchCount)
+	if nswMock.fetchCount != 1 {
+		t.Errorf("existing consignment must skip NSW, got fetchCount %d", nswMock.fetchCount)
 	}
 
-	data, err := store.ConsignmentStore().GetData(ctx, "c-300")
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock).GetConsignment(ctx, "c-300")
 	if err != nil {
-		t.Fatalf("ConsignmentStore.GetData: %v", err)
+		t.Fatalf("GetConsignment: %v", err)
 	}
-	if traderCompanyName(data) != "ADAM PVT LTD" {
-		t.Errorf("expected extras to be filled on retry, got %q", traderCompanyName(data))
+	if got.TraderCompany != "" {
+		t.Errorf("extras must stay empty after a failed first fetch, got %q", got.TraderCompany)
 	}
 }
 
@@ -1503,8 +1513,7 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 		},
 	}
 	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswMock, roleService)
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
 	if err := svc.CreateApplication(ctx, &InjectRequest{
