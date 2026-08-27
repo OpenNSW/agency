@@ -212,6 +212,11 @@ func (m *Migrator) apply(mg *Migration) error {
 	if err := execStatements(tx, mg.Up); err != nil {
 		return err
 	}
+	if extra, ok := mg.UpByDriver[m.driver]; ok {
+		if err := execStatements(tx, extra); err != nil {
+			return err
+		}
+	}
 
 	var insertQ string
 	if m.driver == "postgres" {
@@ -234,6 +239,11 @@ func (m *Migrator) rollback(mg *Migration) error {
 
 	if err := execStatements(tx, mg.Down); err != nil {
 		return err
+	}
+	if extra, ok := mg.DownByDriver[m.driver]; ok {
+		if err := execStatements(tx, extra); err != nil {
+			return err
+		}
 	}
 
 	var deleteQ string

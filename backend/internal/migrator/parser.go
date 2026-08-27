@@ -14,6 +14,12 @@ type Migration struct {
 	Name    string
 	Up      string
 	Down    string
+	// UpByDriver/DownByDriver hold driver-scoped SQL from -- @postgres / --
+	// @sqlite sub-blocks nested inside -- @UP / -- @DOWN, keyed by driver
+	// name ("postgres" or "sqlite"). Applied in addition to Up/Down for the
+	// currently connected driver; nil when the migration has no such blocks.
+	UpByDriver   map[string]string
+	DownByDriver map[string]string
 }
 
 // ParseFile reads a .sql migration file and extracts the -- @UP and -- @DOWN blocks.
@@ -30,16 +36,18 @@ func ParseFile(path string) (*Migration, error) {
 		return nil, err
 	}
 
-	up, down, err := parseBlocks(string(content))
+	up, down, upByDriver, downByDriver, err := parseBlocks(string(content))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", base, err)
 	}
 
 	return &Migration{
-		Version: version,
-		Name:    name,
-		Up:      up,
-		Down:    down,
+		Version:      version,
+		Name:         name,
+		Up:           up,
+		Down:         down,
+		UpByDriver:   upByDriver,
+		DownByDriver: downByDriver,
 	}, nil
 }
 
@@ -56,37 +64,87 @@ func parseFilename(base string) (int64, string, error) {
 	return version, name[idx+1:], nil
 }
 
-// parseBlocks splits file content into UP and DOWN SQL sections
-// delimited by the -- @UP and -- @DOWN annotations.
-// Matching is case-insensitive and space-insensitive (e.g. "--@up", "-- @UP", "--  @Down" all match).
-func parseBlocks(content string) (up, down string, err error) {
+// parseBlocks splits file content into UP and DOWN SQL sections delimited by
+// the -- @UP and -- @DOWN annotations. Within a section, a -- @postgres or
+// -- @sqlite marker scopes every following line to that driver until the
+// next marker (dialect or section) is encountered; entering a new -- @UP /
+// -- @DOWN section resets the scope back to portable/generic. Matching is
+// case-insensitive and space-insensitive (e.g. "--@up", "-- @UP", "--
+// @Postgres" all match).
+func parseBlocks(content string) (up, down string, upByDriver, downByDriver map[string]string, err error) {
 	var (
-		section   string
-		upLines   []string
-		downLines []string
+		section          string // "", "up", "down"
+		dialect          string // "", "postgres", "sqlite"
+		upLines          []string
+		downLines        []string
+		upDialectLines   = map[string][]string{}
+		downDialectLines = map[string][]string{}
 	)
 
 	for _, line := range strings.Split(content, "\n") {
 		normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(line), " ", ""))
 		switch normalized {
 		case "--@UP":
-			section = "up"
+			section, dialect = "up", ""
+			continue
 		case "--@DOWN":
-			section = "down"
-		default:
-			switch section {
-			case "up":
-				upLines = append(upLines, line)
-			case "down":
-				downLines = append(downLines, line)
+			section, dialect = "down", ""
+			continue
+		case "--@POSTGRES":
+			if section == "" {
+				return "", "", nil, nil, fmt.Errorf("-- @postgres marker must appear inside an -- @UP or -- @DOWN block")
 			}
+			dialect = "postgres"
+			continue
+		case "--@SQLITE":
+			if section == "" {
+				return "", "", nil, nil, fmt.Errorf("-- @sqlite marker must appear inside an -- @UP or -- @DOWN block")
+			}
+			dialect = "sqlite"
+			continue
+		}
+		if strings.HasPrefix(normalized, "--@") {
+			return "", "", nil, nil, fmt.Errorf("unrecognized migration annotation %q (expected @UP, @DOWN, @postgres, or @sqlite)", strings.TrimSpace(line))
+		}
+
+		switch {
+		case section == "up" && dialect == "":
+			upLines = append(upLines, line)
+		case section == "up":
+			upDialectLines[dialect] = append(upDialectLines[dialect], line)
+		case section == "down" && dialect == "":
+			downLines = append(downLines, line)
+		case section == "down":
+			downDialectLines[dialect] = append(downDialectLines[dialect], line)
 		}
 	}
 
 	up = strings.TrimSpace(strings.Join(upLines, "\n"))
 	if up == "" {
-		return "", "", fmt.Errorf("missing -- @UP annotation")
+		return "", "", nil, nil, fmt.Errorf("missing -- @UP annotation")
 	}
 	down = strings.TrimSpace(strings.Join(downLines, "\n"))
-	return up, down, nil
+	upByDriver = joinDialectBlocks(upDialectLines)
+	downByDriver = joinDialectBlocks(downDialectLines)
+
+	return up, down, upByDriver, downByDriver, nil
+}
+
+// joinDialectBlocks joins each driver's collected lines into a single SQL
+// string, dropping drivers whose block ended up empty. Returns nil if no
+// driver has any content, so Migration.UpByDriver/DownByDriver stay nil for
+// files with no dialect blocks.
+func joinDialectBlocks(lines map[string][]string) map[string]string {
+	var out map[string]string
+	for driver, ls := range lines {
+		joined := strings.TrimSpace(strings.Join(ls, "\n"))
+		if joined == "" {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string, len(lines))
+		}
+		out[driver] = joined
+	}
+	return out
 }

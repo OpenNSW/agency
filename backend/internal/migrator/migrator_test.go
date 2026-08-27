@@ -129,6 +129,30 @@ func TestUp_ErrorsOnGappedVersions(t *testing.T) {
 	}
 }
 
+func TestUp_SkipsDialectSubBlockForOtherDrivers(t *testing.T) {
+	// PRAGMA table_info is SQLite-only; the -- @postgres sub-block below
+	// would fail under postgres, but this migrator runs against sqlite, so
+	// only the generic block and the -- @sqlite sub-block should execute.
+	m, db := newTestMigrator(t, map[string]string{
+		"000001_create_foo.sql": "-- @UP\nCREATE TABLE foo (id INTEGER PRIMARY KEY);\n\n" +
+			"-- @sqlite\nCREATE INDEX idx_foo_id ON foo (id);\n\n" +
+			"-- @postgres\nCREATE INDEX idx_foo_id ON foo USING GIN (id);\n\n" +
+			"-- @DOWN\nDROP TABLE foo;",
+	})
+
+	if err := m.Up(); err != nil {
+		t.Fatalf("Up() error = %v", err)
+	}
+
+	var indexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_foo_id'`).Scan(&indexCount); err != nil {
+		t.Fatal(err)
+	}
+	if indexCount != 1 {
+		t.Errorf("idx_foo_id count = %d, want 1 (sqlite sub-block should have run)", indexCount)
+	}
+}
+
 func TestUp_RollsBackOnFailure(t *testing.T) {
 	m, db := newTestMigrator(t, map[string]string{
 		"000001_create_foo.sql": "-- @UP\nCREATE TABLE foo (id INTEGER PRIMARY KEY);\nINVALID SQL HERE;\n-- @DOWN\nDROP TABLE foo;",
