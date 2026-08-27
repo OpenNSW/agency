@@ -7,7 +7,7 @@ import (
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )

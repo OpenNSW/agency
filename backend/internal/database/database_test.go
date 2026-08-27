@@ -140,7 +140,7 @@ func TestStoreDecoupling(t *testing.T) {
 
 	src := string(content)
 	forbidden := []string{
-		"gorm.io/driver/sqlite",
+		"github.com/glebarez/sqlite",
 		"gorm.io/driver/postgres",
 		"gorm.io/driver/mysql",
 	}
