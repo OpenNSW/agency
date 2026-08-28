@@ -256,10 +256,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && needs.build-and-publish.outputs.version || github.ref }}
-          name: Release ${{ needs.build-and-publish.outputs.version }}
+          name: OpenNSW/agency ${{ needs.build-and-publish.outputs.version }}
           body: |
-            ## Release ${{ needs.build-and-publish.outputs.version }}
-
             ### Published Image
             - `${{ env.REGISTRY }}/${{ steps.repo_owner.outputs.owner }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-publish.outputs.version }}`
 
@@ -269,5 +267,12 @@ jobs:
             This is the manifest-list digest. The tag above is a multi-arch
             manifest list covering `linux/amd64` and `linux/arm64`, so it resolves
             to the right image per node architecture.
+          # Appends GitHub's own changelog — the merged PRs since the previous
+          # release, contributors, and a full compare link. `body` above is
+          # PRE-pended to it and `name` is kept, so this only adds a section.
+          # The comparison base is the previous published release (v0.3.0 today),
+          # chosen by GitHub; unrelated tags like wip/* are ignored because they
+          # have no release. Set `previous_tag` if that ever picks wrongly.
+          generate_release_notes: true
           draft: false
           prerelease: ${{ needs.build-and-publish.outputs.is_prerelease == 'true' }}
