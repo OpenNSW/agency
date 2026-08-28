@@ -102,9 +102,13 @@ func (s *service) GetConsignment(ctx context.Context, id string) (*ConsignmentRe
 	if err != nil {
 		return nil, err
 	}
+	data, err := decodeJSONB(rec.NSWData)
+	if err != nil {
+		return nil, fmt.Errorf("decode nsw_data for %s: %w", rec.ID, err)
+	}
 	return &ConsignmentResponse{
 		ID:            rec.ID,
 		Status:        rec.Status,
-		TraderCompany: stringField(rec.NSWData, "traderCompanyName"),
+		TraderCompany: stringField(data, "traderCompanyName"),
 	}, nil
 }

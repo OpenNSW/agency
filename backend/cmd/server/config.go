@@ -31,13 +31,19 @@ type Config struct {
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
+	// ConsignmentCustomDataSchemaPath is an optional path to a JSON Schema
+	// file validating consignments' merged custom_data (see
+	// internal/consignment.Store.MergeCustomData). Empty means no schema is
+	// configured for this deployment, so it's not validated.
+	ConsignmentCustomDataSchemaPath string
 }
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() (Config, error) {
 
 	cfg := Config{
-		Port: envOrDefault("PORT", "8081"),
+		Port:                            envOrDefault("PORT", "8081"),
+		ConsignmentCustomDataSchemaPath: os.Getenv("CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH"),
 		// Populate every driver's settings from the environment; database.Config
 		// reads only the selected driver's sub-config, and cfg.DB.Validate()
 		// (below) enforces its requirements. This mirrors how the artifact loader

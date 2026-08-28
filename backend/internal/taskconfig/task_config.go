@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
 )
 
 // CurrentSchemaVersion is the only TaskConfig shape this build understands.
@@ -32,6 +34,13 @@ type TaskConfig struct {
 	Behavior    TaskBehavior     `json:"behavior"`
 	Permissions []Permission     `json:"permissions,omitempty"`
 	Certificate *TaskCertificate `json:"certificate,omitempty"`
+	// ConsignmentFields declares values to extract from this task's injected
+	// data and push onto the parent consignment's own dynamic data, e.g. for
+	// location-based access control. Optional — most tasks have nothing
+	// consignment-relevant to contribute. See Validate for the constraints
+	// on each entry, and docs/consignment-custom-data.md for the full
+	// design (in particular: why arrays are unsupported by design here).
+	ConsignmentFields []ConsignmentField `json:"consignmentFields,omitempty"`
 }
 
 // Action names a permission action a role can be granted. These are the
@@ -117,6 +126,14 @@ func (c TaskConfig) Validate() error {
 			return fmt.Errorf("taskconfig %q: permissions must grant %q to at least one role", c.TaskCode, action)
 		}
 	}
+	for i, f := range c.ConsignmentFields {
+		if !jsonpointer.Valid(f.Source) {
+			return fmt.Errorf("taskconfig %q: consignmentFields[%d].source must be a JSON Pointer (e.g. \"/importer/district\"), got %q", c.TaskCode, i, f.Source)
+		}
+		if !jsonpointer.Valid(f.Target) {
+			return fmt.Errorf("taskconfig %q: consignmentFields[%d].target must be a JSON Pointer (e.g. \"/district\"), got %q", c.TaskCode, i, f.Target)
+		}
+	}
 	return nil
 }
 
@@ -159,6 +176,20 @@ type TaskCertificate struct {
 	// certificate has been generated and printed, so reusing that schema
 	// verbatim would block generation on fields that come later.
 	DataSchema json.RawMessage `json:"dataSchema,omitempty"`
+}
+
+// ConsignmentField declares one value to copy from this task's injected
+// data onto the parent consignment's own dynamic data. Source and Target
+// are both JSON Pointers (RFC 6901, e.g. "/importer/address/district").
+// Source is resolved against the injected data at inject time — a source
+// that doesn't resolve (missing, or the path passes through an array) is
+// simply skipped, not an error, since that's a runtime data question, not
+// a config one. Target must still be syntactically valid (enforced by
+// Validate): an author writing a malformed target is a config bug, and
+// should fail at load time rather than silently never taking effect.
+type ConsignmentField struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
 }
 
 // DefaultOutcomeField is the field name read from the review submission

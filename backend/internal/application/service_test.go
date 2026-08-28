@@ -252,7 +252,7 @@ func (h *serviceHarness) seed(taskID, taskCode string, data JSONB) {
 		ConsignmentID: "wf-test",
 		Data:          data,
 		Status:        "PENDING",
-	})
+	}, nil)
 	if err != nil {
 		h.t.Fatalf("failed to seed record: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 		ConsignmentID: "wf-test",
 		Data:          JSONB{"field": "value"},
 		Status:        "PENDING",
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
 
@@ -906,7 +906,7 @@ func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 		ConsignmentID: "wf-test",
 		Data:          JSONB{"field": "value"},
 		Status:        "PENDING",
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
 
@@ -1054,7 +1054,7 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 		ConsignmentID: "wf-test",
 		Data:          JSONB{"field": "value"},
 		Status:        "PENDING",
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
 
@@ -1552,5 +1552,144 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 	}
 	if app.Data["field"] != "resubmitted" {
 		t.Errorf("expected resubmitted data, got %v", app.Data)
+	}
+}
+
+// ---------- CreateApplication: consignmentFields push ----------
+
+func getConsignmentCustomData(t *testing.T, h *serviceHarness, id string) map[string]any {
+	t.Helper()
+	rec, err := consignment.NewConsignmentStore(h.store.db).Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("failed to fetch consignment %s: %v", id, err)
+	}
+	if len(rec.CustomData) == 0 {
+		return nil
+	}
+	var data map[string]any
+	if err := json.Unmarshal(rec.CustomData, &data); err != nil {
+		t.Fatalf("failed to decode custom_data: %v", err)
+	}
+	return data
+}
+
+func TestCreateApplication_PushesConsignmentFields(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
+			"consignmentFields": [
+				{"source": "/importer/address/district", "target": "/district"}
+			]
+		}`)
+	})
+
+	err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-push-1",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-push",
+		Data: map[string]any{
+			"importer": map[string]any{
+				"address": map[string]any{"district": "Colombo"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateApplication failed: %v", err)
+	}
+
+	got := getConsignmentCustomData(t, h, "wf-push")
+	if got["district"] != "Colombo" {
+		t.Errorf("consignment custom_data[district] = %v, want Colombo", got["district"])
+	}
+}
+
+func TestCreateApplication_ConsignmentFieldsAccumulateAcrossTasks(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
+			"consignmentFields": [{"source": "/district", "target": "/district"}]
+		}`)
+		writeTaskConfigFile(t, root, "beta.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Beta"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"review": "beta_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
+			"consignmentFields": [{"source": "/portOfEntry", "target": "/portOfEntry"}]
+		}`)
+	})
+
+	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-acc-1",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-acc",
+		Data:          map[string]any{"district": "Colombo"},
+	}); err != nil {
+		t.Fatalf("first CreateApplication failed: %v", err)
+	}
+	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-acc-2",
+		TaskCode:      "beta",
+		ConsignmentID: "wf-acc",
+		Data:          map[string]any{"portOfEntry": "BIA"},
+	}); err != nil {
+		t.Fatalf("second CreateApplication failed: %v", err)
+	}
+
+	got := getConsignmentCustomData(t, h, "wf-acc")
+	if got["district"] != "Colombo" {
+		t.Errorf("custom_data[district] = %v, want Colombo (should survive the second task's push)", got["district"])
+	}
+	if got["portOfEntry"] != "BIA" {
+		t.Errorf("custom_data[portOfEntry] = %v, want BIA", got["portOfEntry"])
+	}
+}
+
+func TestCreateApplication_ConsignmentFieldsPushedOnResubmission(t *testing.T) {
+	h := newServiceHarness(t, func(root string) {
+		writeTaskConfigFile(t, root, "alpha.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Alpha"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"review": "alpha_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
+			"consignmentFields": [{"source": "/district", "target": "/district"}]
+		}`)
+	})
+
+	ctx := context.Background()
+	if err := h.service.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-resub",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-resub",
+		Data:          map[string]any{"district": "Colombo"},
+	}); err != nil {
+		t.Fatalf("first CreateApplication failed: %v", err)
+	}
+	if err := h.store.UpdateStatus("t-resub", "FEEDBACK_REQUESTED", map[string]any{"note": "please amend"}); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	// Resubmission with a new value for the same pushed field.
+	if err := h.service.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-resub",
+		TaskCode:      "alpha",
+		ConsignmentID: "wf-resub",
+		Data:          map[string]any{"district": "Gampaha"},
+	}); err != nil {
+		t.Fatalf("resubmit CreateApplication failed: %v", err)
+	}
+
+	got := getConsignmentCustomData(t, h, "wf-resub")
+	if got["district"] != "Gampaha" {
+		t.Errorf("custom_data[district] = %v, want Gampaha (resubmission must re-push updated fields)", got["district"])
 	}
 }

@@ -283,3 +283,60 @@ func TestValidate_AutoApprove_ConflictsWithStatusMap(t *testing.T) {
 		t.Error("expected error when autoApprove is combined with statusMap")
 	}
 }
+
+func TestValidate_ConsignmentFields_Omitted(t *testing.T) {
+	c := TaskConfig{
+		SchemaVersion: CurrentSchemaVersion,
+		TaskCode:      "alpha",
+		Forms:         TaskForms{Review: "review-form"},
+		Behavior:      validBehavior(),
+		Permissions:   validPermissions(),
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("expected no error when consignmentFields is omitted, got %v", err)
+	}
+}
+
+func TestValidate_ConsignmentFields_Valid(t *testing.T) {
+	c := TaskConfig{
+		SchemaVersion: CurrentSchemaVersion,
+		TaskCode:      "alpha",
+		Forms:         TaskForms{Review: "review-form"},
+		Behavior:      validBehavior(),
+		Permissions:   validPermissions(),
+		ConsignmentFields: []ConsignmentField{
+			{Source: "/importer/address/district", Target: "/district"},
+			{Source: "/logistics/portOfEntry", Target: "/portOfEntry"},
+		},
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("expected no error for valid consignmentFields, got %v", err)
+	}
+}
+
+func TestValidate_ConsignmentFields_MissingSlash(t *testing.T) {
+	cases := []struct {
+		name  string
+		field ConsignmentField
+	}{
+		{"source missing leading slash", ConsignmentField{Source: "district", Target: "/district"}},
+		{"target missing leading slash", ConsignmentField{Source: "/district", Target: "district"}},
+		{"source empty", ConsignmentField{Source: "", Target: "/district"}},
+		{"target empty", ConsignmentField{Source: "/district", Target: ""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := TaskConfig{
+				SchemaVersion:     CurrentSchemaVersion,
+				TaskCode:          "alpha",
+				Forms:             TaskForms{Review: "review-form"},
+				Behavior:          validBehavior(),
+				Permissions:       validPermissions(),
+				ConsignmentFields: []ConsignmentField{tc.field},
+			}
+			if err := c.Validate(); err == nil {
+				t.Errorf("expected error for %s", tc.name)
+			}
+		})
+	}
+}

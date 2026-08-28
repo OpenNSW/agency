@@ -2,11 +2,16 @@ package consignment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/OpenNSW/agency/backend/pkg/dbtype"
+	"github.com/OpenNSW/agency/backend/pkg/jsonschemautil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -14,18 +19,27 @@ import (
 // ErrNotFound is returned when a consignment does not exist in the agency store.
 var ErrNotFound = errors.New("consignment not found")
 
-// JSONB is the column type used for NSW extras. See pkg/dbtype for the
-// Value/Scan implementation, shared with other domain packages.
+// JSONB is an in-memory map used when reading or storing a consignment's
+// JSON columns (NSWData, CustomData). See pkg/dbtype for the Value/Scan
+// implementation, shared with other domain packages.
 type JSONB = dbtype.JSONB
 
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
 // Each consignment groups one or more application records.
 type ConsignmentRecord struct {
-	ID        string    `gorm:"type:text;primaryKey"`
-	Status    string    `gorm:"type:varchar(50);not null;default:'PENDING'"`
-	NSWData   JSONB     `gorm:"type:jsonb"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	ID     string `gorm:"type:text;primaryKey"`
+	Status string `gorm:"type:varchar(50);not null;default:'PENDING'"`
+	// NSWData is display metadata (e.g. trader company name) fetched once
+	// from NSW Core and cached — see consignment.Service.CreateConsignment.
+	NSWData json.RawMessage `gorm:"type:jsonb"`
+	// CustomData is agency-derived: fields pushed from injected application
+	// data via each task config's ConsignmentFields (see
+	// docs/consignment-custom-data.md), accumulated across every task
+	// that touches this consignment. Different provenance and lifecycle
+	// from NSWData, so it's a separate column, not folded into it.
+	CustomData json.RawMessage `gorm:"column:custom_data;type:jsonb"`
+	CreatedAt  time.Time       `gorm:"autoCreateTime"`
+	UpdatedAt  time.Time       `gorm:"autoUpdateTime"`
 }
 
 // TableName returns the table name for ConsignmentRecord
@@ -55,10 +69,14 @@ func NewConsignmentStore(db *gorm.DB) *Store {
 // Create inserts a consignment row with optional NSW extras if one does not
 // already exist. On conflict the existing row (including nsw_data) is left unchanged.
 func (s *Store) Create(ctx context.Context, id string, data JSONB) error {
+	raw, err := encodeJSONB(data)
+	if err != nil {
+		return err
+	}
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},
 		DoNothing: true,
-	}).Create(&ConsignmentRecord{ID: id, Status: "PENDING", NSWData: data}).Error
+	}).Create(&ConsignmentRecord{ID: id, Status: "PENDING", NSWData: raw}).Error
 }
 
 // Get returns a consignment by id.
@@ -88,6 +106,54 @@ func (s *Store) Upsert(tx *gorm.DB, id, status string) error {
 	}).Create(&ConsignmentRecord{ID: id, Status: status}).Error
 }
 
+// MergeCustomData merges fields into the consignment's own custom_data
+// document (creating it if this is the first merge). Existing keys not
+// present in fields are preserved — this merges in, it doesn't replace the
+// whole document; on a repeated key, fields wins. No-op when fields is
+// empty, so a task with nothing to push costs no query.
+//
+// tx must be a transaction: this locks the consignment row for the rest of
+// it (SELECT ... FOR UPDATE) so two concurrent injects into the same
+// consignment can't lose an update to each other.
+//
+// If the merged document fails schema validation, the merge is skipped
+// (left as it was) and this still returns nil rather than an error — a
+// downstream enrichment feature must never be able to fail the caller's
+// larger transaction (e.g. the application save it's part of). See
+// docs/consignment-custom-data.md for why. A genuine query error
+// still propagates normally.
+func (s *Store) MergeCustomData(tx *gorm.DB, id string, fields map[string]any, schema json.RawMessage) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	var rec ConsignmentRecord
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&rec, "id = ?", id).Error; err != nil {
+		return fmt.Errorf("failed to lock consignment %s for custom data merge: %w", id, err)
+	}
+
+	merged, err := decodeJSONB(rec.CustomData)
+	if err != nil {
+		return fmt.Errorf("decode custom_data for %s: %w", id, err)
+	}
+	if merged == nil {
+		merged = JSONB{}
+	}
+	maps.Copy(merged, fields)
+
+	if err := jsonschemautil.ValidateInstance(schema, merged); err != nil {
+		slog.Warn("consignment custom_data failed schema validation, skipping merge",
+			"consignmentID", id, "error", err)
+		return nil
+	}
+
+	encoded, err := encodeJSONB(merged)
+	if err != nil {
+		return fmt.Errorf("encode custom_data for %s: %w", id, err)
+	}
+	return tx.Model(&ConsignmentRecord{}).Where("id = ?", id).Update("custom_data", encoded).Error
+}
+
 // UpdateStatus updates a consignment's status using the given connection or transaction.
 func (s *Store) UpdateStatus(tx *gorm.DB, id, status string, updatedAt time.Time) error {
 	return tx.Model(&ConsignmentRecord{}).
@@ -99,11 +165,11 @@ func (s *Store) UpdateStatus(tx *gorm.DB, id, status string, updatedAt time.Time
 }
 
 type summaryRow struct {
-	ConsignmentID string    `gorm:"column:consignment_id"`
-	Status        string    `gorm:"column:status"`
-	UpdatedAt     time.Time `gorm:"column:updated_at"`
-	NSWData       JSONB     `gorm:"column:nsw_data;type:jsonb"`
-	TaskCount     int       `gorm:"column:task_count"`
+	ConsignmentID string          `gorm:"column:consignment_id"`
+	Status        string          `gorm:"column:status"`
+	UpdatedAt     time.Time       `gorm:"column:updated_at"`
+	NSWData       json.RawMessage `gorm:"column:nsw_data;type:jsonb"`
+	TaskCount     int             `gorm:"column:task_count"`
 }
 
 // List returns a paginated list of consignments with task count and optional search.
@@ -137,7 +203,11 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 
 	summaries := make([]Summary, len(rows))
 	for i, r := range rows {
-		summaries[i] = summaryFrom(r.ConsignmentID, r.Status, r.UpdatedAt, r.NSWData, r.TaskCount)
+		data, err := decodeJSONB(r.NSWData)
+		if err != nil {
+			return nil, 0, fmt.Errorf("decode nsw_data for %s: %w", r.ConsignmentID, err)
+		}
+		summaries[i] = summaryFrom(r.ConsignmentID, r.Status, r.UpdatedAt, data, r.TaskCount)
 	}
 
 	return summaries, total, nil
@@ -165,4 +235,24 @@ func stringField(data JSONB, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// decodeJSONB and encodeJSONB convert between a JSONB column's raw bytes and
+// its decoded map form. Generic — used for both NSWData and CustomData.
+func decodeJSONB(raw json.RawMessage) (JSONB, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var out JSONB
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func encodeJSONB(data JSONB) (json.RawMessage, error) {
+	if data == nil {
+		return nil, nil
+	}
+	return json.Marshal(data)
 }

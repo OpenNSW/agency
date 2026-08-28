@@ -47,11 +47,18 @@ func (ApplicationRecord) TableName() string {
 type ApplicationStore struct {
 	db               *gorm.DB
 	consignmentStore *consignment.Store
+	// consignmentCustomDataSchema is the optional deployment-level JSON
+	// Schema validating consignments' merged custom_data (see
+	// consignment.Store.MergeCustomData). nil skips validation.
+	consignmentCustomDataSchema json.RawMessage
 }
 
-// NewApplicationStore creates a new ApplicationStore with configured database.
-// Schema must be applied before starting the server via the migrate command.
-func NewApplicationStore(cfg database.Config) (*ApplicationStore, error) {
+// NewApplicationStore creates a new ApplicationStore with configured
+// database. Schema must be applied before starting the server via the
+// migrate command. consignmentCustomDataSchema is passed through to every
+// consignment.Store.MergeCustomData call this store makes; pass nil if none
+// is configured for this deployment.
+func NewApplicationStore(cfg database.Config, consignmentCustomDataSchema json.RawMessage) (*ApplicationStore, error) {
 	connector, err := database.NewConnector(cfg)
 	if err != nil {
 		return nil, err
@@ -62,15 +69,25 @@ func NewApplicationStore(cfg database.Config) (*ApplicationStore, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	return &ApplicationStore{db: db, consignmentStore: consignment.NewConsignmentStore(db)}, nil
+	return &ApplicationStore{
+		db:                          db,
+		consignmentStore:            consignment.NewConsignmentStore(db),
+		consignmentCustomDataSchema: consignmentCustomDataSchema,
+	}, nil
 }
 
-// CreateOrUpdate creates or updates an application record and its parent consignment.
-func (s *ApplicationStore) CreateOrUpdate(app *ApplicationRecord) error {
+// CreateOrUpdate creates or updates an application record and its parent
+// consignment. pushedFields (from resolvePushedFields) is merged onto the
+// consignment's own custom_data in the same transaction; pass nil/empty
+// when the task has nothing to push.
+func (s *ApplicationStore) CreateOrUpdate(app *ApplicationRecord, pushedFields map[string]any) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Upsert the consignment first so the FK reference exists.
 		if err := s.consignmentStore.Upsert(tx, app.ConsignmentID, app.Status); err != nil {
 			return fmt.Errorf("failed to upsert consignment: %w", err)
+		}
+		if err := s.consignmentStore.MergeCustomData(tx, app.ConsignmentID, pushedFields, s.consignmentCustomDataSchema); err != nil {
+			return fmt.Errorf("failed to merge consignment custom data: %w", err)
 		}
 		return tx.Save(app).Error
 	})
@@ -267,9 +284,12 @@ func (s *ApplicationStore) AppendFeedback(taskID string, entry feedback.Entry) e
 	})
 }
 
-// UpdateDataAndResetStatus updates the submitted data and resets status to PENDING.
-// Called when a trader resubmits after receiving feedback.
-func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[string]any) error {
+// UpdateDataAndResetStatus updates the submitted data and resets status to
+// PENDING, called when a trader resubmits after receiving feedback.
+// pushedFields is merged onto the consignment's custom_data in the same
+// transaction, same as CreateOrUpdate — the resubmitted data may carry new
+// values for previously-pushed fields.
+func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[string]any, pushedFields map[string]any) error {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
@@ -291,6 +311,10 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 				"updated_at": now,
 			}).Error; err != nil {
 			return err
+		}
+
+		if err := s.consignmentStore.MergeCustomData(tx, app.ConsignmentID, pushedFields, s.consignmentCustomDataSchema); err != nil {
+			return fmt.Errorf("failed to merge consignment custom data: %w", err)
 		}
 
 		return s.consignmentStore.UpdateStatus(tx, app.ConsignmentID, "PENDING", now)
