@@ -43,11 +43,13 @@ ENV VITE_APP_VERSION=$BUILD_VERSION
 RUN pnpm build
 
 # ---- Stage 2: build the Go binaries ------------------------------------------
-# Patch pinned to match backend/go.mod.
+# Tracks the `go` directive in backend/go.mod at major.minor; the two must
+# move together. Deliberately not patch-pinned, so Go patch releases (which
+# carry the stdlib CVE fixes) come in without a Dockerfile edit.
 # Pinned to $BUILDPLATFORM so the toolchain runs natively and cross-compiles to
 # the target arch (see GOOS/GOARCH below) rather than running emulated once per
 # platform. Safe because every build below sets CGO_ENABLED=0.
-FROM --platform=$BUILDPLATFORM golang:1.26.4-alpine3.24 AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine3.24 AS backend-builder
 
 WORKDIR /app
 

@@ -40,7 +40,7 @@ Each agency runs its own instance with its own database, ensuring data isolation
 
 ### Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - GCC (required by `go-sqlite3` CGO dependency)
 
 ### Run Locally
