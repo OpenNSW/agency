@@ -16,7 +16,7 @@
 ARG BUILD_VERSION=dev
 
 # ---- Stage 1: build the frontend SPA -----------------------------------------
-FROM node:22-bookworm-slim AS frontend-builder
+FROM node:22-alpine3.24 AS frontend-builder
 
 ARG BUILD_VERSION
 ENV PNPM_HOME="/pnpm"
@@ -38,7 +38,8 @@ ENV VITE_APP_VERSION=$BUILD_VERSION
 RUN pnpm build
 
 # ---- Stage 2: build the Go binaries ------------------------------------------
-FROM golang:1.26.4-bookworm AS backend-builder
+# Patch pinned to match backend/go.mod.
+FROM golang:1.26.4-alpine3.24 AS backend-builder
 
 ARG BUILD_VERSION
 WORKDIR /app
@@ -52,31 +53,35 @@ COPY backend/ .
 # binaries. Go panic traces (function + line) and pprof still work, since they
 # use the runtime pclntab rather than the symbol table. -X sets the version
 # package's build-time variable, surfaced via GET /health.
+# CGO_ENABLED=0: no package in the build graph needs cgo, so the binaries are static.
 RUN LDFLAGS="-s -w -X 'github.com/OpenNSW/agency/backend/internal/version.version=${BUILD_VERSION}'" \
-  && go build -ldflags="$LDFLAGS" -o /out/agency ./cmd/server \
-  && go build -ldflags="$LDFLAGS" -o /out/migrate ./cmd/migrate \
-  && go build -ldflags="$LDFLAGS" -o /out/nswac ./cmd/cli
+  && CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o /out/agency ./cmd/server \
+  && CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o /out/migrate ./cmd/migrate \
+  && CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o /out/nswac ./cmd/cli
 
 # ---- Stage 3: runtime --------------------------------------------------------
-FROM debian:bookworm-slim
+FROM alpine:3.24
 
 LABEL org.opencontainers.image.source="https://github.com/OpenNSW/agency"
 LABEL org.opencontainers.image.description="NSW Agency service (backend API + officer portal)"
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
-  && rm -rf /var/lib/apt/lists/* \
-  && useradd -u 1001 -r -s /bin/false -d /app appuser \
+# /app is root-owned and read-only, so the process cannot replace its own binaries
+# or the SPA. /data is the only writable path, group-0 owned for assigned UIDs.
+RUN apk add --no-cache ca-certificates tzdata \
+  && addgroup -g 1001 -S appuser \
+  && adduser -u 1001 -S -D -H -h /app -s /bin/false -G appuser appuser \
   && mkdir -p /app /app/web /data \
-  && chown -R appuser:appuser /data /app
+  && chown -R 0:0 /app \
+  && chown 1001:0 /data \
+  && chmod g+w /data
 
 WORKDIR /app
 
 # Go binaries
-COPY --from=backend-builder --chown=appuser:appuser /out/agency /app/agency
-COPY --from=backend-builder --chown=appuser:appuser /out/migrate /app/migrate
+COPY --from=backend-builder --chown=0:0 /out/agency /app/agency
+COPY --from=backend-builder --chown=0:0 /out/migrate /app/migrate
 COPY --from=backend-builder /out/nswac /usr/local/bin/nswac
-COPY --from=backend-builder --chown=appuser:appuser /app/migrations /app/migrations
+COPY --from=backend-builder --chown=0:0 /app/migrations /app/migrations
 
 # Task configs and forms are NOT baked into the image. They are fetched at
 # runtime by the artifact loader from an external source (local mount, GitHub,
@@ -86,10 +91,10 @@ COPY --from=backend-builder --chown=appuser:appuser /app/migrations /app/migrati
 # asset dir as "web" relative to WORKDIR (/app), so it must land at /app/web.
 # /runtime-env.js is generated dynamically from the environment, so nothing is
 # written into this directory at runtime.
-COPY --from=frontend-builder --chown=appuser:appuser /app/dist /app/web
+COPY --from=frontend-builder --chown=0:0 /app/dist /app/web
 
-# Runtime settings — UID 1001 matches appuser, OpenShift-compatible
-USER appuser
+# Numeric so the kubelet can check it against runAsNonRoot.
+USER 1001
 
 # Single port serves both API and SPA (override via PORT env var)
 EXPOSE 8081
