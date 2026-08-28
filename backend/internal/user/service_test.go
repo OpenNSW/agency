@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -13,8 +14,16 @@ import (
 )
 
 // newTestUserService creates a UserService backed by an in-memory SQLite DB
-// with all required tables migrated.
+// with all required tables migrated, with no custom-data schema configured.
 func newTestUserService(t *testing.T) *UserService {
+	t.Helper()
+	return newTestUserServiceWithSchema(t, nil)
+}
+
+// newTestUserServiceWithSchema is like newTestUserService but configures the
+// given custom-data schema (nil to skip validation, same as
+// newTestUserService).
+func newTestUserServiceWithSchema(t *testing.T, customDataSchema json.RawMessage) *UserService {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -33,7 +42,7 @@ func newTestUserService(t *testing.T) *UserService {
 		sqlDB, _ := db.DB()
 		_ = sqlDB.Close()
 	})
-	return NewUserService(db)
+	return NewUserService(db, customDataSchema)
 }
 
 // ---------- CreateBulk ----------
@@ -165,6 +174,104 @@ func TestUserService_CreateBulk_EmptyInput(t *testing.T) {
 	}
 	if inserted != 0 {
 		t.Errorf("expected 0 inserted for empty input, got %d", inserted)
+	}
+}
+
+// ---------- CreateBulk: custom data validation ----------
+
+const testCustomDataSchema = `{"type":"object","required":["badgeNumber"],"properties":{"badgeNumber":{"type":"string"}}}`
+
+func TestUserService_CreateBulk_NoSchemaSkipsCustomDataValidation(t *testing.T) {
+	svc := newTestUserService(t) // no schema configured
+
+	inserted, err := svc.CreateBulk([]BulkInput{
+		{Name: "Jane Doe", Email: "jane@agency.gov.au", Roles: []string{"lab_officer"}, CustomData: map[string]any{"anything": "goes"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inserted != 1 {
+		t.Errorf("expected 1 inserted, got %d", inserted)
+	}
+}
+
+func TestUserService_CreateBulk_ValidCustomDataIsPersisted(t *testing.T) {
+	svc := newTestUserServiceWithSchema(t, json.RawMessage(testCustomDataSchema))
+
+	if _, err := svc.CreateBulk([]BulkInput{
+		{Name: "Jane Doe", Email: "jane@agency.gov.au", Roles: []string{"lab_officer"}, CustomData: map[string]any{"badgeNumber": "12345"}},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var u UserRecord
+	if err := svc.db.First(&u, "email = ?", "jane@agency.gov.au").Error; err != nil {
+		t.Fatalf("failed to fetch user: %v", err)
+	}
+	if u.CustomData["badgeNumber"] != "12345" {
+		t.Errorf("CustomData[badgeNumber] = %v, want 12345", u.CustomData["badgeNumber"])
+	}
+}
+
+func TestUserService_CreateBulk_InvalidCustomDataAbortsBatch(t *testing.T) {
+	svc := newTestUserServiceWithSchema(t, json.RawMessage(testCustomDataSchema))
+
+	_, err := svc.CreateBulk([]BulkInput{
+		{Name: "Jane Doe", Email: "jane@agency.gov.au", Roles: []string{"lab_officer"}, CustomData: map[string]any{"badgeNumber": "12345"}},
+		{Name: "John Doe", Email: "john@agency.gov.au", Roles: []string{"lab_officer"}, CustomData: map[string]any{"wrongField": "x"}},
+	})
+	if !errors.Is(err, ErrInvalidCustomData) {
+		t.Fatalf("expected ErrInvalidCustomData, got %v", err)
+	}
+
+	// The returned count is not meaningful on error (it reflects progress
+	// before the transaction rolled back) — what matters is that no rows
+	// were actually persisted.
+	var count int64
+	svc.db.Model(&UserRecord{}).Count(&count)
+	if count != 0 {
+		t.Errorf("expected no users persisted after an aborted batch, got %d", count)
+	}
+}
+
+func TestUserService_CreateBulk_MissingCustomDataFailsRequiredSchema(t *testing.T) {
+	svc := newTestUserServiceWithSchema(t, json.RawMessage(testCustomDataSchema))
+
+	_, err := svc.CreateBulk([]BulkInput{
+		{Name: "Jane Doe", Email: "jane@agency.gov.au", Roles: []string{"lab_officer"}},
+	})
+	if !errors.Is(err, ErrInvalidCustomData) {
+		t.Fatalf("expected ErrInvalidCustomData for missing required customData, got %v", err)
+	}
+}
+
+func TestUserService_CreateBulk_CustomDataNotReappliedOnExistingUser(t *testing.T) {
+	svc := newTestUserServiceWithSchema(t, json.RawMessage(testCustomDataSchema))
+
+	if _, err := svc.CreateBulk([]BulkInput{
+		{Name: "Jane Doe", Email: "jane@agency.gov.au", Roles: []string{"lab_officer"}, CustomData: map[string]any{"badgeNumber": "12345"}},
+	}); err != nil {
+		t.Fatalf("unexpected error on first seed: %v", err)
+	}
+
+	// Re-seeding with no customData at all must not fail schema validation for
+	// the already-existing user (only newly-created users are validated).
+	inserted, err := svc.CreateBulk([]BulkInput{
+		{Name: "Jane Doe", Email: "jane@agency.gov.au", Roles: []string{"lab_officer"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error on second seed: %v", err)
+	}
+	if inserted != 0 {
+		t.Errorf("expected 0 inserted for existing user, got %d", inserted)
+	}
+
+	var u UserRecord
+	if err := svc.db.First(&u, "email = ?", "jane@agency.gov.au").Error; err != nil {
+		t.Fatalf("failed to fetch user: %v", err)
+	}
+	if u.CustomData["badgeNumber"] != "12345" {
+		t.Errorf("CustomData should be unchanged after re-seeding, got %v", u.CustomData)
 	}
 }
 

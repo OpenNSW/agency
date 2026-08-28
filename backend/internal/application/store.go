@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,39 +11,13 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/database"
 	"github.com/OpenNSW/agency/backend/internal/feedback"
 	"github.com/OpenNSW/agency/backend/internal/user"
+	"github.com/OpenNSW/agency/backend/pkg/dbtype"
 	"gorm.io/gorm"
 )
 
-// JSONB is a custom type for storing JSON data in SQLite
-type JSONB map[string]any
-
-// Value implements the driver.Valuer interface
-func (j JSONB) Value() (driver.Value, error) {
-	if j == nil {
-		return nil, nil
-	}
-	return json.Marshal(j)
-}
-
-// Scan implements the sql.Scanner interface
-func (j *JSONB) Scan(value any) error {
-	if value == nil {
-		*j = nil
-		return nil
-	}
-
-	var bytes []byte
-	switch v := value.(type) {
-	case []byte:
-		bytes = v
-	case string:
-		bytes = []byte(v)
-	default:
-		return fmt.Errorf("failed to unmarshal JSONB value: %v", value)
-	}
-
-	return json.Unmarshal(bytes, j)
-}
+// JSONB is a custom type for storing JSON data. See pkg/dbtype for the
+// Value/Scan implementation, shared with other domain packages.
+type JSONB = dbtype.JSONB
 
 // ApplicationRecord represents an application (task) in the Agency database
 type ApplicationRecord struct {

@@ -3,11 +3,12 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/OpenNSW/agency/backend/pkg/jsonschemautil"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
-	"github.com/google/jsonschema-go/jsonschema"
 )
 
 // validateAgainstViewForm validates injected data against the task's view
@@ -28,24 +29,11 @@ func validateAgainstViewForm(ctx context.Context, reg *artifact.Registry, formID
 	if err := json.Unmarshal(raw, &form); err != nil {
 		return fmt.Errorf("failed to parse view form %q: %w", formID, err)
 	}
-	if len(form.Schema) == 0 {
-		return nil
-	}
 
-	var sch jsonschema.Schema
-	if err := json.Unmarshal(form.Schema, &sch); err != nil {
-		return fmt.Errorf("failed to parse view form %q schema: %w", formID, err)
-	}
-	resolved, err := sch.Resolve(nil)
-	if err != nil {
-		return fmt.Errorf("failed to resolve view form %q schema: %w", formID, err)
-	}
-
-	instance := data
-	if instance == nil {
-		instance = map[string]any{}
-	}
-	if err := resolved.Validate(instance); err != nil {
+	if err := jsonschemautil.ValidateInstance(form.Schema, data); err != nil {
+		if errors.Is(err, jsonschemautil.ErrSchemaLoad) {
+			return fmt.Errorf("failed to load view form %q schema: %w", formID, err)
+		}
 		return fmt.Errorf("%w: data does not match view form %q schema: %v", ErrInvalidInjectRequest, formID, err)
 	}
 	return nil

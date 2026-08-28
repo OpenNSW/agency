@@ -34,10 +34,11 @@ func main() {
 // ---------- user add ----------
 
 type cliUser struct {
-	SSOID string   `json:"ssoid"`
-	Name  string   `json:"name"`
-	Email string   `json:"email"`
-	Roles []string `json:"roles"`
+	SSOID      string         `json:"ssoid"`
+	Name       string         `json:"name"`
+	Email      string         `json:"email"`
+	Roles      []string       `json:"roles"`
+	CustomData map[string]any `json:"customData"`
 }
 
 type cliFile struct {
@@ -147,7 +148,17 @@ func newUserService() *user.UserService {
 	if err != nil {
 		fatalf("open database: %v", err)
 	}
-	return user.NewUserService(db)
+
+	var customDataSchema json.RawMessage
+	if cfg.CustomDataSchemaPath != "" {
+		raw, err := os.ReadFile(cfg.CustomDataSchemaPath)
+		if err != nil {
+			fatalf("read custom data schema: %v", err)
+		}
+		customDataSchema = raw
+	}
+
+	return user.NewUserService(db, customDataSchema)
 }
 
 func openDB(cfg database.Config) (*gorm.DB, error) {
@@ -162,10 +173,11 @@ func toBulkInputs(users []cliUser) []user.BulkInput {
 	inputs := make([]user.BulkInput, len(users))
 	for i, u := range users {
 		inputs[i] = user.BulkInput{
-			SSOID: u.SSOID,
-			Name:  u.Name,
-			Email: u.Email,
-			Roles: u.Roles,
+			SSOID:      u.SSOID,
+			Name:       u.Name,
+			Email:      u.Email,
+			Roles:      u.Roles,
+			CustomData: u.CustomData,
 		}
 	}
 	return inputs
@@ -194,20 +206,28 @@ JSON file format:
       {
         "name": "Jane Doe",
         "email": "jane@agency.gov.au",
-        "roles": ["lab_officer", "lab_manager"]
+        "roles": ["lab_officer", "lab_manager"],
+        "customData": {"badgeNumber": "12345"}
       }
     ]
   }
 
+  customData is optional, agency-specific, and only applied when the user is
+  first created (not re-applied on re-seeding an existing user). If
+  USER_CUSTOM_DATA_SCHEMA_PATH is set, it is validated against that JSON
+  Schema before the user is created; the whole import fails if any user's
+  customData doesn't match.
+
 Environment variables:
-  DB_DRIVER     sqlite or postgres (default: sqlite)
-  DB_PATH       SQLite file path (default: ./agency_applications.db)
-  DB_HOST       PostgreSQL host (default: localhost)
-  DB_PORT       PostgreSQL port (default: 5432)
-  DB_USER       PostgreSQL user (default: postgres)
-  DB_PASSWORD   PostgreSQL password (required for postgres)
-  DB_NAME       PostgreSQL database name (default: nsw_agency_db)
-  DB_SSLMODE    PostgreSQL SSL mode (default: require)
+  DB_DRIVER                     sqlite or postgres (default: sqlite)
+  DB_PATH                       SQLite file path (default: ./agency_applications.db)
+  DB_HOST                       PostgreSQL host (default: localhost)
+  DB_PORT                       PostgreSQL port (default: 5432)
+  DB_USER                       PostgreSQL user (default: postgres)
+  DB_PASSWORD                   PostgreSQL password (required for postgres)
+  DB_NAME                       PostgreSQL database name (default: nsw_agency_db)
+  DB_SSLMODE                    PostgreSQL SSL mode (default: require)
+  USER_CUSTOM_DATA_SCHEMA_PATH  Path to a JSON Schema file validating "customData" (optional; unset skips validation)
 `)
 }
 

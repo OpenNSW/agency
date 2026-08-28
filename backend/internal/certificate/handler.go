@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/OpenNSW/agency/backend/internal/application"
+	"github.com/OpenNSW/agency/backend/pkg/jsonschemautil"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/httputil"
 )
@@ -74,7 +75,7 @@ func (h *Handler) HandleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateAgainstSchema(app.CertificateDataSchema, req.Data); err != nil {
+	if err := jsonschemautil.ValidateInstance(app.CertificateDataSchema, req.Data); err != nil {
 		httputil.Error(w, r, http.StatusBadRequest, "certificate data does not match the configured schema: "+err.Error())
 		return
 	}
