@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/OpenNSW/agency/backend/internal/database"
+	"github.com/OpenNSW/agency/backend/pkg/dbtype"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -15,12 +16,13 @@ import (
 var ErrUserNotFound = errors.New("user not found — ensure the user has been seeded")
 
 type UserRecord struct {
-	UserID    string    `gorm:"type:text;primaryKey"`
-	SSOID     *string   `gorm:"column:ssoid;type:text;uniqueIndex"`
-	Email     string    `gorm:"type:text"`
-	Name      string    `gorm:"type:text"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	UserID     string       `gorm:"type:text;primaryKey"`
+	SSOID      *string      `gorm:"column:ssoid;type:text;uniqueIndex"`
+	Email      string       `gorm:"type:text"`
+	Name       string       `gorm:"type:text"`
+	CustomData dbtype.JSONB `gorm:"column:custom_data;type:jsonb"` // agency-specific fields, validated against a configured JSON Schema
+	CreatedAt  time.Time    `gorm:"autoCreateTime"`
+	UpdatedAt  time.Time    `gorm:"autoUpdateTime"`
 }
 
 func (UserRecord) TableName() string {

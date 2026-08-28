@@ -91,27 +91,27 @@ In practice, use [`../start-dev.sh <agency>`](../start-dev.sh), which sets the p
 
 All configuration is via environment variables:
 
-| Variable                         | Description                                                                           | Default                        |
-|----------------------------------|---------------------------------------------------------------------------------------|--------------------------------|
-| `PORT`                           | HTTP server port                                                                      | `8081`                         |
-| `DB_DRIVER`                      | Database driver (`sqlite`, `postgres`)                                                | `sqlite`                       |
-| `DB_PATH`                        | Path to SQLite database file                                                          | `./agency_applications.db`     |
-| `DB_HOST`                        | PostgreSQL host                                                                       | `localhost`                    |
-| `DB_PORT`                        | PostgreSQL port                                                                       | `5432`                         |
-| `DB_USER`                        | PostgreSQL user                                                                       | `postgres`                     |
-| `DB_PASSWORD`                    | PostgreSQL password                                                                   | `changeme`                     |
-| `DB_NAME`                        | PostgreSQL database name                                                              | `agency_db`                    |
-| `DB_SSLMODE`                     | PostgreSQL SSL mode                                                                   | `require`                      |
-| `ARTIFACT_LOADER_TYPE`           | Artifact source backend: `local`, `github`, or `s3`                                   | `local`                        |
-| `ARTIFACT_LOCAL_ROOT`            | Root dir the `local` loader resolves task configs, forms, and `manifest.json` against | required for `local`           |
-| `ALLOWED_ORIGINS`                | Comma-separated CORS origins (`*` to allow all)                                       | `*`                            |
-| `NSW_API_BASE_URL`               | NSW API base URL for calling NSW endpoints                                            | `http://localhost:8080`        |
-| `NSW_CLIENT_ID`                  | OAuth2 client ID for Agency -> NSW                                                    | required                       |
-| `NSW_CLIENT_SECRET`              | OAuth2 client secret for Agency -> NSW                                                | required                       |
-| `NSW_TOKEN_URL`                  | OAuth2 token endpoint URL                                                             | required                       |
-| `NSW_SCOPES`                     | Optional comma-separated OAuth2 scopes                                                | empty                          |
-| `NSW_TOKEN_PARAMS`               | Extra token-request parameters, query-string encoded (e.g. `resource=https://api.example`). Sent in the request body. Required by NSW's IdP; see [`.env.example`](../.env.example) | empty |
-| `NSW_TOKEN_INSECURE_SKIP_VERIFY` | DEV-only: skip TLS verification for token fetch                                       | `false`                        |
+| Variable                         | Description                                                                                                                                                                        | Default                    |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------|
+| `PORT`                           | HTTP server port                                                                                                                                                                   | `8081`                     |
+| `DB_DRIVER`                      | Database driver (`sqlite`, `postgres`)                                                                                                                                             | `sqlite`                   |
+| `DB_PATH`                        | Path to SQLite database file                                                                                                                                                       | `./agency_applications.db` |
+| `DB_HOST`                        | PostgreSQL host                                                                                                                                                                    | `localhost`                |
+| `DB_PORT`                        | PostgreSQL port                                                                                                                                                                    | `5432`                     |
+| `DB_USER`                        | PostgreSQL user                                                                                                                                                                    | `postgres`                 |
+| `DB_PASSWORD`                    | PostgreSQL password                                                                                                                                                                | `changeme`                 |
+| `DB_NAME`                        | PostgreSQL database name                                                                                                                                                           | `agency_db`                |
+| `DB_SSLMODE`                     | PostgreSQL SSL mode                                                                                                                                                                | `require`                  |
+| `ARTIFACT_LOADER_TYPE`           | Artifact source backend: `local`, `github`, or `s3`                                                                                                                                | `local`                    |
+| `ARTIFACT_LOCAL_ROOT`            | Root dir the `local` loader resolves task configs, forms, and `manifest.json` against                                                                                              | required for `local`       |
+| `ALLOWED_ORIGINS`                | Comma-separated CORS origins (`*` to allow all)                                                                                                                                    | `*`                        |
+| `NSW_API_BASE_URL`               | NSW API base URL for calling NSW endpoints                                                                                                                                         | `http://localhost:8080`    |
+| `NSW_CLIENT_ID`                  | OAuth2 client ID for Agency -> NSW                                                                                                                                                 | required                   |
+| `NSW_CLIENT_SECRET`              | OAuth2 client secret for Agency -> NSW                                                                                                                                             | required                   |
+| `NSW_TOKEN_URL`                  | OAuth2 token endpoint URL                                                                                                                                                          | required                   |
+| `NSW_SCOPES`                     | Optional comma-separated OAuth2 scopes                                                                                                                                             | empty                      |
+| `NSW_TOKEN_PARAMS`               | Extra token-request parameters, query-string encoded (e.g. `resource=https://api.example`). Sent in the request body. Required by NSW's IdP; see [`.env.example`](../.env.example) | empty                      |
+| `NSW_TOKEN_INSECURE_SKIP_VERIFY` | DEV-only: skip TLS verification for token fetch                                                                                                                                    | `false`                    |
 
 Task configs and forms are loaded through the [`core/artifact`](https://github.com/OpenNSW/core/tree/main/artifact) registry rather than from the repo. A single loader (`local`, `github`, or `s3`) fetches a `manifest.json` and the artifacts it catalogs from one source. The `github`/`s3` backends have their own `ARTIFACT_GITHUB_*` / `ARTIFACT_S3_*` variables — see [`.env.example`](.env.example) for the full set.
 
@@ -133,13 +133,14 @@ See [docs/api.md](docs/api.md) for complete API documentation with request/respo
 
 Detailed documentation lives in the [`docs/`](docs/) folder:
 
-| Document                                    | Description                                                                                |
-|---------------------------------------------|--------------------------------------------------------------------------------------------|
-| [Architecture](docs/architecture.md)        | System design, layered architecture, data flow                                             |
-| [API Reference](docs/api.md)                | Complete endpoint docs with examples                                                       |
-| [Task Configurations](docs/task-configs.md) | Per-taskCode metadata, form references, and status-mapping behavior; how to add a new task |
-| [Forms](docs/forms.md)                      | JSON Forms file structure and how to add new forms referenced from task configs            |
-| [NSW Integration](docs/nsw-integration.md)  | How Agency connects to the NSW workflow engine                                             |
+| Document                                             | Description                                                                                |
+|------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| [Architecture](docs/architecture.md)                 | System design, layered architecture, data flow                                             |
+| [API Reference](docs/api.md)                         | Complete endpoint docs with examples                                                       |
+| [Task Configurations](docs/task-configs.md)          | Per-taskCode metadata, form references, and status-mapping behavior; how to add a new task |
+| [Forms](docs/forms.md)                               | JSON Forms file structure and how to add new forms referenced from task configs            |
+| [NSW Integration](docs/nsw-integration.md)           | How Agency connects to the NSW workflow engine                                             |
+| [Employee Custom Data](docs/employee-custom-data.md) | Agency-specific fields on `users.custom_data`, schema config, and how to evolve the schema |
 
 ## Project Structure
 

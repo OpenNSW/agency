@@ -2,38 +2,52 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/pkg/jsonschemautil"
 	"gorm.io/gorm"
 )
 
 // BulkInput represents user data used for bulk creation.
 type BulkInput struct {
-	SSOID string
-	Name  string
-	Email string
-	Roles []string
+	SSOID      string
+	Name       string
+	Email      string
+	Roles      []string
+	CustomData map[string]any
 }
+
+// ErrInvalidCustomData is returned when a user's CustomData does not match
+// the configured custom-data schema (UserService.customDataSchema).
+var ErrInvalidCustomData = errors.New("custom data does not match the configured schema")
 
 // UserService handles user seeding and management operations.
 type UserService struct {
-	db *gorm.DB
+	db               *gorm.DB
+	customDataSchema json.RawMessage // nil/empty when no schema is configured; validation is then skipped
 }
 
-func NewUserService(db *gorm.DB) *UserService {
-	return &UserService{db: db}
+// NewUserService creates a UserService. customDataSchema is the agency's
+// configured JSON Schema for BulkInput.CustomData; pass nil to skip
+// validation entirely (no schema configured for this deployment).
+func NewUserService(db *gorm.DB, customDataSchema json.RawMessage) *UserService {
+	return &UserService{db: db, customDataSchema: customDataSchema}
 }
 
 // CreateBulk creates users and their role assignments in a single transaction.
-// Returns the number of newly created users.
+// Returns the number of newly created users. Each new user's CustomData is
+// validated against the configured schema (if any) before insertion; a
+// mismatch aborts the whole batch (wrapped in ErrInvalidCustomData) so a
+// partially-invalid seed file never partially applies.
 func (s *UserService) CreateBulk(users []BulkInput) (int, error) {
 	var inserted int
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var err error
-		inserted, err = createBulkInTx(tx, users)
+		inserted, err = createBulkInTx(tx, users, s.customDataSchema)
 		return err
 	})
 	return inserted, err
@@ -59,7 +73,7 @@ func (s *UserService) DropUser(email string) error {
 	})
 }
 
-func createBulkInTx(tx *gorm.DB, users []BulkInput) (int, error) {
+func createBulkInTx(tx *gorm.DB, users []BulkInput, customDataSchema json.RawMessage) (int, error) {
 	roleService := rbac.NewRoleService(tx)
 
 	// Deduplicate users by email — keep the first occurrence.
@@ -100,7 +114,10 @@ func createBulkInTx(tx *gorm.DB, users []BulkInput) (int, error) {
 		var existing UserRecord
 		err := tx.First(&existing, "email = ?", u.Email).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			newUser := UserRecord{Email: u.Email, Name: u.Name, SSOID: nullableSSID(u.SSOID)}
+			if err := jsonschemautil.ValidateInstance(customDataSchema, u.CustomData); err != nil {
+				return inserted, fmt.Errorf("%w: user %q: %v", ErrInvalidCustomData, u.Email, err)
+			}
+			newUser := UserRecord{Email: u.Email, Name: u.Name, SSOID: nullableSSID(u.SSOID), CustomData: u.CustomData}
 			if err := tx.Create(&newUser).Error; err != nil {
 				return inserted, fmt.Errorf("create user %q: %w", u.Email, err)
 			}

@@ -9,11 +9,16 @@ import (
 // Config holds all configuration for the CLI command.
 type Config struct {
 	DB database.Config
+	// CustomDataSchemaPath is an optional path to a JSON Schema file that
+	// validates BulkInput.CustomData on `user add`. Empty means no schema is
+	// configured for this deployment, so custom data is not validated.
+	CustomDataSchemaPath string
 }
 
 // LoadConfig loads configuration from environment variables.
 func LoadConfig() (Config, error) {
 	cfg := Config{
+		CustomDataSchemaPath: os.Getenv("USER_CUSTOM_DATA_SCHEMA_PATH"),
 		// Populate every driver's settings; database.Config reads only the
 		// selected driver's sub-config and cfg.DB.Validate() enforces its
 		// requirements, so there is no per-driver switch here.
