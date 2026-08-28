@@ -15,17 +15,31 @@ updates:
       prefix: build
       include: scope
     groups:
+      # Every Go group is restricted to minor/patch. Unlike npm, a Go major
+      # changes the import path (/v2, /v3), so it always needs source changes
+      # -- bundling one into a group PR would block that group's harmless
+      # updates behind a breaking change. Majors therefore arrive as
+      # individual PRs. (The npm groups below deliberately differ: peer-coupled
+      # JS packages must install in lockstep, majors included.)
       aws-sdk:
         patterns:
           - "github.com/aws/*"
+        update-types:
+          - minor
+          - patch
       gorm:
         patterns:
           - "gorm.io/*"
+        update-types:
+          - minor
+          - patch
       opennsw:
         patterns:
           - "github.com/OpenNSW/*"
+        update-types:
+          - minor
+          - patch
       # Long tail: bundle minor/patch into one PR.
-      # Majors of ungrouped modules still arrive as individual PRs for review.
       minor-and-patch:
         update-types:
           - minor
