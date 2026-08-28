@@ -1,6 +1,6 @@
 module github.com/OpenNSW/agency/backend
 
-go 1.26.4
+go 1.27
 
 require (
 	github.com/OpenNSW/core v0.0.0-20260826052619-ad95c114ba56

@@ -30,12 +30,12 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.12.2
+          version: v2.13.2
           # Build golangci-lint from source with the Go toolchain set up above
           # (from go.mod). The prebuilt release binaries are compiled with an
-          # older Go and their embedded type-checker panics on our go 1.26
-          # module ("package requires newer Go version go1.26"). goinstall
-          # compiles the linter with go 1.26 so its type-checker matches.
+          # older Go and their embedded type-checker panics on our go 1.27
+          # module ("package requires newer Go version go1.27"). goinstall
+          # compiles the linter with go 1.27 so its type-checker matches.
           install-mode: goinstall
           working-directory: ./backend
           args: --timeout=5m
