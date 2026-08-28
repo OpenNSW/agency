@@ -39,5 +39,14 @@ func (j *JSONB) Scan(value any) error {
 		return fmt.Errorf("failed to unmarshal JSONB value: %v", value)
 	}
 
-	return json.Unmarshal(bytes, j)
+	// Unmarshal into a fresh map and replace *j wholesale: json.Unmarshal into
+	// an existing non-nil map merges keys rather than clearing it first, so
+	// unmarshaling straight into *j would leave stale keys from a previous
+	// Scan behind.
+	var decoded JSONB
+	if err := json.Unmarshal(bytes, &decoded); err != nil {
+		return err
+	}
+	*j = decoded
+	return nil
 }

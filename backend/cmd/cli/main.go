@@ -108,8 +108,16 @@ func runUserAddInteractive() {
 		fatalf("at least one role is required")
 	}
 
+	customDataInput := prompt(sc, "Custom data (JSON object, optional): ")
+	var customData map[string]any
+	if customDataInput != "" {
+		if err := json.Unmarshal([]byte(customDataInput), &customData); err != nil {
+			fatalf("parse custom data: %v", err)
+		}
+	}
+
 	svc := newUserService()
-	inserted, err := svc.CreateBulk([]user.BulkInput{{Name: name, Email: email, Roles: roles}})
+	inserted, err := svc.CreateBulk([]user.BulkInput{{Name: name, Email: email, Roles: roles, CustomData: customData}})
 	if err != nil {
 		fatalf("%v", err)
 	}
@@ -216,7 +224,8 @@ JSON file format:
   first created (not re-applied on re-seeding an existing user). If
   USER_CUSTOM_DATA_SCHEMA_PATH is set, it is validated against that JSON
   Schema before the user is created; the whole import fails if any user's
-  customData doesn't match.
+  customData doesn't match. Interactive "user add" (no --file) also prompts
+  for an optional custom data JSON object.
 
 Environment variables:
   DB_DRIVER                     sqlite or postgres (default: sqlite)

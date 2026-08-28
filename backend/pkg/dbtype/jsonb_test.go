@@ -69,3 +69,14 @@ func TestJSONB_ScanUnsupportedType(t *testing.T) {
 		t.Error("Scan(int) expected error, got nil")
 	}
 }
+
+func TestJSONB_ScanReplacesRatherThanMerges(t *testing.T) {
+	j := JSONB{"old": true}
+	if err := j.Scan([]byte(`{"new":true}`)); err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	want := JSONB{"new": true}
+	if !reflect.DeepEqual(j, want) {
+		t.Errorf("Scan() = %#v, want %#v (stale key from a previous Scan must not survive)", j, want)
+	}
+}
