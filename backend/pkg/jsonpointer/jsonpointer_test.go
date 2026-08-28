@@ -13,6 +13,8 @@ func TestValid(t *testing.T) {
 		{"", false},         // root pointer: nothing to point at for our use case
 		{"district", false}, // missing leading slash
 		{"no-slash", false},
+		{"/a~2b", false}, // '~' followed by anything other than '0'/'1' is invalid RFC 6901 escaping
+		{"/a~", false},   // trailing '~' with nothing to escape
 	}
 	for _, tt := range tests {
 		if got := Valid(tt.pointer); got != tt.want {
@@ -49,6 +51,7 @@ func TestGet(t *testing.T) {
 		{"empty intermediate object, nothing to walk into", "/empty/x", nil, false},
 		{"malformed pointer, no leading slash", "district", nil, false},
 		{"root pointer", "", nil, false},
+		{"invalid escape sequence", "/a~2b", nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

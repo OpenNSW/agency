@@ -1566,11 +1566,7 @@ func getConsignmentCustomData(t *testing.T, h *serviceHarness, id string) map[st
 	if len(rec.CustomData) == 0 {
 		return nil
 	}
-	var data map[string]any
-	if err := json.Unmarshal(rec.CustomData, &data); err != nil {
-		t.Fatalf("failed to decode custom_data: %v", err)
-	}
-	return data
+	return rec.CustomData
 }
 
 func TestCreateApplication_PushesConsignmentFields(t *testing.T) {

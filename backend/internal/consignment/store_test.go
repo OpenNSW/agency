@@ -45,12 +45,8 @@ func newTestStore(t *testing.T) *Store {
 
 func seedConsignmentWithData(t *testing.T, store *Store, id, status string, data JSONB, taskIDs ...string) {
 	t.Helper()
-	raw, err := encodeJSONB(data)
-	if err != nil {
-		t.Fatalf("encode nsw_data: %v", err)
-	}
 	tx := store.db.Begin()
-	if err := tx.Create(&ConsignmentRecord{ID: id, Status: status, NSWData: raw}).Error; err != nil {
+	if err := tx.Create(&ConsignmentRecord{ID: id, Status: status, NSWData: data}).Error; err != nil {
 		t.Fatalf("seed consignment %s: %v", id, err)
 	}
 	for _, taskID := range taskIDs {
@@ -126,14 +122,10 @@ func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 
 	// Seed directly with a fixed, distinctive CreatedAt and NSWData
 	fixedCreatedAt := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	rawNSWData, err := encodeJSONB(JSONB{"traderCompanyName": "INITIAL CORP"})
-	if err != nil {
-		t.Fatalf("encode nsw_data: %v", err)
-	}
 	if err := store.db.Create(&ConsignmentRecord{
 		ID:        "wf-created",
 		Status:    "PENDING",
-		NSWData:   rawNSWData,
+		NSWData:   JSONB{"traderCompanyName": "INITIAL CORP"},
 		CreatedAt: fixedCreatedAt,
 	}).Error; err != nil {
 		t.Fatalf("failed to seed consignment: %v", err)
@@ -159,12 +151,8 @@ func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 	if got.Status != "APPROVED" {
 		t.Errorf("expected Status to be updated to APPROVED, got %q", got.Status)
 	}
-	decoded, err := decodeJSONB(got.NSWData)
-	if err != nil {
-		t.Fatalf("decode NSWData: %v", err)
-	}
-	if decoded["traderCompanyName"] != "INITIAL CORP" {
-		t.Errorf("expected NSWData to be preserved as INITIAL CORP, got %v", decoded["traderCompanyName"])
+	if got.NSWData["traderCompanyName"] != "INITIAL CORP" {
+		t.Errorf("expected NSWData to be preserved as INITIAL CORP, got %v", got.NSWData["traderCompanyName"])
 	}
 }
 
@@ -206,12 +194,8 @@ func TestConsignmentStore_Create(t *testing.T) {
 	if rec.ID != "c-create" || rec.Status != "PENDING" {
 		t.Errorf("unexpected record: %+v", rec)
 	}
-	data, err := decodeJSONB(rec.NSWData)
-	if err != nil {
-		t.Fatalf("decode nsw_data: %v", err)
-	}
-	if data["traderCompanyName"] != "ACME" {
-		t.Errorf("Create on conflict must keep original extras, got %v", data["traderCompanyName"])
+	if rec.NSWData["traderCompanyName"] != "ACME" {
+		t.Errorf("Create on conflict must keep original extras, got %v", rec.NSWData["traderCompanyName"])
 	}
 
 	if _, err := store.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
@@ -240,11 +224,7 @@ func getCustomData(t *testing.T, store *Store, id string) JSONB {
 	if err := store.db.First(&rec, "id = ?", id).Error; err != nil {
 		t.Fatalf("failed to fetch consignment %s: %v", id, err)
 	}
-	data, err := decodeJSONB(rec.CustomData)
-	if err != nil {
-		t.Fatalf("decode custom_data: %v", err)
-	}
-	return data
+	return rec.CustomData
 }
 
 func TestMergeCustomData_FirstMerge(t *testing.T) {
@@ -253,7 +233,7 @@ func TestMergeCustomData_FirstMerge(t *testing.T) {
 		t.Fatalf("seed consignment: %v", err)
 	}
 
-	if err := mergeInTx(t, store, "c1", map[string]any{"district": "Colombo"}, nil); err != nil {
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
 		t.Fatalf("MergeCustomData: %v", err)
 	}
 
@@ -269,10 +249,10 @@ func TestMergeCustomData_AccumulatesAcrossMerges(t *testing.T) {
 		t.Fatalf("seed consignment: %v", err)
 	}
 
-	if err := mergeInTx(t, store, "c1", map[string]any{"district": "Colombo"}, nil); err != nil {
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
 		t.Fatalf("first MergeCustomData: %v", err)
 	}
-	if err := mergeInTx(t, store, "c1", map[string]any{"portOfEntry": "BIA"}, nil); err != nil {
+	if err := mergeInTx(t, store, "c1", map[string]any{"/portOfEntry": "BIA"}, nil); err != nil {
 		t.Fatalf("second MergeCustomData: %v", err)
 	}
 
@@ -291,16 +271,50 @@ func TestMergeCustomData_LastWriteWinsOnRepeatedKey(t *testing.T) {
 		t.Fatalf("seed consignment: %v", err)
 	}
 
-	if err := mergeInTx(t, store, "c1", map[string]any{"district": "Colombo"}, nil); err != nil {
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
 		t.Fatalf("first MergeCustomData: %v", err)
 	}
-	if err := mergeInTx(t, store, "c1", map[string]any{"district": "Gampaha"}, nil); err != nil {
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Gampaha"}, nil); err != nil {
 		t.Fatalf("second MergeCustomData: %v", err)
 	}
 
 	got := getCustomData(t, store, "c1")
 	if got["district"] != "Gampaha" {
 		t.Errorf("custom_data[district] = %v, want Gampaha (the later merge should win)", got["district"])
+	}
+}
+
+// TestMergeCustomData_PreservesSiblingsUnderNestedTarget guards against a
+// shallow top-level merge (e.g. maps.Copy on the whole fields map) silently
+// clobbering a sibling nested under the same parent object from an earlier
+// merge — e.g. a push to "/location/portOfEntry" replacing the entire
+// "location" object and losing a previously-pushed "/location/district".
+func TestMergeCustomData_PreservesSiblingsUnderNestedTarget(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	if err := mergeInTx(t, store, "c1", map[string]any{"/location/district": "Colombo"}, nil); err != nil {
+		t.Fatalf("first MergeCustomData: %v", err)
+	}
+	if err := mergeInTx(t, store, "c1", map[string]any{"/location/portOfEntry": "BIA"}, nil); err != nil {
+		t.Fatalf("second MergeCustomData: %v", err)
+	}
+
+	got := getCustomData(t, store, "c1")
+	// Nested objects decode as plain map[string]any, not JSONB: encoding/json
+	// doesn't propagate a named outer map type to nested values unmarshaled
+	// into an "any" slot.
+	location, ok := got["location"].(map[string]any)
+	if !ok {
+		t.Fatalf("custom_data[location] is not an object: %#v", got["location"])
+	}
+	if location["district"] != "Colombo" {
+		t.Errorf("location[district] = %v, want Colombo (must survive the second, sibling push)", location["district"])
+	}
+	if location["portOfEntry"] != "BIA" {
+		t.Errorf("location[portOfEntry] = %v, want BIA", location["portOfEntry"])
 	}
 }
 
@@ -329,12 +343,12 @@ func TestMergeCustomData_SchemaMismatchSkipsWriteWithoutError(t *testing.T) {
 		t.Fatalf("seed consignment: %v", err)
 	}
 	// Seed a valid value first, so we can confirm a later failed merge leaves it alone.
-	if err := mergeInTx(t, store, "c1", map[string]any{"district": "Colombo"}, nil); err != nil {
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
 		t.Fatalf("seed merge: %v", err)
 	}
 
 	schema := json.RawMessage(`{"type":"object","properties":{"district":{"type":"string"}}}`)
-	err := mergeInTx(t, store, "c1", map[string]any{"district": 12345}, schema)
+	err := mergeInTx(t, store, "c1", map[string]any{"/district": 12345}, schema)
 	if err != nil {
 		t.Fatalf("MergeCustomData with a schema mismatch should not error, got: %v", err)
 	}
@@ -352,7 +366,7 @@ func TestMergeCustomData_ValidAgainstSchemaIsPersisted(t *testing.T) {
 	}
 
 	schema := json.RawMessage(`{"type":"object","properties":{"district":{"type":"string"}}}`)
-	if err := mergeInTx(t, store, "c1", map[string]any{"district": "Colombo"}, schema); err != nil {
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, schema); err != nil {
 		t.Fatalf("MergeCustomData: %v", err)
 	}
 
@@ -392,7 +406,7 @@ func TestMergeCustomData_LocksAgainstConcurrentMerges(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			key := fmt.Sprintf("field%d", i)
+			key := fmt.Sprintf("/field%d", i)
 			errs <- mergeInTx(t, store, "c1", map[string]any{key: i}, nil)
 		}(i)
 	}

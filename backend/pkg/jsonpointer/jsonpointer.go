@@ -32,6 +32,11 @@ func parse(pointer string) ([]string, error) {
 	raw := strings.Split(pointer[1:], "/")
 	segments := make([]string, len(raw))
 	for i, s := range raw {
+		for j := 0; j < len(s); j++ {
+			if s[j] == '~' && (j+1 == len(s) || (s[j+1] != '0' && s[j+1] != '1')) {
+				return nil, fmt.Errorf("jsonpointer: %q has an invalid escape sequence (a '~' must be followed by '0' or '1')", pointer)
+			}
+		}
 		segments[i] = unescaper.Replace(s)
 	}
 	return segments, nil

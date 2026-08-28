@@ -14,7 +14,7 @@ func TestResolvePushedFields_NoRules(t *testing.T) {
 	}
 }
 
-func TestResolvePushedFields_ResolvesAndRenames(t *testing.T) {
+func TestResolvePushedFields_ResolvesKeyedByTargetPointer(t *testing.T) {
 	rules := []taskconfig.ConsignmentField{
 		{Source: "/importer/address/district", Target: "/district"},
 	}
@@ -25,7 +25,7 @@ func TestResolvePushedFields_ResolvesAndRenames(t *testing.T) {
 	}
 
 	got := resolvePushedFields(rules, data)
-	want := map[string]any{"district": "Colombo"}
+	want := map[string]any{"/district": "Colombo"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolvePushedFields() = %#v, want %#v", got, want)
 	}
@@ -43,7 +43,7 @@ func TestResolvePushedFields_SkipsUnresolvedSourcesWithoutError(t *testing.T) {
 	}
 
 	got := resolvePushedFields(rules, data)
-	want := map[string]any{"district": "Colombo"}
+	want := map[string]any{"/district": "Colombo"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolvePushedFields() = %#v, want %#v", got, want)
 	}
@@ -59,12 +59,26 @@ func TestResolvePushedFields_NothingResolvesReturnsNil(t *testing.T) {
 	}
 }
 
-func TestResolvePushedFields_NestedTarget(t *testing.T) {
+// TestResolvePushedFields_NestedTargetsStayAsPointerStrings guards against
+// resolvePushedFields pre-nesting targets into a document itself (the
+// earlier, buggy design): the map it returns is keyed by the raw Target
+// pointer string, not a nested structure — consignment.Store.MergeCustomData
+// is what applies each pointer against the accumulated document, which is
+// what actually preserves siblings under a shared nested parent across
+// separate merges. Two rules targeting siblings under the same parent here
+// must produce two independent entries, not collide or nest.
+func TestResolvePushedFields_NestedTargetsStayAsPointerStrings(t *testing.T) {
 	rules := []taskconfig.ConsignmentField{
-		{Source: "/district", Target: "/location/district"},
+		{Source: "/a", Target: "/location/district"},
+		{Source: "/b", Target: "/location/portOfEntry"},
 	}
-	got := resolvePushedFields(rules, map[string]any{"district": "Colombo"})
-	want := map[string]any{"location": map[string]any{"district": "Colombo"}}
+	data := map[string]any{"a": "Colombo", "b": "BIA"}
+
+	got := resolvePushedFields(rules, data)
+	want := map[string]any{
+		"/location/district":    "Colombo",
+		"/location/portOfEntry": "BIA",
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolvePushedFields() = %#v, want %#v", got, want)
 	}
