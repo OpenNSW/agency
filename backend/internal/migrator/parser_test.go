@@ -132,28 +132,56 @@ CREATE TABLE foo (id INTEGER PRIMARY KEY);
 CREATE INDEX foo ON foo (id);`,
 			wantErr: true,
 		},
+		{
+			name: "dialect-only up with no portable statement",
+			content: `-- @UP
+
+-- @postgres
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- @DOWN
+
+-- @postgres
+DROP EXTENSION IF EXISTS pgcrypto;`,
+			wantUp:   "",
+			wantDown: "",
+			wantUpByDriver: map[string]string{
+				"postgres": "CREATE EXTENSION IF NOT EXISTS pgcrypto;",
+			},
+			wantDownByDriver: map[string]string{
+				"postgres": "DROP EXTENSION IF EXISTS pgcrypto;",
+			},
+		},
+		{
+			name: "up with no content anywhere still errors",
+			content: `-- @UP
+
+-- @DOWN
+DROP TABLE foo;`,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			up, down, upByDriver, downByDriver, err := parseBlocks(tt.content)
+			bs, err := parseBlocks(tt.content)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("parseBlocks() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
 				return
 			}
-			if up != tt.wantUp {
-				t.Errorf("up = %q, want %q", up, tt.wantUp)
+			if bs.Up != tt.wantUp {
+				t.Errorf("up = %q, want %q", bs.Up, tt.wantUp)
 			}
-			if down != tt.wantDown {
-				t.Errorf("down = %q, want %q", down, tt.wantDown)
+			if bs.Down != tt.wantDown {
+				t.Errorf("down = %q, want %q", bs.Down, tt.wantDown)
 			}
-			if !reflect.DeepEqual(upByDriver, tt.wantUpByDriver) {
-				t.Errorf("upByDriver = %#v, want %#v", upByDriver, tt.wantUpByDriver)
+			if !reflect.DeepEqual(bs.UpByDriver, tt.wantUpByDriver) {
+				t.Errorf("upByDriver = %#v, want %#v", bs.UpByDriver, tt.wantUpByDriver)
 			}
-			if !reflect.DeepEqual(downByDriver, tt.wantDownByDriver) {
-				t.Errorf("downByDriver = %#v, want %#v", downByDriver, tt.wantDownByDriver)
+			if !reflect.DeepEqual(bs.DownByDriver, tt.wantDownByDriver) {
+				t.Errorf("downByDriver = %#v, want %#v", bs.DownByDriver, tt.wantDownByDriver)
 			}
 		})
 	}

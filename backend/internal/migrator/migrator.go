@@ -96,8 +96,8 @@ func (m *Migrator) Down() error {
 		fmt.Println("no migrations to roll back")
 		return nil
 	}
-	if last.Down == "" {
-		return fmt.Errorf("migration %06d_%s has no -- @DOWN block", last.Version, last.Name)
+	if last.Down == "" && last.DownByDriver[m.driver] == "" {
+		return fmt.Errorf("migration %06d_%s has no -- @DOWN block for driver %q", last.Version, last.Name, m.driver)
 	}
 	if err := m.rollback(last); err != nil {
 		return fmt.Errorf("rolling back %06d_%s: %w", last.Version, last.Name, err)
@@ -237,13 +237,15 @@ func (m *Migrator) rollback(mg *Migration) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	if err := execStatements(tx, mg.Down); err != nil {
-		return err
-	}
+	// Unwind in the reverse order of apply: the driver-specific addition
+	// (e.g. an index) goes first, then the portable base change it depends on.
 	if extra, ok := mg.DownByDriver[m.driver]; ok {
 		if err := execStatements(tx, extra); err != nil {
 			return err
 		}
+	}
+	if err := execStatements(tx, mg.Down); err != nil {
+		return err
 	}
 
 	var deleteQ string
@@ -275,7 +277,13 @@ func (m *Migrator) Generate(name string) error {
 	filename := fmt.Sprintf("%06d_%s.sql", next, name)
 	path := filepath.Join(m.dir, filename)
 
-	content := fmt.Sprintf("-- Created at: %s\n\n-- @UP\n\n\n-- @DOWN\n\n", time.Now().UTC().Format(time.RFC3339))
+	content := fmt.Sprintf(
+		"-- Created at: %s\n"+
+			"-- Need Postgres- or SQLite-only SQL? Nest -- @postgres / -- @sqlite blocks\n"+
+			"-- inside @UP or @DOWN -- see docs/migrations.md.\n\n"+
+			"-- @UP\n\n\n-- @DOWN\n\n",
+		time.Now().UTC().Format(time.RFC3339),
+	)
 	if err := os.MkdirAll(m.dir, 0755); err != nil {
 		return fmt.Errorf("creating migration dir: %w", err)
 	}

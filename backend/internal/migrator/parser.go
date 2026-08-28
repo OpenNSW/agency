@@ -36,7 +36,7 @@ func ParseFile(path string) (*Migration, error) {
 		return nil, err
 	}
 
-	up, down, upByDriver, downByDriver, err := parseBlocks(string(content))
+	blocks, err := parseBlocks(string(content))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", base, err)
 	}
@@ -44,10 +44,10 @@ func ParseFile(path string) (*Migration, error) {
 	return &Migration{
 		Version:      version,
 		Name:         name,
-		Up:           up,
-		Down:         down,
-		UpByDriver:   upByDriver,
-		DownByDriver: downByDriver,
+		Up:           blocks.Up,
+		Down:         blocks.Down,
+		UpByDriver:   blocks.UpByDriver,
+		DownByDriver: blocks.DownByDriver,
 	}, nil
 }
 
@@ -64,6 +64,15 @@ func parseFilename(base string) (int64, string, error) {
 	return version, name[idx+1:], nil
 }
 
+// blockSet holds the SQL extracted from a migration file's -- @UP / -- @DOWN
+// sections, including any nested per-driver sub-blocks.
+type blockSet struct {
+	Up           string
+	Down         string
+	UpByDriver   map[string]string
+	DownByDriver map[string]string
+}
+
 // parseBlocks splits file content into UP and DOWN SQL sections delimited by
 // the -- @UP and -- @DOWN annotations. Within a section, a -- @postgres or
 // -- @sqlite marker scopes every following line to that driver until the
@@ -71,7 +80,13 @@ func parseFilename(base string) (int64, string, error) {
 // -- @DOWN section resets the scope back to portable/generic. Matching is
 // case-insensitive and space-insensitive (e.g. "--@up", "-- @UP", "--
 // @Postgres" all match).
-func parseBlocks(content string) (up, down string, upByDriver, downByDriver map[string]string, err error) {
+//
+// A migration needs at least one statement somewhere under -- @UP — either
+// portable or in a dialect sub-block — so a migration can be entirely
+// dialect-specific (e.g. only a -- @postgres block) without a dummy portable
+// statement. -- @DOWN has no such requirement; a migration may be
+// irreversible.
+func parseBlocks(content string) (blockSet, error) {
 	var (
 		section          string // "", "up", "down"
 		dialect          string // "", "postgres", "sqlite"
@@ -92,19 +107,19 @@ func parseBlocks(content string) (up, down string, upByDriver, downByDriver map[
 			continue
 		case "--@POSTGRES":
 			if section == "" {
-				return "", "", nil, nil, fmt.Errorf("-- @postgres marker must appear inside an -- @UP or -- @DOWN block")
+				return blockSet{}, fmt.Errorf("-- @postgres marker must appear inside an -- @UP or -- @DOWN block")
 			}
 			dialect = "postgres"
 			continue
 		case "--@SQLITE":
 			if section == "" {
-				return "", "", nil, nil, fmt.Errorf("-- @sqlite marker must appear inside an -- @UP or -- @DOWN block")
+				return blockSet{}, fmt.Errorf("-- @sqlite marker must appear inside an -- @UP or -- @DOWN block")
 			}
 			dialect = "sqlite"
 			continue
 		}
 		if strings.HasPrefix(normalized, "--@") {
-			return "", "", nil, nil, fmt.Errorf("unrecognized migration annotation %q (expected @UP, @DOWN, @postgres, or @sqlite)", strings.TrimSpace(line))
+			return blockSet{}, fmt.Errorf("unrecognized migration annotation %q (expected @UP, @DOWN, @postgres, or @sqlite)", strings.TrimSpace(line))
 		}
 
 		switch {
@@ -119,15 +134,17 @@ func parseBlocks(content string) (up, down string, upByDriver, downByDriver map[
 		}
 	}
 
-	up = strings.TrimSpace(strings.Join(upLines, "\n"))
-	if up == "" {
-		return "", "", nil, nil, fmt.Errorf("missing -- @UP annotation")
+	bs := blockSet{
+		Up:           strings.TrimSpace(strings.Join(upLines, "\n")),
+		Down:         strings.TrimSpace(strings.Join(downLines, "\n")),
+		UpByDriver:   joinDialectBlocks(upDialectLines),
+		DownByDriver: joinDialectBlocks(downDialectLines),
 	}
-	down = strings.TrimSpace(strings.Join(downLines, "\n"))
-	upByDriver = joinDialectBlocks(upDialectLines)
-	downByDriver = joinDialectBlocks(downDialectLines)
+	if bs.Up == "" && len(bs.UpByDriver) == 0 {
+		return blockSet{}, fmt.Errorf("missing -- @UP annotation")
+	}
 
-	return up, down, upByDriver, downByDriver, nil
+	return bs, nil
 }
 
 // joinDialectBlocks joins each driver's collected lines into a single SQL

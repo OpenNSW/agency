@@ -64,7 +64,8 @@ Responsible for:
 
 The store opens a connection but never changes the schema. Schema comes from the
 SQL files in [`migrations/`](../migrations), applied by `cmd/migrate` -- see
-[Database Schema](#database-schema) below.
+[Database Schema](#database-schema) below and [Migrations](./migrations.md) for the
+file format, including driver-specific (Postgres/SQLite) SQL blocks.
 
 ### Form Store (`form.go`)
 
