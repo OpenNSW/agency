@@ -67,6 +67,9 @@ jobs:
         continue-on-error: true
 
       - name: Run Gosec
-        uses: securego/gosec@master
+        # Pinned to a release tag, not @master: a branch ref changes with no
+        # signal and Dependabot cannot track it. Now managed by the
+        # github-actions ecosystem in .github/dependabot.yml.
+        uses: securego/gosec@v2.29.0
         with:
           args: -no-fail -fmt sarif -out results.sarif ./...
