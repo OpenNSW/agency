@@ -50,10 +50,18 @@ and the SQL migrations. Task configs and form templates are **not** baked in —
 fetched at runtime by the artifact loader (§4.2). The `nswac` **binary** is in the image;
 the seed **data** is supplied dynamically (§5), so you can re-seed without rebuilding.
 
+The published image is a multi-arch manifest list covering `linux/amd64` and
+`linux/arm64`, so one tag resolves correctly on x86_64 and arm64 (Graviton/Ampere)
+nodes alike. To reproduce that locally you need `buildx`, which also pushes both
+architectures under a single tag:
+
 ```bash
-docker build -t ghcr.io/opennsw/agency:<tag> .
-docker push   ghcr.io/opennsw/agency:<tag>
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/opennsw/agency:<tag> --push .
 ```
+
+For a single-architecture image for your own machine, `docker build -t
+ghcr.io/opennsw/agency:<tag> .` followed by `docker push` still works.
 
 > Tagged releases (`vX.Y.Z`) are built and published automatically by
 > [.github/workflows/release.yml](../.github/workflows/release.yml); the commands above are

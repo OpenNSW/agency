@@ -104,4 +104,6 @@ Tagging `vX.Y.Z` triggers [.github/workflows/release.yml](.github/workflows/rele
 
 - `ghcr.io/opennsw/agency:X.Y.Z`
 
-The image digest is included in the GitHub Release notes.
+The image is a multi-arch manifest list (`linux/amd64` and `linux/arm64`), so one
+tag resolves per node architecture. Its manifest-list digest is included in the
+GitHub Release notes.

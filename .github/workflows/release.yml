@@ -15,6 +15,10 @@ env:
   # The whole app ships as ONE image (root Dockerfile): the Go server serves the
   # API and the officer-portal SPA from one process.
   IMAGE_NAME: agency
+  # Platforms in the published manifest list; the Trivy steps iterate it too.
+  # Adding one needs a matching "Upload Trivy results" step — each SARIF upload
+  # needs its own category.
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   build-and-publish:
@@ -55,6 +59,12 @@ jobs:
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # binfmt for the foreign-arch RUN steps in the runtime stage; the builder
+      # stages are $BUILDPLATFORM-pinned, so little is emulated. Must come BEFORE
+      # setup-buildx-action — buildkitd fixes its platform list at startup.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -113,6 +123,9 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          # One manifest list per tag, so steps.build.outputs.digest below is the
+          # list digest — the right thing to publish for a multi-arch image.
+          platforms: ${{ env.PLATFORMS }}
           push: ${{ steps.release-mode.outputs.enabled == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -134,34 +147,56 @@ jobs:
           version: v0.69.3
           cache: true
 
+      # The tag now points at a manifest list, and `trivy image` resolves one to a
+      # single entry, so each platform is scanned explicitly or arm64 ships
+      # unscanned. --image-src remote is load-bearing: the default `docker` source
+      # has priority and silently IGNORES --platform. --platform needs the full
+      # os/arch form; a bare `arm64` parses as an OS name and matches nothing.
+      # --exit-code 0 keeps this reporting rather than gating, as before.
       - name: Run Trivy vulnerability scanner
         id: trivy-scan
         if: steps.release-mode.outputs.enabled == 'true'
         run: |
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            --format sarif \
-            --output "trivy-${{ env.IMAGE_NAME }}.sarif" \
-            --exit-code 0 \
-            "${{ steps.image.outputs.ref }}"
+          for PLATFORM in ${PLATFORMS//,/ }; do
+            SLUG="${PLATFORM//\//-}"
+            echo "::group::Trivy ${{ env.IMAGE_NAME }} ${PLATFORM}"
+            trivy image \
+              --image-src remote \
+              --platform "$PLATFORM" \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format sarif \
+              --output "trivy-${{ env.IMAGE_NAME }}-${SLUG}.sarif" \
+              --exit-code 0 \
+              "${{ steps.image.outputs.ref }}"
+            trivy image \
+              --image-src remote \
+              --platform "$PLATFORM" \
+              --skip-version-check \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format table \
+              --exit-code 0 \
+              "${{ steps.image.outputs.ref }}"
+            echo "::endgroup::"
+          done
 
-      - name: Upload Trivy results
-        if: always() && steps.trivy-scan.outcome != 'skipped'
+      # One upload per platform. Two uploads sharing a tool+category fails the
+      # whole run, so each needs its own category — there were none before, when
+      # a single upload made the implicit category sufficient.
+      - name: Upload Trivy results (linux/amd64)
+        if: always() && steps.trivy-scan.outcome == 'success' && hashFiles(format('trivy-{0}-linux-amd64.sarif', env.IMAGE_NAME)) != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: trivy-${{ env.IMAGE_NAME }}.sarif
+          sarif_file: trivy-${{ env.IMAGE_NAME }}-linux-amd64.sarif
+          category: trivy-linux-amd64
 
-      - name: Print Trivy findings
-        if: always() && steps.trivy-scan.outcome != 'skipped'
-        run: |
-          trivy image \
-            --skip-version-check \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            --format table \
-            --exit-code 0 \
-            "${{ steps.image.outputs.ref }}"
+      - name: Upload Trivy results (linux/arm64)
+        if: always() && steps.trivy-scan.outcome == 'success' && hashFiles(format('trivy-{0}-linux-arm64.sarif', env.IMAGE_NAME)) != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-${{ env.IMAGE_NAME }}-linux-arm64.sarif
+          category: trivy-linux-arm64
 
       - name: Generate build summary
         if: always()
@@ -230,5 +265,9 @@ jobs:
 
             ### Image Digest
             `${{ needs.build-and-publish.outputs.digest }}`
+
+            This is the manifest-list digest. The tag above is a multi-arch
+            manifest list covering `linux/amd64` and `linux/arm64`, so it resolves
+            to the right image per node architecture.
           draft: false
           prerelease: ${{ needs.build-and-publish.outputs.is_prerelease == 'true' }}
