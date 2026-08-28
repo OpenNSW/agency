@@ -3,6 +3,11 @@ name: Docker Validation CI
 # The whole app is one image (root Dockerfile): the Go server serves the API and
 # the officer-portal SPA from one process. This workflow never pushes — it is
 # purely a build-correctness check. Image publishing is handled by release.yml.
+#
+# Deliberately single-platform. The builder stages are $BUILDPLATFORM-pinned, so
+# Go and frontend changes compile once and fail identically on every arch — only
+# a Dockerfile change (a base tag or apk package without an arm64 build) can break
+# arm64 alone, and that surfaces on the next push via build-dev.yml.
 
 on:
   pull_request:
