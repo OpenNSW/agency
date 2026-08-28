@@ -3,6 +3,7 @@ package migrator
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -40,11 +41,13 @@ func TestParseFilename(t *testing.T) {
 
 func TestParseBlocks(t *testing.T) {
 	tests := []struct {
-		name     string
-		content  string
-		wantUp   string
-		wantDown string
-		wantErr  bool
+		name             string
+		content          string
+		wantUp           string
+		wantDown         string
+		wantUpByDriver   map[string]string
+		wantDownByDriver map[string]string
+		wantErr          bool
 	}{
 		{
 			name: "up and down",
@@ -80,21 +83,105 @@ CREATE TABLE users (id INTEGER PRIMARY KEY);`,
 			wantUp:   "CREATE TABLE users (id INTEGER PRIMARY KEY);",
 			wantDown: "DROP TABLE users;",
 		},
+		{
+			name: "nested postgres sub-block in up and down",
+			content: `-- @UP
+ALTER TABLE users ADD COLUMN custom_data JSONB;
+
+-- @postgres
+CREATE INDEX IF NOT EXISTS idx_users_custom_data ON users USING GIN (custom_data);
+
+-- @DOWN
+ALTER TABLE users DROP COLUMN custom_data;
+
+-- @postgres
+DROP INDEX IF EXISTS idx_users_custom_data;`,
+			wantUp:   "ALTER TABLE users ADD COLUMN custom_data JSONB;",
+			wantDown: "ALTER TABLE users DROP COLUMN custom_data;",
+			wantUpByDriver: map[string]string{
+				"postgres": "CREATE INDEX IF NOT EXISTS idx_users_custom_data ON users USING GIN (custom_data);",
+			},
+			wantDownByDriver: map[string]string{
+				"postgres": "DROP INDEX IF EXISTS idx_users_custom_data;",
+			},
+		},
+		{
+			name:     "sqlite sub-block, lowercase and no-space variants",
+			content:  "--@UP\nCREATE TABLE foo (id INTEGER PRIMARY KEY);\n-- @sqlite\nPRAGMA foreign_keys=ON;\n--@DOWN\nDROP TABLE foo;",
+			wantUp:   "CREATE TABLE foo (id INTEGER PRIMARY KEY);",
+			wantDown: "DROP TABLE foo;",
+			wantUpByDriver: map[string]string{
+				"sqlite": "PRAGMA foreign_keys=ON;",
+			},
+		},
+		{
+			name: "dialect marker outside any section",
+			content: `-- @postgres
+CREATE INDEX foo ON bar (baz);
+
+-- @UP
+CREATE TABLE bar (id INTEGER PRIMARY KEY);`,
+			wantErr: true,
+		},
+		{
+			name: "unrecognized annotation",
+			content: `-- @UP
+CREATE TABLE foo (id INTEGER PRIMARY KEY);
+
+-- @mysql
+CREATE INDEX foo ON foo (id);`,
+			wantErr: true,
+		},
+		{
+			name: "dialect-only up with no portable statement",
+			content: `-- @UP
+
+-- @postgres
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- @DOWN
+
+-- @postgres
+DROP EXTENSION IF EXISTS pgcrypto;`,
+			wantUp:   "",
+			wantDown: "",
+			wantUpByDriver: map[string]string{
+				"postgres": "CREATE EXTENSION IF NOT EXISTS pgcrypto;",
+			},
+			wantDownByDriver: map[string]string{
+				"postgres": "DROP EXTENSION IF EXISTS pgcrypto;",
+			},
+		},
+		{
+			name: "up with no content anywhere still errors",
+			content: `-- @UP
+
+-- @DOWN
+DROP TABLE foo;`,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			up, down, err := parseBlocks(tt.content)
+			bs, err := parseBlocks(tt.content)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("parseBlocks() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if !tt.wantErr {
-				if up != tt.wantUp {
-					t.Errorf("up = %q, want %q", up, tt.wantUp)
-				}
-				if down != tt.wantDown {
-					t.Errorf("down = %q, want %q", down, tt.wantDown)
-				}
+			if tt.wantErr {
+				return
+			}
+			if bs.Up != tt.wantUp {
+				t.Errorf("up = %q, want %q", bs.Up, tt.wantUp)
+			}
+			if bs.Down != tt.wantDown {
+				t.Errorf("down = %q, want %q", bs.Down, tt.wantDown)
+			}
+			if !reflect.DeepEqual(bs.UpByDriver, tt.wantUpByDriver) {
+				t.Errorf("upByDriver = %#v, want %#v", bs.UpByDriver, tt.wantUpByDriver)
+			}
+			if !reflect.DeepEqual(bs.DownByDriver, tt.wantDownByDriver) {
+				t.Errorf("downByDriver = %#v, want %#v", bs.DownByDriver, tt.wantDownByDriver)
 			}
 		})
 	}
