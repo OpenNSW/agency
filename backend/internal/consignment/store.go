@@ -2,12 +2,11 @@ package consignment
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
+	"github.com/OpenNSW/agency/backend/pkg/dbtype"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -15,17 +14,18 @@ import (
 // ErrNotFound is returned when a consignment does not exist in the agency store.
 var ErrNotFound = errors.New("consignment not found")
 
-// JSONB is an in-memory map used when reading or storing NSW extras.
-type JSONB map[string]any
+// JSONB is the column type used for NSW extras. See pkg/dbtype for the
+// Value/Scan implementation, shared with other domain packages.
+type JSONB = dbtype.JSONB
 
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
 // Each consignment groups one or more application records.
 type ConsignmentRecord struct {
-	ID        string          `gorm:"type:text;primaryKey"`
-	Status    string          `gorm:"type:varchar(50);not null;default:'PENDING'"`
-	NSWData   json.RawMessage `gorm:"type:jsonb"`
-	CreatedAt time.Time       `gorm:"autoCreateTime"`
-	UpdatedAt time.Time       `gorm:"autoUpdateTime"`
+	ID        string    `gorm:"type:text;primaryKey"`
+	Status    string    `gorm:"type:varchar(50);not null;default:'PENDING'"`
+	NSWData   JSONB     `gorm:"type:jsonb"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName returns the table name for ConsignmentRecord
@@ -55,14 +55,10 @@ func NewConsignmentStore(db *gorm.DB) *Store {
 // Create inserts a consignment row with optional NSW extras if one does not
 // already exist. On conflict the existing row (including nsw_data) is left unchanged.
 func (s *Store) Create(ctx context.Context, id string, data JSONB) error {
-	raw, err := encodeNSWData(data)
-	if err != nil {
-		return err
-	}
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "id"}},
 		DoNothing: true,
-	}).Create(&ConsignmentRecord{ID: id, Status: "PENDING", NSWData: raw}).Error
+	}).Create(&ConsignmentRecord{ID: id, Status: "PENDING", NSWData: data}).Error
 }
 
 // Get returns a consignment by id.
@@ -103,11 +99,11 @@ func (s *Store) UpdateStatus(tx *gorm.DB, id, status string, updatedAt time.Time
 }
 
 type summaryRow struct {
-	ConsignmentID string          `gorm:"column:consignment_id"`
-	Status        string          `gorm:"column:status"`
-	UpdatedAt     time.Time       `gorm:"column:updated_at"`
-	NSWData       json.RawMessage `gorm:"column:nsw_data;type:jsonb"`
-	TaskCount     int             `gorm:"column:task_count"`
+	ConsignmentID string    `gorm:"column:consignment_id"`
+	Status        string    `gorm:"column:status"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
+	NSWData       JSONB     `gorm:"column:nsw_data;type:jsonb"`
+	TaskCount     int       `gorm:"column:task_count"`
 }
 
 // List returns a paginated list of consignments with task count and optional search.
@@ -141,11 +137,7 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 
 	summaries := make([]Summary, len(rows))
 	for i, r := range rows {
-		data, err := decodeNSWData(r.NSWData)
-		if err != nil {
-			return nil, 0, fmt.Errorf("decode nsw_data for %s: %w", r.ConsignmentID, err)
-		}
-		summaries[i] = summaryFrom(r.ConsignmentID, r.Status, r.UpdatedAt, data, r.TaskCount)
+		summaries[i] = summaryFrom(r.ConsignmentID, r.Status, r.UpdatedAt, r.NSWData, r.TaskCount)
 	}
 
 	return summaries, total, nil
@@ -173,22 +165,4 @@ func stringField(data JSONB, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func decodeNSWData(raw json.RawMessage) (JSONB, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	var out JSONB
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func encodeNSWData(data JSONB) (json.RawMessage, error) {
-	if data == nil {
-		return nil, nil
-	}
-	return json.Marshal(data)
 }
