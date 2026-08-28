@@ -16,9 +16,11 @@
 ARG BUILD_VERSION=dev
 
 # ---- Stage 1: build the frontend SPA -----------------------------------------
-FROM node:22-alpine3.24 AS frontend-builder
+# Pinned to $BUILDPLATFORM: `vite build` emits only text assets, so dist/ is
+# architecture-independent and one native build serves every target. This also
+# keeps the arch-specific SWC/oxide/lightningcss binaries off QEMU.
+FROM --platform=$BUILDPLATFORM node:22-alpine3.24 AS frontend-builder
 
-ARG BUILD_VERSION
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 WORKDIR /app
@@ -33,15 +35,20 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY frontend/ .
 
 # Vite only exposes VITE_-prefixed env vars to client code (import.meta.env),
-# baking the value into the static bundle at build time.
+# baking the value into the static bundle at build time. Declared here rather
+# than at the top of the stage because it changes every CI run, and an ARG
+# invalidates every layer beneath it — including `pnpm install` above.
+ARG BUILD_VERSION
 ENV VITE_APP_VERSION=$BUILD_VERSION
 RUN pnpm build
 
 # ---- Stage 2: build the Go binaries ------------------------------------------
 # Patch pinned to match backend/go.mod.
-FROM golang:1.26.4-alpine3.24 AS backend-builder
+# Pinned to $BUILDPLATFORM so the toolchain runs natively and cross-compiles to
+# the target arch (see GOOS/GOARCH below) rather than running emulated once per
+# platform. Safe because every build below sets CGO_ENABLED=0.
+FROM --platform=$BUILDPLATFORM golang:1.26.4-alpine3.24 AS backend-builder
 
-ARG BUILD_VERSION
 WORKDIR /app
 
 COPY backend/go.mod backend/go.sum ./
@@ -53,11 +60,19 @@ COPY backend/ .
 # binaries. Go panic traces (function + line) and pprof still work, since they
 # use the runtime pclntab rather than the symbol table. -X sets the version
 # package's build-time variable, surfaced via GET /health.
-# CGO_ENABLED=0: no package in the build graph needs cgo, so the binaries are static.
+# CGO_ENABLED=0: no package in the build graph needs cgo, so the binaries are
+# static — which is also what makes cross-compiling to TARGETARCH viable.
+# These ARGs are declared here, not at the top of the stage: an ARG invalidates
+# every layer beneath it, so keeping them low leaves `go mod download` and the
+# source COPY above shared by every target platform.
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILD_VERSION
 RUN LDFLAGS="-s -w -X 'github.com/OpenNSW/agency/backend/internal/version.version=${BUILD_VERSION}'" \
-  && CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o /out/agency ./cmd/server \
-  && CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o /out/migrate ./cmd/migrate \
-  && CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o /out/nswac ./cmd/cli
+  && export CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+  && go build -ldflags="$LDFLAGS" -o /out/agency ./cmd/server \
+  && go build -ldflags="$LDFLAGS" -o /out/migrate ./cmd/migrate \
+  && go build -ldflags="$LDFLAGS" -o /out/nswac ./cmd/cli
 
 # ---- Stage 3: runtime --------------------------------------------------------
 FROM alpine:3.24
