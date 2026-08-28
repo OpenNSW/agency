@@ -9,6 +9,7 @@ on:
       - 'backend/**'
       - 'frontend/**'
       - 'Dockerfile'
+      - '.dockerignore'
       - '.github/workflows/build-dev.yml'
   workflow_dispatch:
 

@@ -1,9 +1,0 @@
-.git
-.gitignore
-.env
-.env.local
-bin/
-*.log
-*.db
-*.sqlite
-*.sqlite3
