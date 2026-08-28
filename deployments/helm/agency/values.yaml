@@ -23,10 +23,13 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-# Pod-level security context (applies to the server and migration pods), e.g.
+# Pod-level security context (applies to the server and migration pods). The
+# image runs under any UID, so leave this unset on clusters that assign one —
+# an explicit UID outside the range they allow is rejected at admission. Where
+# you pick the UID yourself, e.g.
 #   runAsNonRoot: true
-#   runAsUser: 1000
-#   fsGroup: 1000
+#   runAsUser: 1001   # must match the image's numeric USER
+#   fsGroup: 1001
 podSecurityContext: {}
 
 # Container-level security context (applies to the server and migration

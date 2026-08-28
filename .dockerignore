@@ -9,6 +9,7 @@
 .idea
 .vscode
 .agents
+.claude
 docs
 
 # Node
@@ -33,12 +34,16 @@ results.sarif
 **/*.sqlite
 **/*.sqlite3
 
-# Local env / secrets
+# Local env / secrets and key material
 **/.env
 **/.env.local
 **/.env.*.local
 .env
 .env.example
+**/*.pem
+**/*.key
+**/*.crt
+**/*.p12
 
 # Compose / dev helpers / deploy manifests not needed inside the image
 compose.yaml
