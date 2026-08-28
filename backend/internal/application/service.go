@@ -126,8 +126,7 @@ type Application struct {
 }
 
 // NSWClient sends task outcomes and amendment requests back to the originating
-// NSW service. It is the consumer-side view of internal/nswclient, keeping the
-// NSW wire protocol out of the domain service.
+// NSW service.
 type NSWClient interface {
 	// SendOutcome sends a review outcome (command + payload) for a task.
 	SendOutcome(ctx context.Context, taskID, command string, payload any) error
@@ -135,23 +134,35 @@ type NSWClient interface {
 	RequestAmendment(ctx context.Context, taskID string, payload any) error
 }
 
+// ConsignmentService is the subset of the consignment domain used when injecting
+// applications. Keeping this interface in the application domain avoids coupling
+// application code to consignment store or NSW fetch details.
+type ConsignmentService interface {
+	// CreateConsignment creates the consignment if it does not exist and caches NSW extras.
+	CreateConsignment(ctx context.Context, consignmentID string) error
+	// UpdateConsignment updates the status column of the consignment.
+	UpdateConsignment(ctx context.Context, consignmentID, status string) error
+}
+
 type service struct {
-	store            *ApplicationStore
-	artifactRegistry *artifact.Registry
-	nsw              NSWClient
-	roleService      *rbac.RoleService
+	store              *ApplicationStore
+	artifactRegistry   *artifact.Registry
+	nsw                NSWClient
+	roleService        *rbac.RoleService
+	consignmentService ConsignmentService
 }
 
 // NewService creates a new Agency service instance with database storage
-func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService) Service {
-	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil {
+func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService) Service {
+	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
-		store:            store,
-		artifactRegistry: artifactRegistry,
-		nsw:              nsw,
-		roleService:      roleService,
+		store:              store,
+		artifactRegistry:   artifactRegistry,
+		nsw:                nsw,
+		roleService:        roleService,
+		consignmentService: consignmentService,
 	}
 }
 
@@ -201,7 +212,18 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		appRecord.ClaimedAt = existing.ClaimedAt
 	}
 
-	return s.store.CreateOrUpdate(appRecord)
+	if existing == nil {
+		if err := s.consignmentService.CreateConsignment(ctx, req.ConsignmentID); err != nil {
+			// TODO: revert application creation when inject and consignment writes share a transaction.
+			slog.WarnContext(ctx, "failed to create consignment after application inject",
+				"consignmentID", req.ConsignmentID, "error", err)
+		}
+	}
+
+	if err := s.store.CreateOrUpdate(appRecord); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetApplications returns a paginated list of applications. List items are

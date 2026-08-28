@@ -53,7 +53,8 @@ const en = {
       empty: 'No active consignments found.',
       loading: 'Loading consignments...',
       table: {
-        id: 'Consignment ID',
+        consignment: 'Consignment',
+        companyName: 'Company Name',
         tasks: 'Tasks',
         latestStatus: 'Latest Status',
         lastActivity: 'Last Activity',

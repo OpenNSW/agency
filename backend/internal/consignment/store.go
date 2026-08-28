@@ -2,19 +2,30 @@ package consignment
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
+// ErrNotFound is returned when a consignment does not exist in the agency store.
+var ErrNotFound = errors.New("consignment not found")
+
+// JSONB is an in-memory map used when reading or storing NSW extras.
+type JSONB map[string]any
+
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
 // Each consignment groups one or more application records.
 type ConsignmentRecord struct {
-	ID        string    `gorm:"type:text;primaryKey"`
-	Status    string    `gorm:"type:varchar(50);not null;default:'PENDING'"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	ID        string          `gorm:"type:text;primaryKey"`
+	Status    string          `gorm:"type:varchar(50);not null;default:'PENDING'"`
+	NSWData   json.RawMessage `gorm:"type:jsonb"`
+	CreatedAt time.Time       `gorm:"autoCreateTime"`
+	UpdatedAt time.Time       `gorm:"autoUpdateTime"`
 }
 
 // TableName returns the table name for ConsignmentRecord
@@ -24,10 +35,11 @@ func (ConsignmentRecord) TableName() string {
 
 // Summary represents a unique consignment with its most recent activity.
 type Summary struct {
-	ConsignmentID string    `json:"consignmentId"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	Status        string    `json:"status"`    // Status of the most recent application
-	TaskCount     int       `json:"taskCount"` // Total number of applications in this consignment
+	ConsignmentID     string    `json:"consignmentId"`
+	TraderCompanyName string    `json:"traderCompanyName,omitempty"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	Status            string    `json:"status"`    // Status of the most recent application
+	TaskCount         int       `json:"taskCount"` // Total number of applications in this consignment
 }
 
 // Store handles database operations for consignments.
@@ -40,13 +52,38 @@ func NewConsignmentStore(db *gorm.DB) *Store {
 	return &Store{db: db}
 }
 
+// Create inserts a consignment row with optional NSW extras if one does not
+// already exist. On conflict the existing row (including nsw_data) is left unchanged.
+func (s *Store) Create(ctx context.Context, id string, data JSONB) error {
+	raw, err := encodeNSWData(data)
+	if err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoNothing: true,
+	}).Create(&ConsignmentRecord{ID: id, Status: "PENDING", NSWData: raw}).Error
+}
+
+// Get returns a consignment by id.
+func (s *Store) Get(ctx context.Context, id string) (*ConsignmentRecord, error) {
+	var rec ConsignmentRecord
+	if err := s.db.WithContext(ctx).First(&rec, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &rec, nil
+}
+
 // Upsert upserts a consignment record using the given connection or
 // transaction. Callers that also write a child application record (e.g.
 // internal/application) should pass a transaction so the FK reference exists
 // atomically.
 //
-// Only status and updated_at are touched on conflict — created_at must
-// survive every later upsert of an already-existing consignment (e.g. when a
+// Only status and updated_at are touched on conflict — created_at and nsw_data
+// must survive every later upsert of an already-existing consignment (e.g. when a
 // second application is injected into the same consignment).
 func (s *Store) Upsert(tx *gorm.DB, id, status string) error {
 	return tx.Clauses(clause.OnConflict{
@@ -65,9 +102,16 @@ func (s *Store) UpdateStatus(tx *gorm.DB, id, status string, updatedAt time.Time
 		}).Error
 }
 
+type summaryRow struct {
+	ConsignmentID string          `gorm:"column:consignment_id"`
+	Status        string          `gorm:"column:status"`
+	UpdatedAt     time.Time       `gorm:"column:updated_at"`
+	NSWData       json.RawMessage `gorm:"column:nsw_data;type:jsonb"`
+	TaskCount     int             `gorm:"column:task_count"`
+}
+
 // List returns a paginated list of consignments with task count and optional search.
 func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]Summary, int64, error) {
-	var summaries []Summary
 	var total int64
 
 	countQ := s.db.WithContext(ctx).Model(&ConsignmentRecord{})
@@ -79,9 +123,9 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 	}
 
 	dataQ := s.db.WithContext(ctx).Model(&ConsignmentRecord{}).
-		Select("consignments.id AS consignment_id, consignments.status, consignments.updated_at, COUNT(applications.task_id) AS task_count").
+		Select("consignments.id AS consignment_id, consignments.status, consignments.updated_at, consignments.nsw_data, COUNT(applications.task_id) AS task_count").
 		Joins("LEFT JOIN applications ON applications.consignment_id = consignments.id").
-		Group("consignments.id, consignments.status, consignments.updated_at").
+		Group("consignments.id, consignments.status, consignments.updated_at, consignments.nsw_data").
 		Order("consignments.updated_at DESC").
 		Offset(offset).
 		Limit(limit)
@@ -90,9 +134,61 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 		dataQ = dataQ.Where("consignments.id LIKE ?", "%"+search+"%")
 	}
 
-	if err := dataQ.Scan(&summaries).Error; err != nil {
+	var rows []summaryRow
+	if err := dataQ.Scan(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 
+	summaries := make([]Summary, len(rows))
+	for i, r := range rows {
+		data, err := decodeNSWData(r.NSWData)
+		if err != nil {
+			return nil, 0, fmt.Errorf("decode nsw_data for %s: %w", r.ConsignmentID, err)
+		}
+		summaries[i] = summaryFrom(r.ConsignmentID, r.Status, r.UpdatedAt, data, r.TaskCount)
+	}
+
 	return summaries, total, nil
+}
+
+func summaryFrom(id, status string, updatedAt time.Time, data JSONB, taskCount int) Summary {
+	return Summary{
+		ConsignmentID:     id,
+		TraderCompanyName: stringField(data, "traderCompanyName"),
+		Status:            status,
+		UpdatedAt:         updatedAt,
+		TaskCount:         taskCount,
+	}
+}
+
+func stringField(data JSONB, keys ...string) string {
+	if data == nil {
+		return ""
+	}
+	for _, k := range keys {
+		if v, ok := data[k].(string); ok {
+			if s := strings.TrimSpace(v); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func decodeNSWData(raw json.RawMessage) (JSONB, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var out JSONB
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func encodeNSWData(data JSONB) (json.RawMessage, error) {
+	if data == nil {
+		return nil, nil
+	}
+	return json.Marshal(data)
 }

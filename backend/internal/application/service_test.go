@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/consignment"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
@@ -193,8 +194,7 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
 
 	roleService := rbac.NewRoleService(store.db)
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), roleService)
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), roleService)
 
 	return &serviceHarness{
 		t:          t,
@@ -203,6 +203,20 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 		capture:    capture,
 		service:    svc,
 	}
+}
+
+func newWiredService(t *testing.T, store *ApplicationStore, reg *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService) Service {
+	t.Helper()
+	cNSW, ok := nsw.(consignment.NSWClient)
+	if !ok {
+		t.Fatal("nsw client must implement consignment.NSWClient")
+	}
+	if roleService == nil {
+		roleService = rbac.NewRoleService(store.db)
+	}
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW))
+	t.Cleanup(func() { _ = svc.Close() })
+	return svc
 }
 
 // newAuthContext injects a minimal auth context carrying the given userID.
@@ -503,8 +517,7 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
 
 	if err := store.db.FirstOrCreate(&user.UserRecord{UserID: "officer-1", Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", "officer-1").Error; err != nil {
 		t.Fatalf("failed to seed user: %v", err)
@@ -904,8 +917,7 @@ func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().Build()
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
 
 	app, err := svc.GetApplication(context.Background(), "t-load-fail")
 	if err == nil {
@@ -1053,8 +1065,7 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().Build()
-	svc := NewService(store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
-	t.Cleanup(func() { _ = svc.Close() })
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
 
 	result, err := svc.GetApplications(context.Background(), "", "", "", 1, 20)
 	if err == nil {
@@ -1290,5 +1301,256 @@ func TestReleaseApplication_RejectedOnceReviewed(t *testing.T) {
 	}
 	if app.ClaimedByEmail == nil {
 		t.Error("expected claim to remain in place after rejected release")
+	}
+}
+
+// ---------- CreateApplication: Consignment metadata caching ----------
+
+type mockNSWClient struct {
+	mu          sync.Mutex
+	fetchCount  int
+	fetchedIDs  []string
+	consignment *nswclient.ConsignmentAgency
+	fetchErr    error
+}
+
+func (m *mockNSWClient) SendOutcome(_ context.Context, _, _ string, _ any) error {
+	return nil
+}
+
+func (m *mockNSWClient) RequestAmendment(_ context.Context, _ string, _ any) error {
+	return nil
+}
+
+func (m *mockNSWClient) GetConsignmentAgency(_ context.Context, consignmentID string) (*nswclient.ConsignmentAgency, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.fetchCount++
+	m.fetchedIDs = append(m.fetchedIDs, consignmentID)
+	if m.fetchErr != nil {
+		return nil, m.fetchErr
+	}
+	return m.consignment, nil
+}
+
+func newEmptyTestRegistry(t *testing.T) *artifact.Registry {
+	t.Helper()
+	root := t.TempDir()
+	for _, sub := range []string{"task-configs", "forms"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+			t.Fatalf("failed to create %s dir: %v", sub, err)
+		}
+	}
+	// Minimal configs so CreateApplication accepts injects used by consignment-metadata tests.
+	for _, code := range []string{"task-a", "task-b"} {
+		writeTaskConfigFile(t, root, code+".json", fmt.Sprintf(`{
+			"schemaVersion": 1,
+			"meta": {"title": %q},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"review": %q},
+			"behavior": {"type": "autoApprove"}
+		}`, code, code+"_review"))
+	}
+	return newTestRegistry(t, root)
+}
+
+func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
+	store := newTestStore(t)
+	reg := newEmptyTestRegistry(t)
+	nswMock := &mockNSWClient{
+		consignment: &nswclient.ConsignmentAgency{
+			ConsignmentID:     "c-100",
+			TraderCompanyName: "CEYLON EXPORTS",
+		},
+	}
+	roleService := rbac.NewRoleService(store.db)
+	svc := newWiredService(t, store, reg, nswMock, roleService)
+
+	ctx := context.Background()
+
+	// 1. First injection for c-100
+	err := svc.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-101",
+		TaskCode:      "task-a",
+		ConsignmentID: "c-100",
+		Data:          map[string]any{"field": "v1"},
+	})
+	if err != nil {
+		t.Fatalf("first CreateApplication failed: %v", err)
+	}
+
+	if nswMock.fetchCount != 1 {
+		t.Errorf("expected 1 NSW fetch call, got %d", nswMock.fetchCount)
+	}
+
+	// Verify consignment row in DB has traderCompanyName in data
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock).GetConsignment(ctx, "c-100")
+	if err != nil {
+		t.Fatalf("GetConsignment failed: %v", err)
+	}
+	if got.TraderCompany != "CEYLON EXPORTS" {
+		t.Errorf("expected TraderCompanyName 'CEYLON EXPORTS', got %q", got.TraderCompany)
+	}
+
+	// 2. Second injection for the SAME consignment c-100
+	err = svc.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-102",
+		TaskCode:      "task-b",
+		ConsignmentID: "c-100",
+		Data:          map[string]any{"field": "v2"},
+	})
+	if err != nil {
+		t.Fatalf("second CreateApplication failed: %v", err)
+	}
+
+	// Should NOT have made a second fetch call!
+	if nswMock.fetchCount != 1 {
+		t.Errorf("expected fetchCount to remain 1 after second injection, got %d", nswMock.fetchCount)
+	}
+
+	app, err := svc.GetApplication(ctx, "t-102")
+	if err != nil {
+		t.Fatalf("second inject must still create the application: %v", err)
+	}
+	if app.TaskCode != "task-b" || app.Status != "PENDING" {
+		t.Errorf("second inject application: taskCode=%q status=%q", app.TaskCode, app.Status)
+	}
+}
+
+func TestCreateApplication_ConsignmentFetchFailureDegradesGracefully(t *testing.T) {
+	store := newTestStore(t)
+	reg := newEmptyTestRegistry(t)
+	nswMock := &mockNSWClient{
+		fetchErr: fmt.Errorf("nsw core timeout"),
+	}
+	roleService := rbac.NewRoleService(store.db)
+	svc := newWiredService(t, store, reg, nswMock, roleService)
+
+	ctx := context.Background()
+
+	// Injection should still succeed despite NSW error
+	err := svc.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-201",
+		TaskCode:      "task-a",
+		ConsignmentID: "c-200",
+		Data:          map[string]any{"field": "v1"},
+	})
+	if err != nil {
+		t.Fatalf("CreateApplication should succeed even if NSW fetch fails: %v", err)
+	}
+
+	// Verify application and consignment records exist
+	app, err := svc.GetApplication(ctx, "t-201")
+	if err != nil {
+		t.Fatalf("GetApplication failed: %v", err)
+	}
+	if app.TaskID != "t-201" {
+		t.Errorf("expected TaskID t-201, got %q", app.TaskID)
+	}
+	if app.Status != "PENDING" {
+		t.Errorf("expected PENDING application after inject, got %q", app.Status)
+	}
+	if app.ConsignmentID != "c-200" {
+		t.Errorf("expected consignment c-200, got %q", app.ConsignmentID)
+	}
+	if app.Data["field"] != "v1" {
+		t.Errorf("expected injected data to be preserved, got %v", app.Data)
+	}
+}
+
+func TestCreateApplication_DoesNotRetryAgencyFetchOnceConsignmentExists(t *testing.T) {
+	store := newTestStore(t)
+	reg := newEmptyTestRegistry(t)
+	nswMock := &mockNSWClient{
+		fetchErr: fmt.Errorf("nsw core timeout"),
+	}
+	roleService := rbac.NewRoleService(store.db)
+	svc := newWiredService(t, store, reg, nswMock, roleService)
+
+	ctx := context.Background()
+	if err := svc.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-301",
+		TaskCode:      "task-a",
+		ConsignmentID: "c-300",
+		Data:          map[string]any{"field": "v1"},
+	}); err != nil {
+		t.Fatalf("first CreateApplication: %v", err)
+	}
+
+	nswMock.fetchErr = nil
+	nswMock.consignment = &nswclient.ConsignmentAgency{
+		ConsignmentID:     "c-300",
+		TraderCompanyName: "ADAM PVT LTD",
+	}
+	if err := svc.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-302",
+		TaskCode:      "task-b",
+		ConsignmentID: "c-300",
+		Data:          map[string]any{"field": "v2"},
+	}); err != nil {
+		t.Fatalf("second CreateApplication: %v", err)
+	}
+	if nswMock.fetchCount != 1 {
+		t.Errorf("existing consignment must skip NSW, got fetchCount %d", nswMock.fetchCount)
+	}
+
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock).GetConsignment(ctx, "c-300")
+	if err != nil {
+		t.Fatalf("GetConsignment: %v", err)
+	}
+	if got.TraderCompany != "" {
+		t.Errorf("extras must stay empty after a failed first fetch, got %q", got.TraderCompany)
+	}
+}
+
+func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
+	store := newTestStore(t)
+	reg := newEmptyTestRegistry(t)
+	nswMock := &mockNSWClient{
+		consignment: &nswclient.ConsignmentAgency{
+			ConsignmentID:     "c-fb",
+			TraderCompanyName: "CEYLON EXPORTS",
+		},
+	}
+	roleService := rbac.NewRoleService(store.db)
+	svc := newWiredService(t, store, reg, nswMock, roleService)
+
+	ctx := context.Background()
+	if err := svc.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-fb",
+		TaskCode:      "task-a",
+		ConsignmentID: "c-fb",
+		Data:          map[string]any{"field": "original"},
+	}); err != nil {
+		t.Fatalf("first CreateApplication: %v", err)
+	}
+	if nswMock.fetchCount != 1 {
+		t.Fatalf("expected 1 fetch on first inject, got %d", nswMock.fetchCount)
+	}
+	if err := store.UpdateStatus("t-fb", "FEEDBACK_REQUESTED", map[string]any{"note": "please amend"}); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	if err := svc.CreateApplication(ctx, &InjectRequest{
+		TaskID:        "t-fb",
+		TaskCode:      "task-a",
+		ConsignmentID: "c-fb",
+		Data:          map[string]any{"field": "resubmitted"},
+	}); err != nil {
+		t.Fatalf("feedback resubmit CreateApplication: %v", err)
+	}
+	if nswMock.fetchCount != 1 {
+		t.Errorf("feedback resubmit must not fetch NSW extras, got fetchCount %d", nswMock.fetchCount)
+	}
+
+	app, err := svc.GetApplication(ctx, "t-fb")
+	if err != nil {
+		t.Fatalf("GetApplication: %v", err)
+	}
+	if app.Status != "PENDING" {
+		t.Errorf("expected PENDING after resubmit, got %q", app.Status)
+	}
+	if app.Data["field"] != "resubmitted" {
+		t.Errorf("expected resubmitted data, got %v", app.Data)
 	}
 }

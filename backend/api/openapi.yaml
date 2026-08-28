@@ -269,8 +269,10 @@ paths:
         - BearerAuth: []
       description: |
         Returns a paginated list of unique consignments with their task count
-        and latest status. Results can be filtered by a free-text search that
-        matches the consignment ID.
+        and latest status from the Agency database. Results can be filtered by
+        a free-text search that matches the consignment ID. Each item may
+        include `traderCompanyName` cached at inject time.
+        It is omitted when it was never stored.
       tags:
         - Consignments
       parameters:
@@ -719,6 +721,10 @@ components:
         consignmentId:
           type: string
           example: cefda05e-3071-4e94-b001-328094e570a7
+        traderCompanyName:
+          type: string
+          description: Trader company name from NSW, omitted if NSW is unreachable
+          example: ADAM PVT LTD
         updatedAt:
           type: string
           format: date-time

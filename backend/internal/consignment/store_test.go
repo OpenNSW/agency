@@ -2,6 +2,8 @@ package consignment
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -39,11 +41,15 @@ func newTestStore(t *testing.T) *Store {
 	return NewConsignmentStore(db)
 }
 
-func seedConsignment(t *testing.T, store *Store, id, status string, taskIDs ...string) {
+func seedConsignmentWithData(t *testing.T, store *Store, id, status string, data JSONB, taskIDs ...string) {
 	t.Helper()
+	raw, err := encodeNSWData(data)
+	if err != nil {
+		t.Fatalf("encode nsw_data: %v", err)
+	}
 	tx := store.db.Begin()
-	if err := store.Upsert(tx, id, status); err != nil {
-		t.Fatalf("Upsert(%s) failed: %v", id, err)
+	if err := tx.Create(&ConsignmentRecord{ID: id, Status: status, NSWData: raw}).Error; err != nil {
+		t.Fatalf("seed consignment %s: %v", id, err)
 	}
 	for _, taskID := range taskIDs {
 		if err := tx.Create(&testApplicationRow{TaskID: taskID, ConsignmentID: id, Status: status}).Error; err != nil {
@@ -55,11 +61,16 @@ func seedConsignment(t *testing.T, store *Store, id, status string, taskIDs ...s
 	}
 }
 
+func seedConsignment(t *testing.T, store *Store, id, status string, taskIDs ...string) {
+	t.Helper()
+	seedConsignmentWithData(t, store, id, status, nil, taskIDs...)
+}
+
 func TestConsignmentStore_List(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	seedConsignment(t, store, "wf1", "PENDING", "wf1-t1", "wf1-t2")
+	seedConsignmentWithData(t, store, "wf1", "PENDING", JSONB{"traderCompanyName": "ACME CORP"}, "wf1-t1", "wf1-t2")
 	seedConsignment(t, store, "wf2", "PENDING", "wf2-t1")
 	seedConsignment(t, store, "wf3", "REJECTED", "wf3-t1")
 
@@ -76,27 +87,48 @@ func TestConsignmentStore_List(t *testing.T) {
 	}
 
 	foundWF1 := false
+	foundWF2 := false
 	for _, s := range summaries {
 		if s.ConsignmentID == "wf1" {
 			foundWF1 = true
 			if s.TaskCount != 2 {
 				t.Errorf("expected 2 tasks for wf1, got %d", s.TaskCount)
 			}
+			if s.TraderCompanyName != "ACME CORP" {
+				t.Errorf("expected trader company name ACME CORP for wf1, got %q", s.TraderCompanyName)
+			}
+		}
+		if s.ConsignmentID == "wf2" {
+			foundWF2 = true
+			if s.TaskCount != 1 {
+				t.Errorf("expected 1 task for wf2, got %d", s.TaskCount)
+			}
+			if s.TraderCompanyName != "" {
+				t.Errorf("consignment without extras must omit trader company name, got %q", s.TraderCompanyName)
+			}
+			if s.Status != "PENDING" {
+				t.Errorf("expected PENDING for wf2, got %q", s.Status)
+			}
 		}
 	}
 	if !foundWF1 {
 		t.Error("wf1 not found in summaries")
 	}
+	if !foundWF2 {
+		t.Error("wf2 not found in summaries")
+	}
 }
 
-func TestConsignmentStore_Upsert_PreservesCreatedAt(t *testing.T) {
+func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 	store := newTestStore(t)
 
-	// Seed directly with a fixed, distinctive CreatedAt so the assertion below
-	// doesn't depend on two time.Now() calls happening to land on different
-	// clock ticks.
+	// Seed directly with a fixed, distinctive CreatedAt and NSWData
 	fixedCreatedAt := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	if err := store.db.Create(&ConsignmentRecord{ID: "wf-created", Status: "PENDING", CreatedAt: fixedCreatedAt}).Error; err != nil {
+	initialData, err := json.Marshal(JSONB{"traderCompanyName": "INITIAL CORP"})
+	if err != nil {
+		t.Fatalf("marshal initial NSWData: %v", err)
+	}
+	if err := store.db.Create(&ConsignmentRecord{ID: "wf-created", Status: "PENDING", NSWData: initialData, CreatedAt: fixedCreatedAt}).Error; err != nil {
 		t.Fatalf("failed to seed consignment: %v", err)
 	}
 
@@ -120,6 +152,13 @@ func TestConsignmentStore_Upsert_PreservesCreatedAt(t *testing.T) {
 	if got.Status != "APPROVED" {
 		t.Errorf("expected Status to be updated to APPROVED, got %q", got.Status)
 	}
+	decoded, err := decodeNSWData(got.NSWData)
+	if err != nil {
+		t.Fatalf("decode NSWData: %v", err)
+	}
+	if decoded["traderCompanyName"] != "INITIAL CORP" {
+		t.Errorf("expected NSWData to be preserved as INITIAL CORP, got %v", decoded["traderCompanyName"])
+	}
 }
 
 func TestConsignmentStore_List_Search(t *testing.T) {
@@ -139,5 +178,36 @@ func TestConsignmentStore_List_Search(t *testing.T) {
 	}
 	if summaries[0].ConsignmentID != "alpha-wf" {
 		t.Errorf("expected alpha-wf, got %s", summaries[0].ConsignmentID)
+	}
+}
+
+func TestConsignmentStore_Create(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	if err := store.Create(ctx, "c-create", JSONB{"traderCompanyName": "ACME"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := store.Create(ctx, "c-create", JSONB{"traderCompanyName": "OTHER"}); err != nil {
+		t.Fatalf("Create again: %v", err)
+	}
+
+	rec, err := store.Get(ctx, "c-create")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if rec.ID != "c-create" || rec.Status != "PENDING" {
+		t.Errorf("unexpected record: %+v", rec)
+	}
+	data, err := decodeNSWData(rec.NSWData)
+	if err != nil {
+		t.Fatalf("decode nsw_data: %v", err)
+	}
+	if data["traderCompanyName"] != "ACME" {
+		t.Errorf("Create on conflict must keep original extras, got %v", data["traderCompanyName"])
+	}
+
+	if _, err := store.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(missing): got %v, want ErrNotFound", err)
 	}
 }

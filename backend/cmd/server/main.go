@@ -119,12 +119,14 @@ func main() {
 	roleService := rbac.NewRoleService(store.DB())
 	rbacMiddleware := rbac.NewMiddleware(roleService, store, artifactRegistry)
 
-	// Initialize consignment service (read-only summaries over the shared DB connection)
+	// Initialize consignment service (shared with application inject so NSW extras
+	// are cached through the consignment domain rather than the application store).
 	consignmentStore := consignment.NewConsignmentStore(store.DB())
-	consignmentHandler := consignment.NewHandler(consignment.NewService(consignmentStore))
+	consignmentService := consignment.NewService(consignmentStore, nswClient)
+	consignmentHandler := consignment.NewHandler(consignmentService)
 
 	// Initialize Agency service
-	service := application.NewService(store, artifactRegistry, nswClient, roleService)
+	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService)
 	defer func() {
 		if err := service.Close(); err != nil {
 			slog.Error("failed to close service", "error", err)
