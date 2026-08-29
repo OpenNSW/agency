@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
         with:
           # No `version:` — read pnpm from "packageManager" in frontend/package.json,
           # the same source corepack uses in the Dockerfile. Keeps CI from
@@ -70,7 +70,7 @@ jobs:
         continue-on-error: true
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
         with:
           # No `version:` — read pnpm from "packageManager" in frontend/package.json,
           # the same source corepack uses in the Dockerfile. Keeps CI from
