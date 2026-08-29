@@ -2,11 +2,16 @@ package consignment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/OpenNSW/agency/backend/pkg/dbtype"
+	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
+	"github.com/OpenNSW/agency/backend/pkg/jsonschemautil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -14,18 +19,27 @@ import (
 // ErrNotFound is returned when a consignment does not exist in the agency store.
 var ErrNotFound = errors.New("consignment not found")
 
-// JSONB is the column type used for NSW extras. See pkg/dbtype for the
-// Value/Scan implementation, shared with other domain packages.
+// JSONB is an in-memory map used when reading or storing a consignment's
+// JSON columns (NSWData, CustomData). See pkg/dbtype for the Value/Scan
+// implementation, shared with other domain packages.
 type JSONB = dbtype.JSONB
 
 // ConsignmentRecord represents a consignment (workflow) in the Agency database.
 // Each consignment groups one or more application records.
 type ConsignmentRecord struct {
-	ID        string    `gorm:"type:text;primaryKey"`
-	Status    string    `gorm:"type:varchar(50);not null;default:'PENDING'"`
-	NSWData   JSONB     `gorm:"type:jsonb"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+	ID     string `gorm:"type:text;primaryKey"`
+	Status string `gorm:"type:varchar(50);not null;default:'PENDING'"`
+	// NSWData is display metadata (e.g. trader company name) fetched once
+	// from NSW Core and cached — see consignment.Service.CreateConsignment.
+	NSWData JSONB `gorm:"type:jsonb"`
+	// CustomData is agency-derived: fields pushed from injected application
+	// data via each task config's ConsignmentFields (see
+	// docs/consignment-custom-data.md), accumulated across every task
+	// that touches this consignment. Different provenance and lifecycle
+	// from NSWData, so it's a separate column, not folded into it.
+	CustomData JSONB     `gorm:"column:custom_data;type:jsonb"`
+	CreatedAt  time.Time `gorm:"autoCreateTime"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName returns the table name for ConsignmentRecord
@@ -86,6 +100,60 @@ func (s *Store) Upsert(tx *gorm.DB, id, status string) error {
 		Columns:   []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"status", "updated_at"}),
 	}).Create(&ConsignmentRecord{ID: id, Status: status}).Error
+}
+
+// MergeCustomData applies fields onto the consignment's own custom_data
+// document (creating it if this is the first merge), keyed by target JSON
+// Pointer string (see application.resolvePushedFields) rather than a
+// pre-nested document. Each pointer is applied directly against the
+// accumulated document via jsonpointer.Set, so existing keys — including
+// siblings under the same nested parent, e.g. a prior push's
+// "/location/portOfEntry" when this push targets "/location/district" — are
+// preserved; a naive shallow merge of two nested documents would silently
+// clobber a sibling one level up. On a repeated exact target, fields wins.
+// No-op when fields is empty, so a task with nothing to push costs no query.
+//
+// tx must be a transaction: this locks the consignment row for the rest of
+// it (SELECT ... FOR UPDATE) so two concurrent injects into the same
+// consignment can't lose an update to each other.
+//
+// If the merged document fails schema validation, the merge is skipped
+// (left as it was) and this still returns nil rather than an error — a
+// downstream enrichment feature must never be able to fail the caller's
+// larger transaction (e.g. the application save it's part of). See
+// docs/consignment-custom-data.md for why. A genuine query error
+// still propagates normally.
+func (s *Store) MergeCustomData(tx *gorm.DB, id string, fields map[string]any, schema json.RawMessage) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	var rec ConsignmentRecord
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&rec, "id = ?", id).Error; err != nil {
+		return fmt.Errorf("failed to lock consignment %s for custom data merge: %w", id, err)
+	}
+
+	merged := rec.CustomData
+	if merged == nil {
+		merged = JSONB{}
+	}
+	for target, value := range fields {
+		// ok is intentionally ignored: a failure here means the target
+		// pointer would need to pass through an existing non-object value
+		// (e.g. two rules targeting "/location" and "/location/district"),
+		// which is an authoring conflict, not something to error on here —
+		// consistent with how a source that doesn't resolve is also a
+		// silent skip rather than a failure.
+		jsonpointer.Set(merged, target, value)
+	}
+
+	if err := jsonschemautil.ValidateInstance(schema, merged); err != nil {
+		slog.Warn("consignment custom_data failed schema validation, skipping merge",
+			"consignmentID", id, "error", err)
+		return nil
+	}
+
+	return tx.Model(&ConsignmentRecord{}).Where("id = ?", id).Update("custom_data", merged).Error
 }
 
 // UpdateStatus updates a consignment's status using the given connection or transaction.

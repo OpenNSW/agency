@@ -186,6 +186,11 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		}
 	}
 
+	// Computed once so both branches below (resubmission and normal
+	// create/update) push the same way; most tasks have no ConsignmentFields
+	// declared, so this is nil/free in the common case.
+	pushedFields := resolvePushedFields(config.ConsignmentFields, req.Data)
+
 	existing, err := s.store.GetByTaskID(req.TaskID)
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -194,7 +199,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		// Record doesn't exist — fall through to create.
 	} else if existing.Status == "FEEDBACK_REQUESTED" {
 		slog.InfoContext(ctx, "trader resubmitted after feedback, resetting to PENDING", "taskID", req.TaskID)
-		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data)
+		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data, pushedFields)
 	}
 
 	appRecord := &ApplicationRecord{
@@ -220,7 +225,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		}
 	}
 
-	if err := s.store.CreateOrUpdate(appRecord); err != nil {
+	if err := s.store.CreateOrUpdate(appRecord, pushedFields); err != nil {
 		return err
 	}
 	return nil

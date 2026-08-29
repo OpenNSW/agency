@@ -52,7 +52,7 @@ func newTestStore(t *testing.T) *ApplicationStore {
 		dbCfg = database.Config{Driver: "sqlite", SQLite: database.SQLiteConfig{Path: ":memory:"}}
 	}
 
-	store, err := NewApplicationStore(dbCfg)
+	store, err := NewApplicationStore(dbCfg, nil)
 	if err != nil {
 		t.Fatalf("failed to create store (driver=%s): %v", dbCfg.Driver, err)
 	}
@@ -98,7 +98,7 @@ func seedRecord(t *testing.T, store *ApplicationStore, taskID string, data JSONB
 		ConsignmentID: "wf-seed",
 		Data:          data,
 		Status:        "PENDING",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("seedRecord(%s) failed: %v", taskID, err)
 	}
@@ -110,7 +110,7 @@ func TestApplicationStore_SQLite_FileCreated(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_agency.db")
 
-	store, err := NewApplicationStore(database.Config{Driver: "sqlite", SQLite: database.SQLiteConfig{Path: dbPath}})
+	store, err := NewApplicationStore(database.Config{Driver: "sqlite", SQLite: database.SQLiteConfig{Path: dbPath}}, nil)
 	if err != nil {
 		t.Fatalf("NewApplicationStore failed: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestApplicationStore_GetByConsignmentAndTaskCode(t *testing.T) {
 		ConsignmentID: "wf-by-code",
 		Data:          JSONB{"key": "value"},
 		Status:        "PENDING",
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
 
@@ -356,7 +356,7 @@ func TestApplicationStore_JSONB_NilData(t *testing.T) {
 		TaskCode:      "verification:123",
 		ConsignmentID: "wf-1",
 		Data:          nil,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("CreateOrUpdate with nil JSONB failed: %v", err)
 	}
@@ -428,9 +428,9 @@ func TestApplicationStore_List_OrderingPriority(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed records out of order
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-done", TaskCode: "test", ConsignmentID: "wf-order", Status: "DONE"})
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", Status: "FEEDBACK_REQUESTED"})
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", Status: "PENDING"})
+	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-done", TaskCode: "test", ConsignmentID: "wf-order", Status: "DONE"}, nil)
+	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", Status: "FEEDBACK_REQUESTED"}, nil)
+	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", Status: "PENDING"}, nil)
 
 	apps, _, err := store.List(ctx, "", "wf-order", "", 0, 10)
 	if err != nil {
@@ -464,7 +464,7 @@ func TestApplicationStore_List_ConsignmentFilter(t *testing.T) {
 		TaskID:        "t3",
 		ConsignmentID: "wf-custom",
 		Status:        "PENDING",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("failed to seed wf-custom: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestApplicationStore_UpdateDataAndResetStatus(t *testing.T) {
 
 	// Simulate trader resubmission
 	newData := map[string]any{"new": "data", "updated": true}
-	if err := store.UpdateDataAndResetStatus("task-resub-1", newData); err != nil {
+	if err := store.UpdateDataAndResetStatus("task-resub-1", newData, nil); err != nil {
 		t.Fatalf("UpdateDataAndResetStatus failed: %v", err)
 	}
 
@@ -574,7 +574,7 @@ func TestApplicationStore_ConsignmentUpsert(t *testing.T) {
 		TaskCode:      "test",
 		ConsignmentID: "dup-wf",
 		Status:        "PENDING",
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("first CreateOrUpdate failed: %v", err)
 	}
 	if err := store.CreateOrUpdate(&ApplicationRecord{
@@ -582,7 +582,7 @@ func TestApplicationStore_ConsignmentUpsert(t *testing.T) {
 		TaskCode:      "test",
 		ConsignmentID: "dup-wf",
 		Status:        "PENDING",
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("second CreateOrUpdate failed: %v", err)
 	}
 

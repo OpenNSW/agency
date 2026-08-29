@@ -2,7 +2,10 @@ package consignment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -197,5 +200,232 @@ func TestConsignmentStore_Create(t *testing.T) {
 
 	if _, err := store.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get(missing): got %v, want ErrNotFound", err)
+	}
+}
+
+// ---------- MergeCustomData ----------
+
+func mergeInTx(t *testing.T, store *Store, id string, fields map[string]any, schema json.RawMessage) error {
+	t.Helper()
+	tx := store.db.Begin()
+	if err := store.MergeCustomData(tx, id, fields, schema); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Commit().Error; err != nil {
+		t.Fatalf("commit failed: %v", err)
+	}
+	return nil
+}
+
+func getCustomData(t *testing.T, store *Store, id string) JSONB {
+	t.Helper()
+	var rec ConsignmentRecord
+	if err := store.db.First(&rec, "id = ?", id).Error; err != nil {
+		t.Fatalf("failed to fetch consignment %s: %v", id, err)
+	}
+	return rec.CustomData
+}
+
+func TestMergeCustomData_FirstMerge(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
+		t.Fatalf("MergeCustomData: %v", err)
+	}
+
+	got := getCustomData(t, store, "c1")
+	if got["district"] != "Colombo" {
+		t.Errorf("custom_data[district] = %v, want Colombo", got["district"])
+	}
+}
+
+func TestMergeCustomData_AccumulatesAcrossMerges(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
+		t.Fatalf("first MergeCustomData: %v", err)
+	}
+	if err := mergeInTx(t, store, "c1", map[string]any{"/portOfEntry": "BIA"}, nil); err != nil {
+		t.Fatalf("second MergeCustomData: %v", err)
+	}
+
+	got := getCustomData(t, store, "c1")
+	if got["district"] != "Colombo" {
+		t.Errorf("custom_data[district] = %v, want Colombo (should survive the second merge)", got["district"])
+	}
+	if got["portOfEntry"] != "BIA" {
+		t.Errorf("custom_data[portOfEntry] = %v, want BIA", got["portOfEntry"])
+	}
+}
+
+func TestMergeCustomData_LastWriteWinsOnRepeatedKey(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
+		t.Fatalf("first MergeCustomData: %v", err)
+	}
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Gampaha"}, nil); err != nil {
+		t.Fatalf("second MergeCustomData: %v", err)
+	}
+
+	got := getCustomData(t, store, "c1")
+	if got["district"] != "Gampaha" {
+		t.Errorf("custom_data[district] = %v, want Gampaha (the later merge should win)", got["district"])
+	}
+}
+
+// TestMergeCustomData_PreservesSiblingsUnderNestedTarget guards against a
+// shallow top-level merge (e.g. maps.Copy on the whole fields map) silently
+// clobbering a sibling nested under the same parent object from an earlier
+// merge — e.g. a push to "/location/portOfEntry" replacing the entire
+// "location" object and losing a previously-pushed "/location/district".
+func TestMergeCustomData_PreservesSiblingsUnderNestedTarget(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	if err := mergeInTx(t, store, "c1", map[string]any{"/location/district": "Colombo"}, nil); err != nil {
+		t.Fatalf("first MergeCustomData: %v", err)
+	}
+	if err := mergeInTx(t, store, "c1", map[string]any{"/location/portOfEntry": "BIA"}, nil); err != nil {
+		t.Fatalf("second MergeCustomData: %v", err)
+	}
+
+	got := getCustomData(t, store, "c1")
+	// Nested objects decode as plain map[string]any, not JSONB: encoding/json
+	// doesn't propagate a named outer map type to nested values unmarshaled
+	// into an "any" slot.
+	location, ok := got["location"].(map[string]any)
+	if !ok {
+		t.Fatalf("custom_data[location] is not an object: %#v", got["location"])
+	}
+	if location["district"] != "Colombo" {
+		t.Errorf("location[district] = %v, want Colombo (must survive the second, sibling push)", location["district"])
+	}
+	if location["portOfEntry"] != "BIA" {
+		t.Errorf("location[portOfEntry] = %v, want BIA", location["portOfEntry"])
+	}
+}
+
+func TestMergeCustomData_EmptyFieldsIsNoOp(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	if err := mergeInTx(t, store, "c1", nil, nil); err != nil {
+		t.Fatalf("MergeCustomData(nil fields): %v", err)
+	}
+
+	var rec ConsignmentRecord
+	if err := store.db.First(&rec, "id = ?", "c1").Error; err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(rec.CustomData) != 0 {
+		t.Errorf("custom_data = %s, want untouched/empty", rec.CustomData)
+	}
+}
+
+func TestMergeCustomData_SchemaMismatchSkipsWriteWithoutError(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+	// Seed a valid value first, so we can confirm a later failed merge leaves it alone.
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, nil); err != nil {
+		t.Fatalf("seed merge: %v", err)
+	}
+
+	schema := json.RawMessage(`{"type":"object","properties":{"district":{"type":"string"}}}`)
+	err := mergeInTx(t, store, "c1", map[string]any{"/district": 12345}, schema)
+	if err != nil {
+		t.Fatalf("MergeCustomData with a schema mismatch should not error, got: %v", err)
+	}
+
+	got := getCustomData(t, store, "c1")
+	if got["district"] != "Colombo" {
+		t.Errorf("custom_data[district] = %v, want Colombo (mismatched merge must be skipped, not partially applied)", got["district"])
+	}
+}
+
+func TestMergeCustomData_ValidAgainstSchemaIsPersisted(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	schema := json.RawMessage(`{"type":"object","properties":{"district":{"type":"string"}}}`)
+	if err := mergeInTx(t, store, "c1", map[string]any{"/district": "Colombo"}, schema); err != nil {
+		t.Fatalf("MergeCustomData: %v", err)
+	}
+
+	got := getCustomData(t, store, "c1")
+	if got["district"] != "Colombo" {
+		t.Errorf("custom_data[district] = %v, want Colombo", got["district"])
+	}
+}
+
+// TestMergeCustomData_LocksAgainstConcurrentMerges exercises many concurrent
+// merges into the same consignment and asserts none are lost. Note this
+// doesn't actually prove the row lock (clause.Locking) is *necessary*:
+// SQLite serializes writers at the connection/file level regardless of it,
+// so a lost-update race isn't constructible against SQLite the way it would
+// be against Postgres. What this does verify is that MergeCustomData's
+// read-merge-write cycle behaves correctly under concurrent callers, which
+// would still catch a bug like reading stale data outside the transaction.
+func TestMergeCustomData_LocksAgainstConcurrentMerges(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.db.Create(&ConsignmentRecord{ID: "c1", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+
+	// :memory: SQLite databases are per-connection; the default connection
+	// pool can hand different goroutines different (empty) databases. Pin to
+	// a single connection so they all see the same one.
+	sqlDB, err := store.db.DB()
+	if err != nil {
+		t.Fatalf("failed to get underlying *sql.DB: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+
+	const n = 10
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("/field%d", i)
+			errs <- mergeInTx(t, store, "c1", map[string]any{key: i}, nil)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent MergeCustomData: %v", err)
+		}
+	}
+
+	got := getCustomData(t, store, "c1")
+	if len(got) != n {
+		t.Fatalf("custom_data has %d keys, want %d (a concurrent merge lost an update): %#v", len(got), n, got)
+	}
+	for i := 0; i < n; i++ {
+		key := fmt.Sprintf("field%d", i)
+		if _, ok := got[key]; !ok {
+			t.Errorf("custom_data missing %q", key)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -49,8 +50,22 @@ func main() {
 		"port", cfg.Port,
 	)
 
+	// Optional: schema validating consignments' merged custom_data (see
+	// internal/consignment.Store.MergeCustomData). Read once here, at
+	// process startup, rather than per-request — unlike task configs and
+	// forms, this isn't per-task/versioned, so it doesn't go through the
+	// artifact registry.
+	var consignmentCustomDataSchema json.RawMessage
+	if cfg.ConsignmentCustomDataSchemaPath != "" {
+		raw, err := os.ReadFile(cfg.ConsignmentCustomDataSchemaPath)
+		if err != nil {
+			log.Fatalf("failed to read consignment custom data schema: %v", err)
+		}
+		consignmentCustomDataSchema = raw
+	}
+
 	// Initialize database store
-	store, err := application.NewApplicationStore(cfg.DB)
+	store, err := application.NewApplicationStore(cfg.DB, consignmentCustomDataSchema)
 	if err != nil {
 		log.Fatalf("failed to create application store: %v", err)
 	}
