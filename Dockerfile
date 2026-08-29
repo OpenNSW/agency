@@ -46,6 +46,8 @@ RUN pnpm build
 # Tracks the `go` directive in backend/go.mod at major.minor; the two must
 # move together. Deliberately not patch-pinned, so Go patch releases (which
 # carry the stdlib CVE fixes) come in without a Dockerfile edit.
+# Dependabot ignores `golang` in .github/dependabot.yml for exactly this
+# reason -- do not "fix" that ignore rule; bump both by hand, in one commit.
 # Pinned to $BUILDPLATFORM so the toolchain runs natively and cross-compiles to
 # the target arch (see GOOS/GOARCH below) rather than running emulated once per
 # platform. Safe because every build below sets CGO_ENABLED=0.
