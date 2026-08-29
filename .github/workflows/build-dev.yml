@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Application Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # binfmt for the foreign-arch RUN steps in the runtime stage; the builder
       # stages are $BUILDPLATFORM-pinned, so little is emulated. Must come BEFORE
