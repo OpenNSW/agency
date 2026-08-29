@@ -2,7 +2,6 @@ package consignment
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -43,12 +42,8 @@ func newTestStore(t *testing.T) *Store {
 
 func seedConsignmentWithData(t *testing.T, store *Store, id, status string, data JSONB, taskIDs ...string) {
 	t.Helper()
-	raw, err := encodeNSWData(data)
-	if err != nil {
-		t.Fatalf("encode nsw_data: %v", err)
-	}
 	tx := store.db.Begin()
-	if err := tx.Create(&ConsignmentRecord{ID: id, Status: status, NSWData: raw}).Error; err != nil {
+	if err := tx.Create(&ConsignmentRecord{ID: id, Status: status, NSWData: data}).Error; err != nil {
 		t.Fatalf("seed consignment %s: %v", id, err)
 	}
 	for _, taskID := range taskIDs {
@@ -124,11 +119,12 @@ func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 
 	// Seed directly with a fixed, distinctive CreatedAt and NSWData
 	fixedCreatedAt := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	initialData, err := json.Marshal(JSONB{"traderCompanyName": "INITIAL CORP"})
-	if err != nil {
-		t.Fatalf("marshal initial NSWData: %v", err)
-	}
-	if err := store.db.Create(&ConsignmentRecord{ID: "wf-created", Status: "PENDING", NSWData: initialData, CreatedAt: fixedCreatedAt}).Error; err != nil {
+	if err := store.db.Create(&ConsignmentRecord{
+		ID:        "wf-created",
+		Status:    "PENDING",
+		NSWData:   JSONB{"traderCompanyName": "INITIAL CORP"},
+		CreatedAt: fixedCreatedAt,
+	}).Error; err != nil {
 		t.Fatalf("failed to seed consignment: %v", err)
 	}
 
@@ -152,12 +148,8 @@ func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 	if got.Status != "APPROVED" {
 		t.Errorf("expected Status to be updated to APPROVED, got %q", got.Status)
 	}
-	decoded, err := decodeNSWData(got.NSWData)
-	if err != nil {
-		t.Fatalf("decode NSWData: %v", err)
-	}
-	if decoded["traderCompanyName"] != "INITIAL CORP" {
-		t.Errorf("expected NSWData to be preserved as INITIAL CORP, got %v", decoded["traderCompanyName"])
+	if got.NSWData["traderCompanyName"] != "INITIAL CORP" {
+		t.Errorf("expected NSWData to be preserved as INITIAL CORP, got %v", got.NSWData["traderCompanyName"])
 	}
 }
 
@@ -199,12 +191,8 @@ func TestConsignmentStore_Create(t *testing.T) {
 	if rec.ID != "c-create" || rec.Status != "PENDING" {
 		t.Errorf("unexpected record: %+v", rec)
 	}
-	data, err := decodeNSWData(rec.NSWData)
-	if err != nil {
-		t.Fatalf("decode nsw_data: %v", err)
-	}
-	if data["traderCompanyName"] != "ACME" {
-		t.Errorf("Create on conflict must keep original extras, got %v", data["traderCompanyName"])
+	if rec.NSWData["traderCompanyName"] != "ACME" {
+		t.Errorf("Create on conflict must keep original extras, got %v", rec.NSWData["traderCompanyName"])
 	}
 
 	if _, err := store.Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
