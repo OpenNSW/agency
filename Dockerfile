@@ -19,7 +19,7 @@ ARG BUILD_VERSION=dev
 # Pinned to $BUILDPLATFORM: `vite build` emits only text assets, so dist/ is
 # architecture-independent and one native build serves every target. This also
 # keeps the arch-specific SWC/oxide/lightningcss binaries off QEMU.
-FROM --platform=$BUILDPLATFORM node:22-alpine3.24 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:26-alpine3.24 AS frontend-builder
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
