@@ -15,8 +15,8 @@ importers:
         specifier: ^3.8.0
         version: 3.8.0(@jsonforms/core@3.8.0)(react@19.2.8)
       '@opennsw/jsonforms-renderers':
-        specifier: ^0.3.1
-        version: 0.3.1(@jsonforms/core@3.8.0)(@jsonforms/react@3.8.0(@jsonforms/core@3.8.0)(react@19.2.8))(@radix-ui/react-icons@1.3.2(react@19.2.8))(@radix-ui/themes@3.3.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: ^0.5.0
+        version: 0.5.0(@jsonforms/core@3.8.0)(@jsonforms/react@3.8.0(@jsonforms/core@3.8.0)(react@19.2.8))(@radix-ui/react-icons@1.3.2(react@19.2.8))(@radix-ui/themes@3.3.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@radix-ui/react-icons':
         specifier: ^1.3.2
         version: 1.3.2(react@19.2.8)
@@ -249,6 +249,11 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
+  '@e965/xlsx@0.20.3':
+    resolution: {integrity: sha512-703RN/3OdsRD5mtse2HBX7Um7xwaP9tlswEG6svOtjqokXoX7rJdQj7DyabD2I+xk22RgaIIU+R6BHgkpZGB/w==}
+    engines: {node: '>=0.8'}
+    hasBin: true
+
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
     engines: {node: '>=18'}
@@ -467,6 +472,10 @@ packages:
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
 
+  '@formulajs/formulajs@4.6.1':
+    resolution: {integrity: sha512-QkHPCaHljG4SRT5TNOIBx4ClgQYyLlblwthF4tJP5GsWEJ7uD8eu+yN9RyCl3NCQdpWIEdtJb+pnQpuceywrLA==}
+    hasBin: true
+
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
     engines: {node: '>=18.18.0'}
@@ -519,8 +528,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@opennsw/jsonforms-renderers@0.3.1':
-    resolution: {integrity: sha512-Megua+I9JsfpYbp4zmo1YjOsGOMbLKzO90tIkqxTobtc0MdXqNnRvm8oYWYk5rj82d/E/uWfaR2sKWS57Q/Ljw==}
+  '@opennsw/jsonforms-renderers@0.5.0':
+    resolution: {integrity: sha512-+FeYqbiHmwjee2yMmdbt6mN2ZqbM80ocyIs4GxqkuWz4CYx/3aS+yKAGSnhFPHFTKH6Cj1YCcwQFiuWW6bk10g==}
     peerDependencies:
       '@jsonforms/core': ^3.2.1
       '@jsonforms/react': ^3.2.1
@@ -1792,6 +1801,9 @@ packages:
   ast-v8-to-istanbul@1.0.5:
     resolution: {integrity: sha512-UPAgKJFSEGMWSDr3LX4tqnAb4f7KGT8O40Tyx8wbYmmZ/yn58lNCm8h3svs3eXgiGd5AXxz8NDOvXWvicq+rJA==}
 
+  bahttext@1.1.0:
+    resolution: {integrity: sha512-3g7DbmCwYhLnnN5hJFB+Mtbst4q2gfXpAdqOMK6tz6FmgtlrhX1n1uhuzkIhEr+WcnFR6eRvebIE5msGuEtA7Q==}
+
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
 
@@ -1803,6 +1815,10 @@ packages:
     resolution: {integrity: sha512-Grytf1xOxOEMTGRwx6rLGKkTabd4vMg3VrKdj/7joCmV0qgh4QwMMO6xh34YEXQqirAuUdgQGa5orJQQ+69RBw==}
     engines: {node: '>=6.0.0'}
     hasBin: true
+
+  bessel@1.0.2:
+    resolution: {integrity: sha512-Al3nHGQGqDYqqinXhQzmwmcRToe/3WyBv4N8aZc5Pef8xw2neZlR9VPi84Sa23JtgWcucu18HxVZrnI0fn2etw==}
+    engines: {node: '>=0.8'}
 
   bidi-js@1.0.3:
     resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
@@ -1833,6 +1849,9 @@ packages:
   chalk@4.1.2:
     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
     engines: {node: '>=10'}
+
+  chevrotain@7.1.2:
+    resolution: {integrity: sha512-9bQsXVQ7UAvzMs7iUBBJ9Yv//exOy7bIR3PByOEk4M64vIE/LsiOiX7VIkMF/vEMlrSStwsaE884Bp9CpjtC5g==}
 
   classnames@2.5.1:
     resolution: {integrity: sha512-saHYOzhIQs6wy2sVxTM6bUDsQO4F50V9RQ22qBpEdCW+I+/Wmke2HOl6lS6dTpdxVhb88/I6+Hs+438c3lfUow==}
@@ -2005,6 +2024,9 @@ packages:
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
+
+  fast-formula-parser@1.0.19:
+    resolution: {integrity: sha512-8Roq7V1XjuYj3cWZ9tILyqBHGjS7NkejRaHxSWePu0qjIcvimZwe6WfeA9che03dgWrykZqrw691qg3lwiIkMg==}
 
   fast-json-stable-stringify@2.1.0:
     resolution: {integrity: sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw==}
@@ -2188,6 +2210,9 @@ packages:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  jstat@1.9.6:
+    resolution: {integrity: sha512-rPBkJbK2TnA8pzs93QcDDPlKcrtZWuuCo2dVR0TFLOJSxhqfWOVCSp8aV3/oSbn+4uY4yw1URtLpHQedtmXfug==}
 
   jwt-decode@4.0.0:
     resolution: {integrity: sha512-+KJGIyHgkGuIq3IEBNftfhW/LfWhXUIY6OmyVWjliu5KH1y0fw7VQ8YndE2O4qZdMSd9SqbnC8GOcZEy0Om7sA==}
@@ -2498,6 +2523,9 @@ packages:
   redent@3.0.0:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
     engines: {node: '>=8'}
+
+  regexp-to-ast@0.5.0:
+    resolution: {integrity: sha512-tlbJqcMHnPKI9zSrystikWKwHkBqu2a/Sgw01h3zFjvYrMxEDYHzzoMZnUrbIfpTFEsoRnnviOXNCzFiSc54Qw==}
 
   require-from-string@2.0.2:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
@@ -2962,6 +2990,8 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
+  '@e965/xlsx@0.20.3': {}
+
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
 
@@ -3105,6 +3135,11 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
+  '@formulajs/formulajs@4.6.1':
+    dependencies:
+      bessel: 1.0.2
+      jstat: 1.9.6
+
   '@humanfs/core@0.19.2':
     dependencies:
       '@humanfs/types': 0.15.0
@@ -3156,13 +3191,16 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@opennsw/jsonforms-renderers@0.3.1(@jsonforms/core@3.8.0)(@jsonforms/react@3.8.0(@jsonforms/core@3.8.0)(react@19.2.8))(@radix-ui/react-icons@1.3.2(react@19.2.8))(@radix-ui/themes@3.3.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@opennsw/jsonforms-renderers@0.5.0(@jsonforms/core@3.8.0)(@jsonforms/react@3.8.0(@jsonforms/core@3.8.0)(react@19.2.8))(@radix-ui/react-icons@1.3.2(react@19.2.8))(@radix-ui/themes@3.3.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
+      '@e965/xlsx': 0.20.3
+      '@formulajs/formulajs': 4.6.1
       '@jsonforms/core': 3.8.0
       '@jsonforms/react': 3.8.0(@jsonforms/core@3.8.0)(react@19.2.8)
       '@radix-ui/react-icons': 1.3.2(react@19.2.8)
       '@radix-ui/themes': 3.3.0(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       dayjs: 1.11.23
+      fast-formula-parser: 1.0.19
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
@@ -4406,11 +4444,15 @@ snapshots:
       estree-walker: 3.0.3
       js-tokens: 10.0.0
 
+  bahttext@1.1.0: {}
+
   balanced-match@1.0.2: {}
 
   balanced-match@4.0.4: {}
 
   baseline-browser-mapping@2.11.19: {}
+
+  bessel@1.0.2: {}
 
   bidi-js@1.0.3:
     dependencies:
@@ -4443,6 +4485,10 @@ snapshots:
     dependencies:
       ansi-styles: 4.3.0
       supports-color: 7.2.0
+
+  chevrotain@7.1.2:
+    dependencies:
+      regexp-to-ast: 0.5.0
 
   classnames@2.5.1: {}
 
@@ -4639,6 +4685,13 @@ snapshots:
 
   fast-deep-equal@3.1.3: {}
 
+  fast-formula-parser@1.0.19:
+    dependencies:
+      bahttext: 1.1.0
+      bessel: 1.0.2
+      chevrotain: 7.1.2
+      jstat: 1.9.6
+
   fast-json-stable-stringify@2.1.0: {}
 
   fast-levenshtein@2.0.6: {}
@@ -4791,6 +4844,8 @@ snapshots:
   json-stable-stringify-without-jsonify@1.0.1: {}
 
   json5@2.2.3: {}
+
+  jstat@1.9.6: {}
 
   jwt-decode@4.0.0: {}
 
@@ -5094,6 +5149,8 @@ snapshots:
     dependencies:
       indent-string: 4.0.0
       strip-indent: 3.0.0
+
+  regexp-to-ast@0.5.0: {}
 
   require-from-string@2.0.2: {}
 
