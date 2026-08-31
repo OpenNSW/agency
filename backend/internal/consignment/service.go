@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
+	"github.com/OpenNSW/agency/backend/internal/datascope"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/pkg/httputil"
+	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
 )
 
 // NSWClient fetches consignment display metadata from NSW Core.
@@ -36,20 +39,36 @@ type ConsignmentResponse struct {
 type service struct {
 	store     *Store
 	nswClient NSWClient
+	dataScope *datascope.Resolver
 }
 
 // NewService creates a new consignment Service backed by store and nswClient.
-func NewService(store *Store, nswClient NSWClient) Service {
-	if store == nil || nswClient == nil {
+func NewService(store *Store, nswClient NSWClient, dataScope *datascope.Resolver) Service {
+	if store == nil || nswClient == nil || dataScope == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
-	return &service{store: store, nswClient: nswClient}
+	return &service{store: store, nswClient: nswClient, dataScope: dataScope}
 }
 
-// GetConsignments returns a paginated list of unique consignments.
+// GetConsignments returns a paginated list of unique consignments, restricted
+// by the caller's resolved data-scope (see internal/datascope).
 func (s *service) GetConsignments(ctx context.Context, search string, page, pageSize int) (*httputil.PagedResponse[Summary], error) {
 	page, pageSize, offset := httputil.NormalizePage(page, pageSize)
-	summaries, total, err := s.store.List(ctx, search, offset, pageSize)
+
+	res, err := s.dataScope.Resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Unrestricted && !res.Satisfiable {
+		return &httputil.PagedResponse[Summary]{
+			Items:    []Summary{},
+			Total:    0,
+			Page:     page,
+			PageSize: pageSize,
+		}, nil
+	}
+
+	summaries, total, err := s.store.List(ctx, search, res.Filter, offset, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -96,12 +115,31 @@ func (s *service) UpdateConsignment(ctx context.Context, id string, status strin
 	return s.store.UpdateStatus(s.store.db.WithContext(ctx), id, status, time.Now())
 }
 
-// GetConsignment returns a single consignment by id.
+// GetConsignment returns a single consignment by id. Not currently reachable
+// via any HTTP route, but enforces the same data-scope check as GetConsignments
+// for parity/defense-in-depth if a route is added later.
 func (s *service) GetConsignment(ctx context.Context, id string) (*ConsignmentResponse, error) {
 	rec, err := s.store.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+
+	res, err := s.dataScope.Resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Unrestricted {
+		if !res.Satisfiable {
+			return nil, ErrNotFound
+		}
+		for pointer, want := range res.Filter {
+			got, ok := jsonpointer.Get(rec.CustomData, pointer)
+			if !ok || !reflect.DeepEqual(got, want) {
+				return nil, ErrNotFound
+			}
+		}
+	}
+
 	return &ConsignmentResponse{
 		ID:            rec.ID,
 		Status:        rec.Status,

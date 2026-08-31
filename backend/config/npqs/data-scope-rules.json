@@ -1,0 +1,8 @@
+{
+  "rules": [
+    {
+      "consignmentField": "/officeLocation",
+      "userField": "/assignedOffice"
+    }
+  ]
+}

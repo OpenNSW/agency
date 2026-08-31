@@ -16,6 +16,7 @@ import (
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
 	"github.com/OpenNSW/agency/backend/internal/consignment"
+	"github.com/OpenNSW/agency/backend/internal/datascope"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
@@ -214,9 +215,53 @@ func newWiredService(t *testing.T, store *ApplicationStore, reg *artifact.Regist
 	if roleService == nil {
 		roleService = rbac.NewRoleService(store.db)
 	}
-	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW))
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, unrestrictedResolver()), unrestrictedResolver())
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc
+}
+
+// unrestrictedResolver returns a datascope.Resolver with no configured
+// rules, so Resolve always reports Unrestricted without needing a real
+// UserAttributes implementation.
+func unrestrictedResolver() *datascope.Resolver {
+	return datascope.NewResolver(nil, nil)
+}
+
+// newWiredServiceWithScope is newWiredService with an explicit data-scope
+// resolver, for tests exercising scoped behavior.
+func newWiredServiceWithScope(t *testing.T, store *ApplicationStore, reg *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, resolver *datascope.Resolver) Service {
+	t.Helper()
+	cNSW, ok := nsw.(consignment.NSWClient)
+	if !ok {
+		t.Fatal("nsw client must implement consignment.NSWClient")
+	}
+	if roleService == nil {
+		roleService = rbac.NewRoleService(store.db)
+	}
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, resolver), resolver)
+	t.Cleanup(func() { _ = svc.Close() })
+	return svc
+}
+
+// mustMkdirTaskConfigsAndForms creates the task-configs/forms subdirectories
+// newTestRegistry expects under root, for tests that construct a registry
+// directly (rather than via newServiceHarness, which already does this).
+func mustMkdirTaskConfigsAndForms(t *testing.T, root string) {
+	t.Helper()
+	for _, sub := range []string{"task-configs", "forms"} {
+		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
+			t.Fatalf("failed to create %s dir: %v", sub, err)
+		}
+	}
+}
+
+// stubUserAttributes is a minimal datascope.UserAttributes for tests.
+type stubUserAttributes struct {
+	data map[string]any
+}
+
+func (s stubUserAttributes) GetCustomData(_ context.Context, _ string) (map[string]any, error) {
+	return s.data, nil
 }
 
 // newAuthContext injects a minimal auth context carrying the given userID.
@@ -1076,6 +1121,84 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 	}
 }
 
+// ---------- Data scoping ----------
+
+func TestGetApplications_UnsatisfiableScope_ReturnsEmptyPageWithoutQuerying(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.CreateOrUpdate(&ApplicationRecord{
+		TaskID: "t-scope-1", TaskCode: "alpha", ConsignmentID: "wf-test",
+		Data: JSONB{"field": "value"}, Status: "PENDING",
+	}, nil); err != nil {
+		t.Fatalf("failed to seed record: %v", err)
+	}
+
+	root := t.TempDir()
+	mustMkdirTaskConfigsAndForms(t, root)
+	reg := newTestRegistry(t, root)
+	rules := []datascope.Rule{{ConsignmentField: "/location/district", UserField: "/assignedDistrict"}}
+	resolver := datascope.NewResolver(rules, stubUserAttributes{data: map[string]any{}}) // no assignedDistrict set
+
+	svc := newWiredServiceWithScope(t, store, reg, &mockNSWClient{}, nil, resolver)
+	result, err := svc.GetApplications(newAuthContext(context.Background(), "user-1"), "", "", "", 1, 20)
+	if err != nil {
+		t.Fatalf("GetApplications: %v", err)
+	}
+	if result.Total != 0 || len(result.Items) != 0 {
+		t.Errorf("expected empty page for an unsatisfiable scope, got %+v", result)
+	}
+}
+
+func TestGetApplication_ScopeMismatch_ReturnsNotFound(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.CreateOrUpdate(&ApplicationRecord{
+		TaskID: "t-scope-2", TaskCode: "alpha", ConsignmentID: "wf-test",
+		Data: JSONB{"field": "value"}, Status: "PENDING",
+	}, nil); err != nil {
+		t.Fatalf("failed to seed record: %v", err)
+	}
+	setConsignmentCustomData(t, store, "wf-test", consignment.JSONB{"location": consignment.JSONB{"district": "Gampaha"}})
+
+	root := t.TempDir()
+	mustMkdirTaskConfigsAndForms(t, root)
+	reg := newTestRegistry(t, root)
+	rules := []datascope.Rule{{ConsignmentField: "/location/district", UserField: "/assignedDistrict"}}
+	resolver := datascope.NewResolver(rules, stubUserAttributes{data: map[string]any{"assignedDistrict": "Colombo"}})
+
+	svc := newWiredServiceWithScope(t, store, reg, &mockNSWClient{}, nil, resolver)
+	_, err := svc.GetApplication(newAuthContext(context.Background(), "user-1"), "t-scope-2")
+	if !errors.Is(err, ErrApplicationNotFound) {
+		t.Errorf("GetApplication error = %v, want ErrApplicationNotFound for an out-of-scope application", err)
+	}
+}
+
+func TestGetApplication_ClientPrincipalBypassesScoping(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.CreateOrUpdate(&ApplicationRecord{
+		TaskID: "t-scope-3", TaskCode: "alpha", ConsignmentID: "wf-test",
+		Data: JSONB{"field": "value"}, Status: "PENDING",
+	}, nil); err != nil {
+		t.Fatalf("failed to seed record: %v", err)
+	}
+	setConsignmentCustomData(t, store, "wf-test", consignment.JSONB{"location": consignment.JSONB{"district": "Gampaha"}})
+
+	root := t.TempDir()
+	mustMkdirTaskConfigsAndForms(t, root)
+	reg := newTestRegistry(t, root)
+	rules := []datascope.Rule{{ConsignmentField: "/location/district", UserField: "/assignedDistrict"}}
+	resolver := datascope.NewResolver(rules, stubUserAttributes{data: map[string]any{"assignedDistrict": "Colombo"}})
+
+	svc := newWiredServiceWithScope(t, store, reg, &mockNSWClient{}, nil, resolver)
+	// No auth context at all => no principal => Resolve treats it as
+	// Unrestricted, same as a KindClient (M2M) caller.
+	app, err := svc.GetApplication(context.Background(), "t-scope-3")
+	if err != nil {
+		t.Fatalf("expected an unauthenticated/M2M caller to bypass scoping, got error: %v", err)
+	}
+	if app.TaskID != "t-scope-3" {
+		t.Errorf("TaskID = %q, want %q", app.TaskID, "t-scope-3")
+	}
+}
+
 // ---------- GetApplication: AllowedActions ----------
 
 func TestGetApplication_PopulatesAllowedActions(t *testing.T) {
@@ -1384,7 +1507,7 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 	}
 
 	// Verify consignment row in DB has traderCompanyName in data
-	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock).GetConsignment(ctx, "c-100")
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock, unrestrictedResolver()).GetConsignment(ctx, "c-100")
 	if err != nil {
 		t.Fatalf("GetConsignment failed: %v", err)
 	}
@@ -1494,7 +1617,7 @@ func TestCreateApplication_DoesNotRetryAgencyFetchOnceConsignmentExists(t *testi
 		t.Errorf("existing consignment must skip NSW, got fetchCount %d", nswMock.fetchCount)
 	}
 
-	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock).GetConsignment(ctx, "c-300")
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock, unrestrictedResolver()).GetConsignment(ctx, "c-300")
 	if err != nil {
 		t.Fatalf("GetConsignment: %v", err)
 	}

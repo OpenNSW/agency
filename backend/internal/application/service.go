@@ -6,14 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/datascope"
 	"github.com/OpenNSW/agency/backend/internal/feedback"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
 	"github.com/OpenNSW/agency/backend/pkg/httputil"
+	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
 	"gorm.io/gorm"
@@ -150,11 +153,12 @@ type service struct {
 	nsw                NSWClient
 	roleService        *rbac.RoleService
 	consignmentService ConsignmentService
+	dataScope          *datascope.Resolver
 }
 
 // NewService creates a new Agency service instance with database storage
-func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService) Service {
-	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil {
+func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver) Service {
+	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
@@ -163,6 +167,7 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 		nsw:                nsw,
 		roleService:        roleService,
 		consignmentService: consignmentService,
+		dataScope:          dataScope,
 	}
 }
 
@@ -238,7 +243,21 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 // GetApplication.
 func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error) {
 	page, pageSize, offset := httputil.NormalizePage(page, pageSize)
-	records, total, err := s.store.List(ctx, status, consignmentID, search, offset, pageSize)
+
+	res, err := s.dataScope.Resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Unrestricted && !res.Satisfiable {
+		return &httputil.PagedResponse[Application]{
+			Items:    []Application{},
+			Total:    0,
+			Page:     page,
+			PageSize: pageSize,
+		}, nil
+	}
+
+	records, total, err := s.store.List(ctx, status, consignmentID, search, res.Filter, offset, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -328,6 +347,22 @@ func (s *service) GetApplicationByTaskCode(ctx context.Context, consignmentID st
 // record: resolving the caller's roles and attaching task config metadata,
 // permissions, and forms.
 func (s *service) buildApplication(ctx context.Context, record *ApplicationRecord) (*Application, error) {
+	res, err := s.dataScope.Resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Unrestricted {
+		if !res.Satisfiable {
+			return nil, ErrApplicationNotFound
+		}
+		for pointer, want := range res.Filter {
+			got, ok := jsonpointer.Get(record.Consignment.CustomData, pointer)
+			if !ok || !reflect.DeepEqual(got, want) {
+				return nil, ErrApplicationNotFound
+			}
+		}
+	}
+
 	principal, authenticated := authn.FromContext(ctx)
 	var roles []rbac.RoleRecord
 	if authenticated && principal.Kind == authn.KindUser {

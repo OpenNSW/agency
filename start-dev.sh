@@ -340,6 +340,22 @@ start_backend() {
     # to load from a remote source instead.
     export ARTIFACT_LOADER_TYPE="${ARTIFACT_LOADER_TYPE:-local}"
     export ARTIFACT_LOCAL_ROOT="${ARTIFACT_LOCAL_ROOT:-../../one-trade-artifacts/${agency}}"
+    # Optional per-agency config: custom-data schema validation and data
+    # scoping (see docs/consignment-custom-data.md, docs/employee-custom-data.md,
+    # docs/data-scoping.md). Unlike ARTIFACT_LOCAL_ROOT these are genuinely
+    # optional features, so each is only derived when the matching file
+    # actually exists under config/<agency>/ — an agency without one simply
+    # runs without that feature, same as leaving the env var unset entirely.
+    # ${VAR:-…} still preserves a parent-shell/--env-file override.
+    if [[ -z "${USER_CUSTOM_DATA_SCHEMA_PATH:-}" && -f "config/${agency}/user-custom-data-schema.json" ]]; then
+      export USER_CUSTOM_DATA_SCHEMA_PATH="./config/${agency}/user-custom-data-schema.json"
+    fi
+    if [[ -z "${CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH:-}" && -f "config/${agency}/consignment-custom-data-schema.json" ]]; then
+      export CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH="./config/${agency}/consignment-custom-data-schema.json"
+    fi
+    if [[ -z "${DATA_SCOPE_RULES_PATH:-}" && -f "config/${agency}/data-scope-rules.json" ]]; then
+      export DATA_SCOPE_RULES_PATH="./config/${agency}/data-scope-rules.json"
+    fi
     export AUTH_EXPECTED_OU="${AUTH_EXPECTED_OU:-$OU_HANDLE}"
     export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-http://localhost:$FE_PORT}"
     export NSW_CLIENT_ID

@@ -3,7 +3,14 @@
     {
       "name": "NPQS Officer",
       "email": "npqs_officer@government.dev",
-      "roles": ["officer"]
+      "roles": ["officer"],
+      "customData": { "assignedOffice": "Office 1" }
+    },
+    {
+      "name": "NPQS Officer (Hambantota)",
+      "email": "npqs_officer_hambantota@government.dev",
+      "roles": ["officer"],
+      "customData": { "assignedOffice": "Office 4" }
     }
   ]
 }

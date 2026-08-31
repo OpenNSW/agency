@@ -42,6 +42,21 @@ func parse(pointer string) ([]string, error) {
 	return segments, nil
 }
 
+// Segments splits pointer into its unescaped RFC 6901 segments, for callers
+// that need to build something else out of the path (e.g. a SQL JSON-path
+// expression) rather than resolve it against a document. Returns an error
+// under the same conditions as a failed Valid check.
+func Segments(pointer string) ([]string, error) {
+	segments, err := parse(pointer)
+	if err != nil {
+		return nil, err
+	}
+	if len(segments) == 0 {
+		return nil, fmt.Errorf("jsonpointer: %q does not refer to a value", pointer)
+	}
+	return segments, nil
+}
+
 // Valid reports whether pointer is syntactically valid RFC 6901 syntax and
 // refers to something other than the document root (i.e. is non-empty).
 // Intended for config-time validation, so a malformed pointer is rejected

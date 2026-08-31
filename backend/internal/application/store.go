@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/OpenNSW/agency/backend/internal/consignment"
@@ -12,6 +13,7 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/feedback"
 	"github.com/OpenNSW/agency/backend/internal/user"
 	"github.com/OpenNSW/agency/backend/pkg/dbtype"
+	"github.com/OpenNSW/agency/backend/pkg/jsonquery"
 	"gorm.io/gorm"
 )
 
@@ -51,6 +53,10 @@ type ApplicationStore struct {
 	// Schema validating consignments' merged custom_data (see
 	// consignment.Store.MergeCustomData). nil skips validation.
 	consignmentCustomDataSchema json.RawMessage
+	// driver is db's dialect name ("postgres" or "sqlite"), captured once at
+	// construction so List can build a dialect-appropriate SQL predicate for
+	// a datascope-resolved custom_data filter (see pkg/jsonquery).
+	driver string
 }
 
 // NewApplicationStore creates a new ApplicationStore with configured
@@ -73,6 +79,7 @@ func NewApplicationStore(cfg database.Config, consignmentCustomDataSchema json.R
 		db:                          db,
 		consignmentStore:            consignment.NewConsignmentStore(db),
 		consignmentCustomDataSchema: consignmentCustomDataSchema,
+		driver:                      db.Name(),
 	}, nil
 }
 
@@ -93,10 +100,12 @@ func (s *ApplicationStore) CreateOrUpdate(app *ApplicationRecord, pushedFields m
 	})
 }
 
-// GetByTaskID retrieves an application by task ID
+// GetByTaskID retrieves an application by task ID. The parent Consignment is
+// preloaded so callers (e.g. application.buildApplication) can check its
+// custom_data against a datascope resolution without a second query.
 func (s *ApplicationStore) GetByTaskID(taskID string) (*ApplicationRecord, error) {
 	var app ApplicationRecord
-	if err := s.db.First(&app, "task_id = ?", taskID).Error; err != nil {
+	if err := s.db.Preload("Consignment").First(&app, "task_id = ?", taskID).Error; err != nil {
 		return nil, err
 	}
 	if err := s.hydrateClaimant(&app); err != nil {
@@ -107,10 +116,10 @@ func (s *ApplicationStore) GetByTaskID(taskID string) (*ApplicationRecord, error
 
 // GetByConsignmentAndTaskCode retrieves the application within a consignment
 // whose TaskCode matches taskCode, assuming at most one such application per
-// consignment.
+// consignment. The parent Consignment is preloaded — see GetByTaskID.
 func (s *ApplicationStore) GetByConsignmentAndTaskCode(consignmentID, taskCode string) (*ApplicationRecord, error) {
 	var app ApplicationRecord
-	if err := s.db.First(&app, "consignment_id = ? AND task_code = ?", consignmentID, taskCode).Error; err != nil {
+	if err := s.db.Preload("Consignment").First(&app, "consignment_id = ? AND task_code = ?", consignmentID, taskCode).Error; err != nil {
 		return nil, err
 	}
 	if err := s.hydrateClaimant(&app); err != nil {
@@ -145,30 +154,57 @@ func (s *ApplicationStore) hydrateClaimant(app *ApplicationRecord) error {
 	return nil
 }
 
-// List retrieves applications with optional status, consignment, and search filters and pagination.
+// List retrieves applications with optional status, consignment, and search
+// filters and pagination, restricted to those whose parent consignment
+// matches scope (a datascope-resolved map of consignments.custom_data JSON
+// Pointer -> required value, applied as an AND of equality predicates;
+// nil/empty means unrestricted).
 // It projects out the JSONB columns (Data, ReviewerResponse, AgencyFeedbackHistory) since callers of
 // List only ever use the lightweight fields; GetByTaskID reads full rows for that.
-func (s *ApplicationStore) List(ctx context.Context, status string, consignmentID string, search string, offset, limit int) ([]ApplicationRecord, int64, error) {
+//
+// Every one of this method's own columns is qualified with "applications."
+// throughout — harmless whether or not the scope join below is present, and
+// required once it is: consignments also has status/created_at/updated_at
+// columns, so an unqualified reference would become ambiguous SQL the
+// moment that join exists.
+func (s *ApplicationStore) List(ctx context.Context, status string, consignmentID string, search string, scope map[string]any, offset, limit int) ([]ApplicationRecord, int64, error) {
 	var apps []ApplicationRecord
 	var total int64
 
 	query := s.db.WithContext(ctx).Model(&ApplicationRecord{}).
-		Select("task_id", "task_code", "consignment_id", "status", "claimed_by", "claimed_at", "reviewed_at", "created_at", "updated_at")
+		Select("applications.task_id", "applications.task_code", "applications.consignment_id",
+			"applications.status", "applications.claimed_by", "applications.claimed_at",
+			"applications.reviewed_at", "applications.created_at", "applications.updated_at")
 	if status != "" {
-		query = query.Where("status = ?", status)
+		query = query.Where("applications.status = ?", status)
 	}
 	if consignmentID != "" {
-		query = query.Where("consignment_id = ?", consignmentID)
+		query = query.Where("applications.consignment_id = ?", consignmentID)
 	}
 	if search != "" {
-		query = query.Where("task_id LIKE ? OR consignment_id LIKE ?", "%"+search+"%", "%"+search+"%")
+		query = query.Where("applications.task_id LIKE ? OR applications.consignment_id LIKE ?", "%"+search+"%", "%"+search+"%")
+	}
+	if len(scope) > 0 {
+		query = query.Joins("JOIN consignments ON consignments.id = applications.consignment_id")
+		pointers := make([]string, 0, len(scope))
+		for pointer := range scope {
+			pointers = append(pointers, pointer)
+		}
+		sort.Strings(pointers)
+		for _, pointer := range pointers {
+			sql, arg, err := jsonquery.Predicate(s.driver, "consignments.custom_data", pointer, scope[pointer])
+			if err != nil {
+				return nil, 0, err
+			}
+			query = query.Where(sql, arg)
+		}
 	}
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	if err := query.Order("CASE WHEN status = 'PENDING' THEN 0 WHEN status = 'FEEDBACK_REQUESTED' THEN 1 ELSE 2 END ASC, created_at DESC").Offset(offset).Limit(limit).Find(&apps).Error; err != nil {
+	if err := query.Order("CASE WHEN applications.status = 'PENDING' THEN 0 WHEN applications.status = 'FEEDBACK_REQUESTED' THEN 1 ELSE 2 END ASC, applications.created_at DESC").Offset(offset).Limit(limit).Find(&apps).Error; err != nil {
 		return nil, 0, err
 	}
 

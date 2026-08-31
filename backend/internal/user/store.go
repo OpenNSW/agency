@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -108,6 +109,24 @@ func (s *UserStore) findAndSync(ssoid, email, name string) (*UserRecord, error) 
 	}
 
 	return &user, nil
+}
+
+// GetCustomData returns the agency-specific custom data recorded for
+// userID, for internal/datascope's access-scoping resolver. A userID with no
+// matching row (e.g. deleted since the caller's token was issued) is treated
+// the same as "no custom data" — nil, nil — rather than an error, matching
+// rbac.UserRoleStore.GetRolesForUser's existing convention of returning an
+// empty result for an unknown user rather than failing the request.
+func (s *UserStore) GetCustomData(ctx context.Context, userID string) (map[string]any, error) {
+	var rec UserRecord
+	err := s.db.WithContext(ctx).Select("custom_data").First(&rec, "user_id = ?", userID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom data for user %s: %w", userID, err)
+	}
+	return rec.CustomData, nil
 }
 
 func (s *UserStore) Close() error {
