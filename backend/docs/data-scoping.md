@@ -93,8 +93,10 @@ to every officer uniformly.
 
 [`config/npqs/data-scope-rules.json`](../config/npqs/data-scope-rules.json) in this repo is a real,
 manually-verified example: `{"consignmentField": "/officeLocation", "userField": "/assignedOffice"}`,
-paired with two officers in [`data/seed/npqs_users.json`](../data/seed/npqs_users.json) seeded with
-different `assignedOffice` values.
+paired with an officer in [`data/seed/npqs_users.json`](../data/seed/npqs_users.json) seeded with
+`assignedOffice: "Office 1"` (Katunayake). Submitting a consignment tagged to Office 1 makes it
+visible to this officer; submitting one tagged to any other office makes it invisible to them — no
+second officer account is needed to demonstrate both sides of the fail-closed check.
 
 This file is **inert on its own** — nothing in this repo ever writes `/officeLocation` onto a
 consignment's `custom_data`. That happens via a `consignmentFields` rule
