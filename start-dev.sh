@@ -9,11 +9,12 @@
 #   [target]  One of: all (default), backend, frontend
 #
 # Flags:
-#   --clean-run       Wipe agency database(s) before starting, then run
-#                     migrations (go run ./cmd/migrate up) so the schema is
-#                     applied before the server starts.
+#   --clean-run       Wipe agency database(s) before starting.
 #                     SQLite: deletes {agency}_applications.db files.
 #                     Postgres: drops and recreates the database.
+#                     Migrations (go run ./cmd/migrate up) always run before
+#                     the server starts, clean-run or not, so the schema is
+#                     current either way.
 #   --env-file=PATH   Load additional env vars (non-clobbering) before
 #   --env-file PATH   per-agency defaults. Useful for sharing a root .env.
 #
@@ -81,7 +82,7 @@ Usage: $0 [--clean-run] [--env-file=PATH] <agency> [target]
   [target]  One of: all (default), backend, frontend
 
 Flags:
-  --clean-run       Wipe agency DB(s) then run migrations before starting
+  --clean-run       Wipe agency DB(s) before starting (migrations always run)
   --env-file=PATH   Load a root-level env file (non-clobbering);
   --env-file PATH   both forms are supported
 
@@ -258,7 +259,9 @@ clean_databases() {
 # run_migrations: apply all pending migrations for each agency DB.
 #   Runs `go run ./cmd/migrate up` from BACKEND_DIR with the same DB_DRIVER /
 #   DB_PATH values that start_backend uses, so the schema is ready before the
-#   server starts.  Called automatically after clean_databases on --clean-run.
+#   server starts.  Always called before starting backends (after
+#   clean_databases too, when --clean-run is set) since `migrate up` only
+#   applies pending migrations and is a no-op on an up-to-date schema.
 # ---------------------------------------------------------------------------
 run_migrations() {
   local agencies=("$@")
@@ -359,7 +362,7 @@ start_backend() {
     export AUTH_EXPECTED_OU="${AUTH_EXPECTED_OU:-$OU_HANDLE}"
     export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-http://localhost:$FE_PORT}"
     export NSW_CLIENT_ID
-    export NSW_CLIENT_SECRET
+    export NSW_CLIENT_SECRET="${NSW_CLIENT_SECRET:-1234}"
     export AUTH_JWKS_URL="${AUTH_JWKS_URL:-$IDP_BASE_URL/oauth2/jwks}"
     export AUTH_EXPECTED_OU="${AUTH_EXPECTED_OU:-$OU_HANDLE}"
     # Expected `aud`, set here so a native dev run needs no per-developer edit.
@@ -435,8 +438,8 @@ fi
 
 if [[ "$CLEAN_RUN" == "true" ]]; then
   clean_databases "${AGENCIES[@]}"
-  run_migrations "${AGENCIES[@]}"
 fi
+run_migrations "${AGENCIES[@]}"
 
 for o in "${AGENCIES[@]}"; do
   [[ "$TARGET" == "all" || "$TARGET" == "backend"  ]] && start_backend  "$o"
