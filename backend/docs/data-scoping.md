@@ -76,6 +76,18 @@ to every officer uniformly.
   it shouldn't be possible to tell an out-of-scope application even exists.
 - `consignment.Service.GetConsignment` gets the same single-item check for parity, even though no
   route calls it today (`GET /api/v1/consignments/{id}` doesn't exist yet).
+- `POST /api/v1/applications/{taskId}/claim` and `.../review` resolve scope
+  (`service.checkScope`, the same helper `buildApplication` uses) before any other check — in
+  particular, before the claim-ownership check, so an out-of-scope *unclaimed* application still
+  404s rather than surfacing `ErrApplicationNotClaimedByYou` (403), which would otherwise leak that
+  the record exists. `.../feedback` is covered transitively: it calls `GetApplication` first.
+- `.../release` is the deliberate exception — it does **not** check scope. Scope can drift after a
+  valid claim (a later task's `consignmentFields` push can overwrite the same target field; a
+  deployer can edit the rules file), and there's no admin/force-release path in this codebase, so
+  failing closed here would permanently strand a claim that's drifted out of scope: unclaimable by
+  anyone else, unreviewable and unreleasable by the claimant. Releasing doesn't grant new access or
+  leak anything the claimant doesn't already know, unlike Claim or Review — so it always succeeds
+  for whoever currently holds the claim, regardless of their current scope.
 
 ## Example: NPQS
 

@@ -1199,6 +1199,92 @@ func TestGetApplication_ClientPrincipalBypassesScoping(t *testing.T) {
 	}
 }
 
+// scopedTestService builds a service wired with resolver (for the write-path
+// scoping tests below), and seeds a single application on consignment
+// "wf-test" tagged with district. Returns the service and store.
+func scopedTestService(t *testing.T, district string, resolver *datascope.Resolver, taskID string) (*ApplicationStore, Service) {
+	t.Helper()
+	store := newTestStore(t)
+	if err := store.CreateOrUpdate(&ApplicationRecord{
+		TaskID: taskID, TaskCode: "alpha", ConsignmentID: "wf-test",
+		Data: JSONB{"field": "value"}, Status: "PENDING",
+	}, nil); err != nil {
+		t.Fatalf("failed to seed record: %v", err)
+	}
+	setConsignmentCustomData(t, store, "wf-test", consignment.JSONB{"location": consignment.JSONB{"district": district}})
+
+	root := t.TempDir()
+	mustMkdirTaskConfigsAndForms(t, root)
+	reg := newTestRegistry(t, root)
+	svc := newWiredServiceWithScope(t, store, reg, &mockNSWClient{}, nil, resolver)
+	return store, svc
+}
+
+func TestClaimApplication_ScopeMismatch_ReturnsNotFoundAndDoesNotClaim(t *testing.T) {
+	rules := []datascope.Rule{{ConsignmentField: "/location/district", UserField: "/assignedDistrict"}}
+	resolver := datascope.NewResolver(rules, stubUserAttributes{data: map[string]any{"assignedDistrict": "Colombo"}})
+	store, svc := scopedTestService(t, "Gampaha", resolver, "t-scope-claim")
+
+	err := svc.ClaimApplication(newAuthContext(context.Background(), "officer-1"), "t-scope-claim")
+	if !errors.Is(err, ErrApplicationNotFound) {
+		t.Errorf("ClaimApplication error = %v, want ErrApplicationNotFound for an out-of-scope application", err)
+	}
+
+	app, getErr := store.GetByTaskID("t-scope-claim")
+	if getErr != nil {
+		t.Fatalf("GetByTaskID failed: %v", getErr)
+	}
+	if app.ClaimedBy != nil {
+		t.Errorf("ClaimedBy = %v, want nil — a rejected out-of-scope claim must not set claimed_by", *app.ClaimedBy)
+	}
+}
+
+func TestReleaseApplication_SucceedsEvenWhenOutOfScope(t *testing.T) {
+	rules := []datascope.Rule{{ConsignmentField: "/location/district", UserField: "/assignedDistrict"}}
+	// Simulates scope having drifted since the claim was made (e.g. a later
+	// task's consignmentFields push overwrote /location/district on this
+	// consignment) — deliberately different from ClaimApplication/
+	// ReviewApplication's tests: Release must NOT fail closed here, since
+	// there's no other way to free a claim that's drifted out of scope
+	// (nobody else can claim it while it's held, and the claimant can't
+	// review it either) — see ReleaseApplication's doc comment.
+	resolver := datascope.NewResolver(rules, stubUserAttributes{data: map[string]any{"assignedDistrict": "Colombo"}})
+	store, svc := scopedTestService(t, "Gampaha", resolver, "t-scope-release")
+
+	// Claim directly via the store, bypassing ClaimApplication's own scope
+	// check, to isolate ReleaseApplication's behavior from Claim's.
+	if err := store.ClaimApplication("t-scope-release", "officer-1"); err != nil {
+		t.Fatalf("failed to seed a claim: %v", err)
+	}
+
+	if err := svc.ReleaseApplication(newAuthContext(context.Background(), "officer-1"), "t-scope-release"); err != nil {
+		t.Fatalf("ReleaseApplication failed: %v", err)
+	}
+
+	app, getErr := store.GetByTaskID("t-scope-release")
+	if getErr != nil {
+		t.Fatalf("GetByTaskID failed: %v", getErr)
+	}
+	if app.ClaimedBy != nil {
+		t.Errorf("ClaimedBy = %v, want the claim cleared despite the caller being out of scope", *app.ClaimedBy)
+	}
+}
+
+func TestReviewApplication_ScopeMismatch_ReturnsNotFoundBeforeClaimCheck(t *testing.T) {
+	rules := []datascope.Rule{{ConsignmentField: "/location/district", UserField: "/assignedDistrict"}}
+	resolver := datascope.NewResolver(rules, stubUserAttributes{data: map[string]any{"assignedDistrict": "Colombo"}})
+	// Deliberately unclaimed: if the ordering bug were still present, an
+	// unclaimed out-of-scope application would surface
+	// ErrApplicationNotClaimedByYou (403) instead of ErrApplicationNotFound
+	// (404), leaking that the record exists and is unclaimed.
+	_, svc := scopedTestService(t, "Gampaha", resolver, "t-scope-review")
+
+	err := svc.ReviewApplication(newAuthContext(context.Background(), "officer-1"), "t-scope-review", map[string]any{"review_outcome": "approve"})
+	if !errors.Is(err, ErrApplicationNotFound) {
+		t.Errorf("ReviewApplication error = %v, want ErrApplicationNotFound (not ErrApplicationNotClaimedByYou) for an out-of-scope, unclaimed application", err)
+	}
+}
+
 // ---------- GetApplication: AllowedActions ----------
 
 func TestGetApplication_PopulatesAllowedActions(t *testing.T) {

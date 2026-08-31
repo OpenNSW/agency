@@ -343,24 +343,40 @@ func (s *service) GetApplicationByTaskCode(ctx context.Context, consignmentID st
 	return s.buildApplication(ctx, record)
 }
 
+// checkScope reports whether the caller's resolved data-scope filter (see
+// internal/datascope) matches record's parent consignment, returning
+// ErrApplicationNotFound if not — the same sentinel and 404 shape as a
+// straight GET, so an out-of-scope application looks identical to one that
+// simply doesn't exist. Every caller that reads OR mutates a specific
+// application by taskID must run this before any other check (claim
+// ownership, status, etc.) that could otherwise leak the record's existence
+// via a different error/status (e.g. "must claim first" instead of 404).
+func (s *service) checkScope(ctx context.Context, record *ApplicationRecord) error {
+	res, err := s.dataScope.Resolve(ctx)
+	if err != nil {
+		return err
+	}
+	if res.Unrestricted {
+		return nil
+	}
+	if !res.Satisfiable {
+		return ErrApplicationNotFound
+	}
+	for pointer, want := range res.Filter {
+		got, ok := jsonpointer.Get(record.Consignment.CustomData, pointer)
+		if !ok || !reflect.DeepEqual(got, want) {
+			return ErrApplicationNotFound
+		}
+	}
+	return nil
+}
+
 // buildApplication assembles the API-facing Application DTO from a stored
 // record: resolving the caller's roles and attaching task config metadata,
 // permissions, and forms.
 func (s *service) buildApplication(ctx context.Context, record *ApplicationRecord) (*Application, error) {
-	res, err := s.dataScope.Resolve(ctx)
-	if err != nil {
+	if err := s.checkScope(ctx, record); err != nil {
 		return nil, err
-	}
-	if !res.Unrestricted {
-		if !res.Satisfiable {
-			return nil, ErrApplicationNotFound
-		}
-		for pointer, want := range res.Filter {
-			got, ok := jsonpointer.Get(record.Consignment.CustomData, pointer)
-			if !ok || !reflect.DeepEqual(got, want) {
-				return nil, ErrApplicationNotFound
-			}
-		}
 	}
 
 	principal, authenticated := authn.FromContext(ctx)
@@ -442,6 +458,14 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 			return ErrApplicationNotFound
 		}
 		return fmt.Errorf("failed to get application: %w", err)
+	}
+	// Scope check must come before the claim-ownership check below: an
+	// out-of-scope caller must always see a plain 404, never
+	// ErrApplicationNotClaimedByYou (403) — the latter would leak that the
+	// application exists (and is unclaimed) to someone who shouldn't be able
+	// to tell either way.
+	if err := s.checkScope(ctx, record); err != nil {
+		return err
 	}
 
 	principal, authenticated := authn.FromContext(ctx)
@@ -536,6 +560,20 @@ func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
 		return fmt.Errorf("claiming an application requires an authenticated user")
 	}
 
+	// Resolve scope before the claim itself: an out-of-scope caller must get
+	// the same 404 a GET would give them, not a successful (or conflicting)
+	// claim on a record they shouldn't even be able to tell exists.
+	record, err := s.store.GetByTaskID(taskID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrApplicationNotFound
+		}
+		return fmt.Errorf("failed to get application: %w", err)
+	}
+	if err := s.checkScope(ctx, record); err != nil {
+		return err
+	}
+
 	if err := s.store.ClaimApplication(taskID, principal.UserID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrApplicationNotFound
@@ -546,6 +584,18 @@ func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
 }
 
 // ReleaseApplication releases the calling officer's claim on the application.
+//
+// Deliberately does NOT check data scope, unlike ClaimApplication and
+// ReviewApplication: scope can drift after a valid claim (a later task's
+// consignmentFields push can overwrite the same target field on the
+// consignment; a deployer can edit the rules file), and a claim that drifts
+// out of scope must still be releasable — there's no admin/force-release
+// path in this codebase, so failing closed here would leave it permanently
+// stuck (unclaimable by anyone else, unreviewable and unreleasable by the
+// claimant). Releasing doesn't grant new access or leak anything an
+// already-claiming officer doesn't already know, unlike Claim (which would
+// grant access) or Review (which finalizes a decision) — so there's nothing
+// here worth trading that deadlock risk for.
 func (s *service) ReleaseApplication(ctx context.Context, taskID string) error {
 	principal, authenticated := authn.FromContext(ctx)
 	if !authenticated || principal.Kind != authn.KindUser {
