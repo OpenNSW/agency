@@ -11,6 +11,9 @@
 #   --clean-run       Wipe agency database(s) before starting.
 #                     SQLite: deletes {agency}_applications.db files.
 #                     Postgres: drops and recreates the database.
+#                     Migrations (go run ./cmd/migrate up) always run before
+#                     the server starts, clean-run or not, so the schema is
+#                     current either way.
 #   --env-file=PATH   Load additional env vars (non-clobbering) before
 #   --env-file PATH   per-agency defaults. Useful for sharing a root .env.
 #
@@ -63,7 +66,7 @@ Usage: .\start-dev.ps1 [--clean-run] [--env-file=PATH] <agency> [target]
   [target]  One of: all (default), backend, frontend
 
 Flags:
-  --clean-run       Wipe agency DB(s) before starting
+  --clean-run       Wipe agency DB(s) before starting (migrations always run)
   --env-file=PATH   Load a root-level env file (non-clobbering);
   --env-file PATH   both forms are supported
 
@@ -263,6 +266,12 @@ function Ensure-BrandingFile {
     Write-Host "[start-dev] Wrote branding file: $FilePath"
 }
 
+# Run-Migrations: apply all pending migrations for each agency DB.
+#   Runs `go run ./cmd/migrate up` from BACKEND_DIR with the same DB_DRIVER /
+#   DB_PATH values that Start-Backend uses, so the schema is ready before the
+#   server starts. Always called before starting backends (after
+#   Clean-Databases too, when --clean-run is set) since `migrate up` only
+#   applies pending migrations and is a no-op on an up-to-date schema.
 function Run-Migrations {
     param([string[]]$Agencies)
     # Build env: parent shell > --env-file > backend/.env (highest to lowest).
@@ -335,6 +344,7 @@ function Start-Backend {
         $clientIds = "$clientIds,$($cfg.NSW_INBOUND_CLIENT_ID)"
     }
     if (-not $envBlock.Contains('AUTH_CLIENT_IDS'))  { $envBlock['AUTH_CLIENT_IDS']  = $clientIds                                 }
+    if (-not $envBlock.Contains('NSW_CLIENT_SECRET')) { $envBlock['NSW_CLIENT_SECRET'] = '1234'                                   }
 
     $dotEnv = Join-Path $BACKEND_DIR '.env'
     if (Test-Path $dotEnv) {
@@ -420,8 +430,8 @@ if ($Agency -eq 'all') {
 
 if ($CLEAN_RUN) {
     Clean-Databases -Agencies $agencyList
-    Run-Migrations  -Agencies $agencyList
 }
+Run-Migrations -Agencies $agencyList
 
 try {
     foreach ($a in $agencyList) {
