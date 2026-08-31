@@ -14,11 +14,11 @@ import (
 // this package's own business, not a per-deployment setting, so coreConfig
 // declares them from the claim constants in principal.go.
 type Config struct {
-	JWKSURL               string
-	Issuer                string
-	Audience              string
-	ClientIDs             []string
-	InsecureSkipTLSVerify bool
+	JWKSURL               string   `yaml:"jwksURL"`
+	Issuer                string   `yaml:"issuer"`
+	Audience              string   `yaml:"audience"`
+	ClientIDs             []string `yaml:"clientIDs"`
+	InsecureSkipTLSVerify bool     `yaml:"insecureSkipTLSVerify"`
 
 	// ExpectedOU is the OU handle every user token must carry. It has no
 	// equivalent in core/authn — enforcing it is the main reason this package
@@ -30,7 +30,7 @@ type Config struct {
 	// quietly correcting the value would leave a wrong configuration working,
 	// with nothing to say it was wrong — and this handle has to agree with the
 	// portal's VITE_IDP_EXPECTED_OU_HANDLE, which no code checks.
-	ExpectedOU string
+	ExpectedOU string `yaml:"expectedOU"`
 }
 
 // Validate reports whether the configuration is usable.

@@ -12,16 +12,17 @@ var reservedTokenParams = []string{"grant_type", "scope", "client_id", "client_s
 
 // Config holds the connection and OAuth2 credentials for the NSW service.
 type Config struct {
-	BaseURL      string
-	ClientID     string
-	ClientSecret string
-	TokenURL     string
-	Scopes       []string
+	BaseURL      string   `yaml:"baseURL"`
+	ClientID     string   `yaml:"clientID"`
+	ClientSecret string   `yaml:"clientSecret"`
+	TokenURL     string   `yaml:"tokenURL"`
+	Scopes       []string `yaml:"scopes"`
 	// TokenParams carries extra token-request parameters, sent in the body (RFC 6749
 	// §3.2). Which ones are needed is a property of the authorization server, not of
-	// this client. Left empty, nothing extra is sent.
-	TokenParams             url.Values
-	TokenInsecureSkipVerify bool
+	// this client. Left empty, nothing extra is sent. Each value is a list (the
+	// url.Values shape), e.g. `resource: ["https://api.example"]`.
+	TokenParams             url.Values `yaml:"tokenParams"`
+	TokenInsecureSkipVerify bool       `yaml:"tokenInsecureSkipVerify"`
 }
 
 // Validate ensures the required OAuth2 connection fields are present.

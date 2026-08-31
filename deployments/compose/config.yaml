@@ -1,0 +1,70 @@
+# Static config.yaml for `docker compose up` — see compose.yaml's server
+# service, which bind-mounts this file to /app/config.yaml (CONFIG_PATH's
+# default). Values here are fixed for the container network (db host "db",
+# port 5432) — unlike the bare-metal start-dev.sh path, compose can't
+# template a bind-mounted file per .env, so db.postgres.user/name below must
+# match whatever `docker compose up` initialises the db container with
+# (DB_USER/DB_NAME in root .env, defaulting to postgres/nsw_agency_db) — edit
+# both places together if you change them.
+port: "8081"
+# Dev quickstart only — enables the insecureSkipTLSVerify/tokenInsecureSkipVerify
+# flags below (self-signed local IdP) and permits db.sslMode: disable. Never
+# set this in a real deployment.
+environment: development
+allowedOrigins: ["*"]
+
+db:
+  driver: postgres
+  postgres:
+    host: db
+    port: "5432"
+    user: postgres
+    password: "{{env:DB_PASSWORD}}"
+    name: nsw_agency_db
+    sslMode: disable
+
+# Task configs and forms are NOT baked into the image — set this to a bind
+# mount of an external artifacts checkout (e.g. one-trade-artifacts/<agency>),
+# or switch to type: github/s3. See backend/config.example.yaml.
+artifactLoader:
+  type: local
+  local:
+    root: ""
+
+web:
+  dir: web
+  runtime:
+    brandingName: default
+    # The portal and API share one origin. If you change AGENCY_PORT in root
+    # .env, update apiBaseURL/appURL here too — compose can't template this
+    # static file, so the container's own listen port (fixed at 8081 above)
+    # and these browser-facing URLs must be kept in sync by hand.
+    apiBaseURL: http://localhost:8081
+    idpBaseURL: https://host.docker.internal:8090
+    idpClientID: OGA_PORTAL_APP_NPQS
+    appURL: http://localhost:8081
+    idpScopes: openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write
+    idpExtraQueryParams: resource=https://api.nsw-agency.local
+    idpExpectedOU: npqs
+
+authn:
+  jwksURL: https://host.docker.internal:8090/oauth2/jwks
+  issuer: https://localhost:8090
+  audience: https://api.nsw-agency.local
+  clientIDs: ["OGA_PORTAL_APP_NPQS", "NSW_TO_NPQS"]
+  expectedOU: npqs
+  insecureSkipTLSVerify: true # dev-only local IdP; environment: development above
+
+nsw:
+  baseURL: http://host.docker.internal:8080
+  clientID: NPQS_TO_NSW
+  clientSecret: "{{env:NSW_CLIENT_SECRET}}"
+  tokenURL: https://host.docker.internal:8090/oauth2/token
+  tokenParams:
+    resource: ["https://api.nsw-srilanka.local"]
+  scopes:
+    - "nsw:task:write"
+    - "nsw:consignment:read"
+    - "nsw:storage:read"
+    - "nsw:storage:write"
+  tokenInsecureSkipVerify: true # dev-only local IdP; environment: development above

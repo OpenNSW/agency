@@ -24,10 +24,15 @@
 #   - frontend branding config (public/configs/<agency>.branding.json)
 #   - IdP client id
 #
-# Env-var precedence (highest to lowest):
-#   parent shell env > --env-file > backend/.env (for backend vars) > script defaults
-# i.e. PORT=9000 ./start-dev.sh npqs honours the override; .env can fill in
-# anything the parent didn't set; the per-agency defaults below are the floor.
+# Each agency's backend settings (ports aside, see below) are NOT generated
+# by this script — they're the checked-in backend/config/<agency>/config.yaml
+# (see backend/config.example.yaml for the schema). Edit that file directly to
+# change an agency's config; this script only picks which one to use
+# (CONFIG_PATH) and supplies secrets/DB/CLI settings that stay plain env vars.
+#
+# Env-var precedence for what IS still env-var driven (DB_DRIVER, DB_PATH,
+# NSW_CLIENT_SECRET, USER_CUSTOM_DATA_SCHEMA_PATH, CONFIG_PATH itself):
+#   parent shell env > --env-file > backend/.env > script defaults
 #
 # Examples:
 #   ./start-dev.sh npqs              # NPQS backend + frontend
@@ -48,20 +53,23 @@ IDP_BASE_URL="https://localhost:8090" # For frontend Vite proxying to a local Id
 
 # AGENCY_API resource-server identifier. Becomes the token's `aud` and is matched
 # verbatim, so it must stay byte-identical to nsw-srilanka's resource-servers.json.
+# Only used by the frontend now — the backend's audience is baked into its
+# own config/<agency>/config.yaml (authn.audience/nsw.tokenParams.resource).
 AGENCY_API_AUDIENCE="${AGENCY_API_AUDIENCE:-https://api.nsw-agency.local}"
 
-# Single source of truth for per-agency config:
-#   "BE_PORT|FE_PORT|IDP_CLIENT_ID|NSW_CLIENT_ID|APP_NAME|OU_HANDLE|NSW_INBOUND_CLIENT_ID".
-# NSW_CLIENT_ID is the outbound Agency->NSW m2m client; NSW_INBOUND_CLIENT_ID is
-# the inbound NSW->Agency m2m client this agency accepts on /api/v1/inject.
-# Adding an agency means one line here — nothing else.
+# Orchestration-only per-agency config: "BE_PORT|FE_PORT|IDP_CLIENT_ID|APP_NAME|OU_HANDLE".
+# Everything the backend itself needs (client ids, OU handle, NSW settings,
+# ports, ...) lives in backend/config/<agency>/config.yaml instead — this
+# table only feeds the frontend dev server and this script's own logging, and
+# BE_PORT/FE_PORT here must match that agency's config.yaml (port/allowedOrigins).
+# Adding an agency means one line here plus a new config/<agency>/config.yaml.
 # (Scalar vars rather than `declare -A` so this works on stock macOS bash 3.2.)
-CONFIG_npqs="8081|5174|OGA_PORTAL_APP_NPQS|NPQS_TO_NSW|National Plant Quarantine Service (NPQS)|npqs|NSW_TO_NPQS"
-CONFIG_fcau="8082|5175|OGA_PORTAL_APP_FCAU|FCAU_TO_NSW|Food Control Administration Unit (FCAU)|fcau|NSW_TO_FCAU"
-CONFIG_cda="8083|5176|OGA_PORTAL_APP_CDA|CDA_TO_NSW|Coconut Development Authority (CDA)|cda|NSW_TO_CDA"
-CONFIG_slpa="8084|5177|OGA_PORTAL_APP_SLPA|SLPA_TO_NSW|Sri Lanka Ports Authority (SLPA)|slpa|NSW_TO_SLPA"
-CONFIG_customs="8085|5178|OGA_PORTAL_APP_CUSTOMS|CUSTOMS_TO_NSW|Sri Lanka Customs (CUSTOMS)|customs|NSW_TO_CUSTOMS"
-CONFIG_sltb="8086|5179|OGA_PORTAL_APP_SLTB|SLTB_TO_NSW|Sri Lanka Tea Board (SLTB)|sltb|NSW_TO_SLTB"
+CONFIG_npqs="8081|5174|OGA_PORTAL_APP_NPQS|National Plant Quarantine Service (NPQS)|npqs"
+CONFIG_fcau="8082|5175|OGA_PORTAL_APP_FCAU|Food Control Administration Unit (FCAU)|fcau"
+CONFIG_cda="8083|5176|OGA_PORTAL_APP_CDA|Coconut Development Authority (CDA)|cda"
+CONFIG_slpa="8084|5177|OGA_PORTAL_APP_SLPA|Sri Lanka Ports Authority (SLPA)|slpa"
+CONFIG_customs="8085|5178|OGA_PORTAL_APP_CUSTOMS|Sri Lanka Customs (CUSTOMS)|customs"
+CONFIG_sltb="8086|5179|OGA_PORTAL_APP_SLTB|Sri Lanka Tea Board (SLTB)|sltb"
 
 
 # Agencies (every CONFIG_* ), alphabetised for predictable launch order in 'all' mode
@@ -168,8 +176,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Sets BE_PORT, FE_PORT, IDP_CLIENT_ID, NSW_CLIENT_ID, OU_HANDLE,
-# NSW_INBOUND_CLIENT_ID for the given agency.
+# Sets BE_PORT, FE_PORT, IDP_CLIENT_ID, APP_NAME, OU_HANDLE for the given
+# agency (orchestration/frontend only — see the CONFIG_* table above).
 resolve_agency() {
   local varname="CONFIG_$1"
   local config="${!varname:-}"
@@ -177,12 +185,12 @@ resolve_agency() {
     echo "Unknown agency '$1'. Expected: ${ALL_AGENCIES[*]}, all." >&2
     return 1
   fi
-  IFS='|' read -r BE_PORT FE_PORT IDP_CLIENT_ID NSW_CLIENT_ID APP_NAME OU_HANDLE NSW_INBOUND_CLIENT_ID <<<"$config"
+  IFS='|' read -r BE_PORT FE_PORT IDP_CLIENT_ID APP_NAME OU_HANDLE <<<"$config"
   APP_NAME="${APP_NAME:-$1}"
 }
 
 # Source a .env file without clobbering vars already set in the environment.
-# This preserves parent-shell overrides (e.g. PORT=9000 ./start.sh npqs).
+# This preserves parent-shell overrides (e.g. DB_DRIVER=postgres ./start.sh npqs).
 source_env_nonclobber() {
   local file=$1 line key value
   [[ -f "$file" ]] || return 0
@@ -257,37 +265,34 @@ clean_databases() {
 }
 
 # run_migrations: apply all pending migrations for each agency DB.
-#   Runs `go run ./cmd/migrate up` from BACKEND_DIR with the same DB_DRIVER /
-#   DB_PATH values that start_backend uses, so the schema is ready before the
-#   server starts.  Always called before starting backends (after
-#   clean_databases too, when --clean-run is set) since `migrate up` only
-#   applies pending migrations and is a no-op on an up-to-date schema.
+#   cmd/migrate reads the same config/<agency>/config.yaml start_backend
+#   points cmd/server at (its db section), so the schema is migrated against
+#   exactly the DB each backend will connect to. Always called before
+#   starting backends (after clean_databases too, when --clean-run is set)
+#   since `migrate up` only applies pending migrations and is a no-op on an
+#   up-to-date schema.
+#
+#   Each agency's config.yaml is read separately even if several point at the
+#   same shared Postgres DB (e.g. a developer edited them all to do so) —
+#   redundant but harmless, since migrate up is idempotent.
 # ---------------------------------------------------------------------------
 run_migrations() {
   local agencies=("$@")
   (
     cd "$BACKEND_DIR"
-    # Source .env non-clobber so Postgres credentials (DB_HOST, DB_USER,
-    # DB_PASSWORD, DB_NAME, etc.) are available to the migrate binary, which
-    # does not autoload .env itself.  Parent-shell values still win.
+    # Source .env non-clobber so NSW_CLIENT_SECRET/DB_PASSWORD (whichever
+    # config.yaml's "{{env:NAME}}" placeholders reference) are available.
+    # Parent-shell values still win.
     if [[ -f .env ]]; then
       source_env_nonclobber .env
     fi
 
-    local db_driver="${DB_DRIVER:-sqlite}"
-    echo "[start-dev] Running migrations (driver: $db_driver)..."
-
-    if [[ "$db_driver" == "sqlite" ]]; then
-      for agency in "${agencies[@]}"; do
-        echo "[start-dev]   migrate up -> ${agency}_applications.db"
-        DB_DRIVER="sqlite" DB_PATH="./${agency}_applications.db" \
-          go run ./cmd/migrate up
-      done
-    else
-      # Postgres uses a single shared DB; run once.
-      echo "[start-dev]   migrate up -> ${DB_NAME:-nsw_agency_db}"
-      go run ./cmd/migrate up
-    fi
+    echo "[start-dev] Running migrations..."
+    for agency in "${agencies[@]}"; do
+      local config_path="${CONFIG_PATH:-config/${agency}/config.yaml}"
+      echo "[start-dev]   migrate up -> $config_path"
+      CONFIG_PATH="$config_path" go run ./cmd/migrate up
+    done
   )
 }
 
@@ -317,73 +322,30 @@ EOF
 start_backend() {
   local agency=$1
   resolve_agency "$agency"
-  echo "[start-dev] Starting $agency backend  -> http://localhost:$BE_PORT (db: ${agency}_applications.db)"
+  echo "[start-dev] Starting $agency backend  -> http://localhost:$BE_PORT (db: ${agency}_applications.db, config: config/${agency}/config.yaml)"
   (
     cd "$BACKEND_DIR"
-    # Apply per-agency values BEFORE sourcing .env so they aren't clobbered by
-    # the generic .env defaults (which typically have PORT=8081 etc.).
-    # ${VAR:-…} preserves a parent-shell override.
-    # Final precedence: parent env > script per-agency > .env > Go-side fallback.
-    export PORT="${PORT:-$BE_PORT}"
-    # Native dev runs against a self-signed local IdP, so the AUTH_JWKS/NSW_TOKEN
-    # insecure-TLS flags are used; those are honored only in development, so mark
-    # this run as such. Outside development the backend fails closed on them.
-    export APP_ENV="${APP_ENV:-development}"
-    # Native dev serves the frontend via Vite (start_frontend), so the backend
-    # must stay API-only. Point WEB_DIR at a path that won't exist so a stray
-    # backend/web/ (e.g. from a `pnpm build --outDir ../backend/web` test) can't
-    # make the server serve the SPA and then fatal on missing VITE_* config.
-    export WEB_DIR="${WEB_DIR:-/nonexistent}"
+    # The Go server does not autoload .env — source it (non-clobber) so
+    # NSW_CLIENT_SECRET (referenced from config/<agency>/config.yaml as
+    # "{{env:NSW_CLIENT_SECRET}}") reaches the process. Parent-shell values
+    # still win over .env.
+    if [[ -f .env ]]; then
+      source_env_nonclobber .env
+    fi
+    export NSW_CLIENT_SECRET="${NSW_CLIENT_SECRET:-1234}"
+
+    # Still plain env vars: read directly by cmd/cli (seeding, below) — its
+    # own config, unlike cmd/server's and cmd/migrate's, wasn't part of this
+    # config.yaml migration.
     export DB_DRIVER="${DB_DRIVER:-sqlite}"
     export DB_PATH="${DB_PATH:-./${agency}_applications.db}"
-    # Artifacts (task configs + forms + manifest.json) live OUTSIDE this repo,
-    # per agency. Default to a sibling checkout of the one-trade-artifacts repo
-    # (…/one-trade-artifacts/<agency>, relative to backend/). Override
-    # ARTIFACT_LOCAL_ROOT to point elsewhere, or set ARTIFACT_LOADER_TYPE=github|s3
-    # to load from a remote source instead.
-    export ARTIFACT_LOADER_TYPE="${ARTIFACT_LOADER_TYPE:-local}"
-    export ARTIFACT_LOCAL_ROOT="${ARTIFACT_LOCAL_ROOT:-../../one-trade-artifacts/${agency}}"
-    # Optional per-agency config: custom-data schema validation and data
-    # scoping (see docs/consignment-custom-data.md, docs/employee-custom-data.md,
-    # docs/data-scoping.md). Unlike ARTIFACT_LOCAL_ROOT these are genuinely
-    # optional features, so each is only derived when the matching file
-    # actually exists under config/<agency>/ — an agency without one simply
-    # runs without that feature, same as leaving the env var unset entirely.
-    # ${VAR:-…} still preserves a parent-shell/--env-file override.
     if [[ -z "${USER_CUSTOM_DATA_SCHEMA_PATH:-}" && -f "config/${agency}/user-custom-data-schema.json" ]]; then
       export USER_CUSTOM_DATA_SCHEMA_PATH="./config/${agency}/user-custom-data-schema.json"
     fi
-    if [[ -z "${CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH:-}" && -f "config/${agency}/consignment-custom-data-schema.json" ]]; then
-      export CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH="./config/${agency}/consignment-custom-data-schema.json"
-    fi
-    if [[ -z "${DATA_SCOPE_RULES_PATH:-}" && -f "config/${agency}/data-scope-rules.json" ]]; then
-      export DATA_SCOPE_RULES_PATH="./config/${agency}/data-scope-rules.json"
-    fi
-    export AUTH_EXPECTED_OU="${AUTH_EXPECTED_OU:-$OU_HANDLE}"
-    export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-http://localhost:$FE_PORT}"
-    export NSW_CLIENT_ID
-    export NSW_CLIENT_SECRET="${NSW_CLIENT_SECRET:-1234}"
-    export AUTH_JWKS_URL="${AUTH_JWKS_URL:-$IDP_BASE_URL/oauth2/jwks}"
-    export AUTH_EXPECTED_OU="${AUTH_EXPECTED_OU:-$OU_HANDLE}"
-    # Expected `aud`, set here so a native dev run needs no per-developer edit.
-    export AUTH_AUDIENCE="${AUTH_AUDIENCE:-$AGENCY_API_AUDIENCE}"
-    # Inbound clients this agency accepts: its SPA portal (user tokens) plus the
-    # NSW->Agency m2m client (client_credentials) so NSW core can call /inject.
-    # Append the inbound client only when set, so a config without the 7th field
-    # doesn't leave a trailing comma in AUTH_CLIENT_IDS.
-    client_ids="$IDP_CLIENT_ID"
-    if [[ -n "${NSW_INBOUND_CLIENT_ID:-}" ]]; then
-      client_ids="$client_ids,$NSW_INBOUND_CLIENT_ID"
-    fi
-    export AUTH_CLIENT_IDS="${AUTH_CLIENT_IDS:-$client_ids}"
-    # The Go server does not autoload .env — source it (non-clobber) so
-    # NSW_* vars (API base URL, OAuth client secret, token URL) reach
-    # the process without overriding anything already set above.
-    if [[ -f .env ]]; then
-      source_env_nonclobber .env
-    else
-      echo "[start-dev] WARNING: backend/.env not found — backend will fail if NSW_* vars are unset." >&2
-    fi
+
+    # A parent-shell/--env-file CONFIG_PATH still wins, as an escape hatch to
+    # point at a config.yaml other than this agency's checked-in one.
+    export CONFIG_PATH="${CONFIG_PATH:-config/${agency}/config.yaml}"
 
     local seed_file="./data/seed/${agency}_users.json"
     if [[ -f "$seed_file" ]]; then

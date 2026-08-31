@@ -10,10 +10,10 @@ type Config struct {
 	// copies the build to /app/web, so the default ("web") resolves there. Locally
 	// it usually doesn't exist (the frontend runs via its own dev server), so the
 	// server serves API-only — see Handler / cmd/server/main.go.
-	Dir string
+	Dir string `yaml:"dir"`
 
 	// Runtime is the public SPA config served via /runtime-env.js.
-	Runtime RuntimeConfig
+	Runtime RuntimeConfig `yaml:"runtime"`
 }
 
 // Validate reports whether the frontend can be served with a usable runtime
@@ -32,16 +32,16 @@ func (c Config) Validate() error {
 // falls back to its build-time value (getEnv). Required values are enforced by
 // Validate at startup rather than failing later in the browser.
 type RuntimeConfig struct {
-	BrandingName  string `json:"VITE_BRANDING_NAME,omitempty"`
-	APIBaseURL    string `json:"VITE_API_BASE_URL,omitempty"`
-	IDPBaseURL    string `json:"VITE_IDP_BASE_URL,omitempty"`
-	IDPClientID   string `json:"VITE_IDP_CLIENT_ID,omitempty"`
-	IDPExpectedOU string `json:"VITE_IDP_EXPECTED_OU_HANDLE,omitempty"`
-	AppURL        string `json:"VITE_APP_URL,omitempty"`
-	IDPScopes     string `json:"VITE_IDP_SCOPES,omitempty"`
+	BrandingName  string `json:"VITE_BRANDING_NAME,omitempty" yaml:"brandingName"`
+	APIBaseURL    string `json:"VITE_API_BASE_URL,omitempty" yaml:"apiBaseURL"`
+	IDPBaseURL    string `json:"VITE_IDP_BASE_URL,omitempty" yaml:"idpBaseURL"`
+	IDPClientID   string `json:"VITE_IDP_CLIENT_ID,omitempty" yaml:"idpClientID"`
+	IDPExpectedOU string `json:"VITE_IDP_EXPECTED_OU_HANDLE,omitempty" yaml:"idpExpectedOU"`
+	AppURL        string `json:"VITE_APP_URL,omitempty" yaml:"appURL"`
+	IDPScopes     string `json:"VITE_IDP_SCOPES,omitempty" yaml:"idpScopes"`
 	// Query-string-encoded extra parameters for the IdP's authorization request, e.g.
 	// "resource=https://api.nsw-agency.local". Optional; nothing here is IdP-specific.
-	IDPExtraQueryParams string `json:"VITE_IDP_EXTRA_QUERY_PARAMS,omitempty"`
+	IDPExtraQueryParams string `json:"VITE_IDP_EXTRA_QUERY_PARAMS,omitempty" yaml:"idpExtraQueryParams"`
 }
 
 // Validate enforces the keys the frontend reads via getRequiredEnv (see

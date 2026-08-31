@@ -1,0 +1,173 @@
+# Agency server config — copy to config.yaml (gitignored) and edit, or point
+# CONFIG_PATH at a copy of this file elsewhere. CONFIG_PATH is the only
+# setting that has to be an env var (see backend/.env.example) — it's needed
+# to find this file in the first place.
+#
+# ANY value below (not just the ones marked "secret") can be a literal, or a
+# "{{env:NAME}}" (read from an env var) / "{{file:/path}}" (read from a
+# mounted file) placeholder instead — see expandPlaceholders in
+# cmd/server/config.go and github.com/OpenNSW/core/secret.SecretRef. This is
+# a property of how this file is authored, not something the Go config types
+# care about. Prefer {{env:...}}/{{file:...}} for anything actually secret in
+# a real deployment; a literal is fine for the rest.
+
+port: "8081"
+
+# development enables the insecure-TLS escape hatches below
+# (nsw.tokenInsecureSkipVerify, authn.insecureSkipTLSVerify) and db.postgres.
+# sslMode: disable; unset/any other value is treated as production and
+# refuses them. Never set this to development in a real deployment.
+# environment: development
+
+# maxRequestBytes: 33554432 # 32 MiB, the default
+# readHeaderTimeout: 5s
+# readTimeout: 15s
+# writeTimeout: 30s
+# idleTimeout: 60s
+
+# Comma-separated no more — this is a native YAML list. Use ["*"] to allow all.
+allowedOrigins: ["*"]
+
+# Optional: path to a JSON Schema file validating consignments' merged
+# custom_data (agency-derived fields pushed from injected application data via
+# each task config's consignmentFields — see docs/consignment-custom-data.md).
+# Omit to skip validation entirely.
+# consignmentCustomDataSchemaPath: ./config/npqs/consignment-custom-data-schema.json
+
+# Optional: path to a JSON file of rules restricting which
+# consignments/applications an officer may see, based on comparing their own
+# users.custom_data against a consignment's custom_data — see
+# docs/data-scoping.md. Omit for no scoping: every officer sees everything.
+# dataScopeRulesPath: ./config/npqs/data-scope-rules.json
+
+# Optional: path to the SQL migration files directory. Only read by
+# cmd/migrate (this file is shared between cmd/server and cmd/migrate — the
+# rest of this schema, from db onward, is cmd/server-only, but cmd/migrate
+# reads this file's db section too). Omit to use the default.
+# migrationDir: ./migrations
+
+db:
+  # driver: sqlite | postgres
+  driver: sqlite
+
+  # Used when driver: sqlite. Path is relative to the working directory, which
+  # is read-only in the container — set it to /data there, the only writable
+  # path. Deployments use postgres, so this matters only for local runs.
+  sqlite:
+    path: ./agency_applications.db
+
+  # Used when driver: postgres. Placeholder resolution runs over the whole
+  # file regardless of which driver is selected (see expandPlaceholders in
+  # cmd/server/config.go), so leave password unset here for a sqlite/local
+  # run — a "{{env:NAME}}" placeholder makes LoadConfig require that env var
+  # even when postgres isn't selected.
+  postgres:
+    host: localhost
+    port: "5432"
+    user: postgres
+    # password: "{{env:DB_PASSWORD}}" # secret — required when driver: postgres
+    name: nsw_agency_db
+    sslMode: require # "disable" is only honored when environment: development
+
+# ---------------------------------------------------------------------------
+# Artifact loader — where task configs and form templates are loaded from.
+# The manifest (manifest.json) and the artifacts it catalogs are fetched
+# through the same loader, so both share one origin. Only the selected type's
+# section below is read.
+# ---------------------------------------------------------------------------
+artifactLoader:
+  type: local # local | github | s3
+
+  local:
+    # Directory that artifact paths (and manifest.json) are resolved against.
+    # Required for type: local — artifacts live outside this repo (e.g. a
+    # sibling checkout of the one-trade-artifacts repo).
+    root: ""
+
+  github:
+    owner: ""
+    repo: ""
+    ref: "" # branch, tag, or commit SHA — prefer an immutable tag/SHA
+    basePath: "" # optional in-repo directory prefix (empty = repo root)
+    token: "" # secret, e.g. "{{env:ARTIFACT_GITHUB_TOKEN}}"; required for private repos, lifts the rate limit
+    baseURL: "" # optional REST API root, for GitHub Enterprise Server
+    useRawHost: false # fetch via raw.githubusercontent.com instead of the REST API
+    rawBaseURL: ""
+
+  s3:
+    bucket: ""
+    region: ""
+    endpoint: "" # optional custom endpoint for S3-compatible stores (MinIO, LocalStack)
+    accessKey: "" # optional static credentials (must be set together with secretKey)
+    secretKey: "" # secret, e.g. "{{env:ARTIFACT_S3_SECRET_KEY}}"
+    prefix: "" # optional in-bucket key prefix (empty = bucket root)
+
+# ---------------------------------------------------------------------------
+# Officer-portal SPA (optional for bare-metal dev)
+# ---------------------------------------------------------------------------
+# The server serves the built portal and /runtime-env.js when web.dir exists.
+# For normal `go run` dev the frontend runs via its own Vite dev server and
+# this dir is absent, so the server runs API-only and you can leave `runtime`
+# blank. It applies only to a local bundled-serving test build:
+#   (cd frontend && pnpm build --outDir ../backend/web)
+# in which case runtime is served to the browser and the four REQUIRED fields
+# are validated at startup.
+web:
+  dir: web
+
+  runtime:
+    brandingName: default # -> /configs/${brandingName}.branding.json
+    apiBaseURL: http://localhost:8081 # REQUIRED when serving the portal
+    idpBaseURL: https://localhost:8090 # REQUIRED when serving the portal
+    idpClientID: "<SPA_AGENCY_PORTAL>"
+    idpExpectedOU: "" # REQUIRED when serving the portal
+    appURL: http://localhost:8081 # used in OIDC redirects
+    # Only scopes requested here are granted, regardless of what the role
+    # permits. Keep in sync with frontend/.env.example.
+    idpScopes: openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write
+    # The `resource` value must equal authn.audience, or the agency:* scopes
+    # are dropped from the issued token.
+    idpExtraQueryParams: resource=https://api.nsw-agency.local
+
+# ---------------------------------------------------------------------------
+# Inbound Auth — tokens the Agency backend accepts from the SPA / m2m clients
+# ---------------------------------------------------------------------------
+authn:
+  jwksURL: https://localhost:8090/oauth2/jwks
+  issuer: https://localhost:8090
+  # Each Agency has its own resource server registered in the IdP.
+  audience: https://api.nsw-agency.local
+  # Typically two clients: the SPA portal and the NSW->Agency m2m client.
+  clientIDs: ["<SPA_AGENCY_PORTAL>", "NSW_TO_<AGENCY>"]
+  # This agency's OU handle — must match the ouHandle claim in user JWTs.
+  expectedOU: ""
+  # DEV-ONLY: skip TLS verification for the JWKS endpoint. Keep false in
+  # production; only honored when environment: development.
+  insecureSkipTLSVerify: false
+
+# ---------------------------------------------------------------------------
+# Outbound Auth — credentials used by the Agency backend to call the NSW API
+# ---------------------------------------------------------------------------
+nsw:
+  baseURL: https://nsw-api.example.com
+  # OAuth2 client credentials for the Agency -> NSW m2m call. Must correspond
+  # to a client registered in the IdP with access to the NSW API.
+  clientID: "<M2M_AGENCY_TO_NSW>"
+  clientSecret: "{{env:NSW_CLIENT_SECRET}}" # secret
+  tokenURL: https://localhost:8090/oauth2/token
+  # Extra token-request parameters sent in the OAuth2 token request body (RFC
+  # 6749 §3.2). NSW's IdP requires an RFC 8707 `resource` indicator; another
+  # may want `audience` or none. Each key's value is a list (the url.Values
+  # shape) — almost always one entry.
+  tokenParams:
+    resource: ["https://api.nsw-srilanka.local"]
+  # Must match the scopes granted to the M2M client's role in the IdP
+  # (AgencyM2M role -> NSW_API resource server).
+  scopes:
+    - "nsw:task:write"
+    - "nsw:consignment:read"
+    - "nsw:storage:read"
+    - "nsw:storage:write"
+  # DEV-ONLY: skip TLS verification for the NSW token endpoint. Keep false in
+  # production; only honored when environment: development.
+  tokenInsecureSkipVerify: false

@@ -12,20 +12,24 @@
 # The server will not start until migrate has completed successfully.
 #
 # NOTE: the frontend and backend authenticate against an external IdP
-# (VITE_IDP_BASE_URL / AUTH_JWKS_URL, default https://localhost:8090) that is
-# NOT part of this compose. The UI loads, but login requires that IdP reachable.
+# (idpBaseURL / jwksURL in deployments/compose/config.yaml, default
+# https://localhost:8090) that is NOT part of this compose. The UI loads, but
+# login requires that IdP reachable.
 #
 # Usage (.env is the auto-loaded name, so no --env-file flag is needed):
 #   cp .env.example .env                     # the ONE self-contained env file
 #   docker compose up --build
 #
-# Root .env is the single, self-contained source of truth for the stack:
-# it provides both the values compose interpolates (${AGENCY_PORT}, ${DB_*}) and
-# the full container runtime config loaded as the only env_file on the server and
-# migrate services. backend/.env and frontend/.env are NOT used here — they exist
-# only for bare-metal `go run` / `pnpm dev`. The environment: blocks below pin the
-# db connection + port so the host mapping and container config cannot drift. The
-# portal is served on ${AGENCY_PORT} (same port as the API).
+# Root .env provides the values compose interpolates (${AGENCY_PORT}, ${DB_*})
+# and the secrets (DB_PASSWORD, NSW_CLIENT_SECRET) the server's config.yaml
+# resolves via "{{env:NAME}}". Everything else the server reads —
+# db/artifactLoader/nsw/authn/web settings — comes from
+# deployments/compose/config.yaml, bind-mounted read-only into the container
+# (see the server service below); it's a static file, so it can't be
+# templated per .env the way the old environment: overrides were — see that
+# file's own comments for what has to be kept in sync by hand.
+# backend/.env and frontend/.env are NOT used here — they exist only for
+# bare-metal `go run` / `pnpm dev` (see start-dev.sh / backend/config.yaml).
 
 services:
   db:
@@ -47,17 +51,15 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["/app/migrate", "up"]
+    # cmd/migrate reads config.yaml the same way cmd/server does (same file,
+    # same CONFIG_PATH default) — only the DB_PASSWORD secret comes from
+    # here, resolved via config.yaml's db.postgres.password "{{env:DB_PASSWORD}}"
+    # reference; the connection settings are in the mounted config.yaml below,
+    # shared with the server service, so there's nothing to keep in sync here.
     env_file:
       - .env
-    environment:
-      DB_DRIVER: postgres
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-nsw_agency_db}
-      DB_SSLMODE: ${DB_SSLMODE:-disable}
-      MIGRATION_DIR: /app/migrations
+    volumes:
+      - ./deployments/compose/config.yaml:/app/config.yaml:ro
     depends_on:
       db:
         condition: service_healthy
@@ -67,37 +69,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # The single self-contained env file: backend config, VITE_* browser config
-    # (emitted at /runtime-env.js), and dialed URLs already on host.docker.internal.
+    # Only the secrets config.yaml resolves via "{{env:NAME}}" (DB_PASSWORD,
+    # NSW_CLIENT_SECRET) come from here now — everything else, including
+    # environment: development (dev quickstart only — required for the
+    # insecure-TLS flags below to be honored), is in the mounted config.yaml.
     env_file:
       - .env
+    volumes:
+      - ./deployments/compose/config.yaml:/app/config.yaml:ro
     # host.docker.internal is automatic on Docker Desktop; this makes it resolve
     # on Linux / CI as well.
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # These pin the db connection + port for the container (environment: beats
-    # env_file), so the host mapping below and the container's runtime config
-    # share one source and cannot drift.
-    environment:
-      # Dev quickstart only. Required for the AUTH_JWKS/NSW_TOKEN insecure-TLS
-      # flags (self-signed local IdP) to be honored; outside development those
-      # flags fail closed at startup. Never set this in a real deployment.
-      APP_ENV: development
-      DB_DRIVER: postgres
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-nsw_agency_db}
-      DB_SSLMODE: ${DB_SSLMODE:-disable}
-      PORT: ${AGENCY_PORT:-8081}
-      # The portal and API share one origin now, so the browser's API base URL
-      # is just this server's host-reachable address. Overrides .env.
-      VITE_API_BASE_URL: "http://localhost:${AGENCY_PORT:-8081}"
-    # Both sides from the same root var: host port == container listen port (PORT).
-    # This single port serves both the API and the officer portal.
+    # Host port is overridable via AGENCY_PORT; the container always listens
+    # on 8081 (deployments/compose/config.yaml's port) since that file can't
+    # be templated per .env — see its own comments.
     ports:
-      - "${AGENCY_PORT:-8081}:${AGENCY_PORT:-8081}"
+      - "${AGENCY_PORT:-8081}:8081"
     depends_on:
       db:
         condition: service_healthy

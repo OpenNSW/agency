@@ -20,6 +20,11 @@ vendor/
 .env
 .env.local
 
+# Per-developer server config (copy config.example.yaml here and edit).
+# Anchored to the module root: unanchored would also match the checked-in
+# per-agency configs at config/<agency>/config.yaml (see start-dev.sh).
+/config.yaml
+
 # Per-deployment data is local-only. Only the default examples ship in the repo;
 # agencies provide their own task configs and forms via CONFIG_DIR.
 # TODO: for now, we check-in all the templates, need to clean this up.

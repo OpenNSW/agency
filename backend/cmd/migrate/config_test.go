@@ -1,9 +1,24 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// writeConfig writes yamlContent to a temp file and points CONFIG_PATH at
+// it, so LoadConfig() reads exactly this fixture.
+func writeConfig(t *testing.T, yamlContent string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("writing config fixture: %v", err)
+	}
+	t.Setenv("CONFIG_PATH", path)
+}
 
 func TestLoadConfig_Defaults(t *testing.T) {
-	t.Setenv("DB_DRIVER", "sqlite")
+	writeConfig(t, "db:\n  driver: sqlite\n")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -18,9 +33,12 @@ func TestLoadConfig_Defaults(t *testing.T) {
 }
 
 func TestLoadConfig_SQLite(t *testing.T) {
-	t.Setenv("DB_DRIVER", "sqlite")
-	t.Setenv("DB_PATH", "./custom.db")
-	t.Setenv("MIGRATION_DIR", "./db/migrations")
+	writeConfig(t, `db:
+  driver: sqlite
+  sqlite:
+    path: ./custom.db
+migrationDir: ./db/migrations
+`)
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -38,13 +56,16 @@ func TestLoadConfig_SQLite(t *testing.T) {
 }
 
 func TestLoadConfig_Postgres(t *testing.T) {
-	t.Setenv("DB_DRIVER", "postgres")
-	t.Setenv("DB_HOST", "db.example.com")
-	t.Setenv("DB_PORT", "5433")
-	t.Setenv("DB_USER", "admin")
-	t.Setenv("DB_PASSWORD", "secret")
-	t.Setenv("DB_NAME", "mydb")
-	t.Setenv("DB_SSLMODE", "require")
+	writeConfig(t, `db:
+  driver: postgres
+  postgres:
+    host: db.example.com
+    port: "5433"
+    user: admin
+    password: secret
+    name: mydb
+    sslMode: require
+`)
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -73,20 +94,40 @@ func TestLoadConfig_Postgres(t *testing.T) {
 	}
 }
 
+// The db.postgres.password field can be a "{{env:NAME}}" placeholder,
+// resolved the same way cmd/server's config.yaml resolves its secrets.
+func TestLoadConfig_Postgres_ResolvesPasswordFromEnv(t *testing.T) {
+	t.Setenv("MIGRATE_TEST_DB_PASSWORD", "s3cr3t")
+	writeConfig(t, `db:
+  driver: postgres
+  postgres:
+    password: "{{env:MIGRATE_TEST_DB_PASSWORD}}"
+`)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.DB.Postgres.Password != "s3cr3t" {
+		t.Errorf("DB.Password = %q, want s3cr3t", cfg.DB.Postgres.Password)
+	}
+}
+
 func TestLoadConfig_Postgres_RequiresPassword(t *testing.T) {
-	t.Setenv("DB_DRIVER", "postgres")
-	t.Setenv("DB_PASSWORD", "")
+	writeConfig(t, "db:\n  driver: postgres\n")
 
 	_, err := LoadConfig()
 	if err == nil {
-		t.Fatal("expected error when DB_PASSWORD is missing, got nil")
+		t.Fatal("expected error when password is missing, got nil")
 	}
 }
 
 func TestLoadConfig_Postgres_DefaultSSLModeRequire(t *testing.T) {
-	t.Setenv("DB_DRIVER", "postgres")
-	t.Setenv("DB_PASSWORD", "secret")
-	t.Setenv("DB_SSLMODE", "") // Unset -> should default to require
+	writeConfig(t, `db:
+  driver: postgres
+  postgres:
+    password: secret
+`)
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -98,10 +139,19 @@ func TestLoadConfig_Postgres_DefaultSSLModeRequire(t *testing.T) {
 }
 
 func TestLoadConfig_UnsupportedDriver(t *testing.T) {
-	t.Setenv("DB_DRIVER", "mysql")
+	writeConfig(t, "db:\n  driver: mysql\n")
 
 	_, err := LoadConfig()
 	if err == nil {
 		t.Fatal("expected error for unsupported driver, got nil")
+	}
+}
+
+func TestLoadConfig_MissingConfigFile(t *testing.T) {
+	t.Setenv("CONFIG_PATH", filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected an error for a missing config file")
 	}
 }
