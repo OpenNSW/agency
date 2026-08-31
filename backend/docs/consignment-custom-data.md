@@ -9,8 +9,8 @@ consignment, accumulating across every task that touches it over its lifetime.
 
 This document covers only the plumbing — getting fields onto `consignments.custom_data`. The
 actual location-based view filter (joining it against the requesting officer's own
-`users.custom_data`, see [employee-custom-data.md](./employee-custom-data.md)) is a separate,
-not-yet-built follow-up (see [Future work](#future-work)).
+`users.custom_data`, see [employee-custom-data.md](./employee-custom-data.md)) is
+[data-scoping.md](./data-scoping.md).
 
 Note: `consignments` already has a different JSONB column, `nsw_data` — that's unrelated display
 metadata (e.g. trader company name) fetched once from NSW Core and cached on first sight of the
@@ -119,8 +119,6 @@ have actually run against it, not just when it was created.
 
 ## Future work
 
-The actual point of this: filtering the consignment list by the requesting officer's own location,
-joining `consignments.custom_data` against [`users.custom_data`](./employee-custom-data.md) (e.g.
-`consignments.custom_data @> '{"district": "..."}'` scoped to the officer's own district). Not
-built yet — needs a query param on `GET /api/v1/consignments`, and the GIN index above to make that
-filter efficient at scale.
+See [data-scoping.md](./data-scoping.md) for the location-based (and generally attribute-based)
+view filter this column exists to support — implemented as its own `internal/datascope` package.
+The GIN index above is still outstanding, now that filter is live.

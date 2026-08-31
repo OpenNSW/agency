@@ -3,7 +3,8 @@
     {
       "name": "NPQS Officer",
       "email": "npqs_officer@government.dev",
-      "roles": ["officer"]
+      "roles": ["officer"],
+      "customData": { "assignedOffice": "Office 1" }
     }
   ]
 }

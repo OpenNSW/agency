@@ -104,10 +104,12 @@ existing rows) rather than `required` — a `required` addition only affects emp
   fit for such an endpoint — resolves permissions via a `taskId` path param and a task config
   file, with no equivalent concept for a user/employee resource; a generic "admin can edit any
   user" authorization check would be new plumbing this codebase doesn't have yet.
-- **Not surfaced on `GET /api/v1/users/me`.** `ProfileService.GetMe` doesn't return `CustomData`;
-  it would need a new `UserStore` dependency for a DB lookup by `UserID`.
+- **Not surfaced on `GET /api/v1/users/me`.** `ProfileService.GetMe` doesn't return `CustomData`.
+  `UserStore.GetCustomData`, a lookup by `UserID`, now exists (added for
+  [data-scoping.md](./data-scoping.md)'s internal use), so this is now just a `GetMe` wiring gap,
+  not a missing store capability.
 
-Both are natural follow-ups once a concrete read/write need shows up at the API layer.
+That's a natural follow-up once a concrete read need shows up at the API layer.
 
 ## Future work
 
@@ -117,3 +119,6 @@ to filter consignments/applications by employee custom-data fields — e.g. "whi
 were handled by the employee with internal ID X". Not built yet; likely a new query param on
 `GET /api/v1/applications` or `/api/v1/consignments` once the concrete field(s) to filter by are
 known.
+
+This is different from [data-scoping.md](./data-scoping.md), which is now built: that compares the
+*requesting* officer's own `custom_data` against a consignment's, not the claimant's.

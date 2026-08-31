@@ -17,6 +17,7 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/authn"
 	"github.com/OpenNSW/agency/backend/internal/certificate"
 	"github.com/OpenNSW/agency/backend/internal/consignment"
+	"github.com/OpenNSW/agency/backend/internal/datascope"
 	"github.com/OpenNSW/agency/backend/internal/feedback"
 	"github.com/OpenNSW/agency/backend/internal/logging"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
@@ -81,6 +82,24 @@ func main() {
 		}
 	}()
 
+	// Optional: rules restricting which consignments/applications an officer
+	// may see, based on comparing their own users.custom_data against a
+	// consignment's custom_data (see internal/datascope). Read once here at
+	// startup, same as the consignment custom data schema above — a static
+	// per-deployment policy, not per-task/versioned.
+	var dataScopeRules []datascope.Rule
+	if cfg.DataScopeRulesPath != "" {
+		raw, err := os.ReadFile(cfg.DataScopeRulesPath)
+		if err != nil {
+			log.Fatalf("failed to read data scope rules: %v", err)
+		}
+		dataScopeRules, err = datascope.ParseRules(raw)
+		if err != nil {
+			log.Fatalf("invalid data scope rules: %v", err)
+		}
+	}
+	dataScopeResolver := datascope.NewResolver(dataScopeRules, userStore)
+
 	// Initialize auth manager, resolving callers to seeded user records.
 	authManager, err := authn.NewManager(&userProfileAdapter{store: userStore}, cfg.Authn)
 	if err != nil {
@@ -137,11 +156,11 @@ func main() {
 	// Initialize consignment service (shared with application inject so NSW extras
 	// are cached through the consignment domain rather than the application store).
 	consignmentStore := consignment.NewConsignmentStore(store.DB())
-	consignmentService := consignment.NewService(consignmentStore, nswClient)
+	consignmentService := consignment.NewService(consignmentStore, nswClient, dataScopeResolver)
 	consignmentHandler := consignment.NewHandler(consignmentService)
 
 	// Initialize Agency service
-	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService)
+	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService, dataScopeResolver)
 	defer func() {
 		if err := service.Close(); err != nil {
 			slog.Error("failed to close service", "error", err)

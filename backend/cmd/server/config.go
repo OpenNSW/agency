@@ -36,6 +36,11 @@ type Config struct {
 	// internal/consignment.Store.MergeCustomData). Empty means no schema is
 	// configured for this deployment, so it's not validated.
 	ConsignmentCustomDataSchemaPath string
+	// DataScopeRulesPath is an optional path to a JSON file of
+	// internal/datascope.Rule restricting which consignments/applications an
+	// officer may see, based on their own users.custom_data. Empty means no
+	// rules are configured for this deployment, so scoping is a no-op.
+	DataScopeRulesPath string
 }
 
 // LoadConfig loads configuration from environment variables
@@ -44,6 +49,7 @@ func LoadConfig() (Config, error) {
 	cfg := Config{
 		Port:                            envOrDefault("PORT", "8081"),
 		ConsignmentCustomDataSchemaPath: os.Getenv("CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH"),
+		DataScopeRulesPath:              os.Getenv("DATA_SCOPE_RULES_PATH"),
 		// Populate every driver's settings from the environment; database.Config
 		// reads only the selected driver's sub-config, and cfg.DB.Validate()
 		// (below) enforces its requirements. This mirrors how the artifact loader

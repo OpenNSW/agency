@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "required": ["assignedOffice"],
+  "properties": {
+    "assignedOffice": {
+      "type": "string",
+      "description": "The NPQS office this officer is assigned to, matching consignments' officeLocation values (see consignment-custom-data-schema.json) so data scoping (docs/data-scoping.md) can compare them. Office 1: Katunayake. Office 2: Head Office (Colombo). Office 3: Port of Colombo. Office 4: Hambantota Port. Office 5: Mattala Airport. Office 6: Jaffna Airport.",
+      "enum": ["Office 1", "Office 2", "Office 3", "Office 4", "Office 5", "Office 6"]
+    }
+  },
+  "additionalProperties": false
+}

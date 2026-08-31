@@ -6,14 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
+	"github.com/OpenNSW/agency/backend/internal/datascope"
 	"github.com/OpenNSW/agency/backend/internal/feedback"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
 	"github.com/OpenNSW/agency/backend/pkg/httputil"
+	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
 	"gorm.io/gorm"
@@ -150,11 +153,12 @@ type service struct {
 	nsw                NSWClient
 	roleService        *rbac.RoleService
 	consignmentService ConsignmentService
+	dataScope          *datascope.Resolver
 }
 
 // NewService creates a new Agency service instance with database storage
-func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService) Service {
-	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil {
+func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver) Service {
+	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
@@ -163,6 +167,7 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 		nsw:                nsw,
 		roleService:        roleService,
 		consignmentService: consignmentService,
+		dataScope:          dataScope,
 	}
 }
 
@@ -238,7 +243,21 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 // GetApplication.
 func (s *service) GetApplications(ctx context.Context, status string, consignmentID string, search string, page, pageSize int) (*httputil.PagedResponse[Application], error) {
 	page, pageSize, offset := httputil.NormalizePage(page, pageSize)
-	records, total, err := s.store.List(ctx, status, consignmentID, search, offset, pageSize)
+
+	res, err := s.dataScope.Resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Unrestricted && !res.Satisfiable {
+		return &httputil.PagedResponse[Application]{
+			Items:    []Application{},
+			Total:    0,
+			Page:     page,
+			PageSize: pageSize,
+		}, nil
+	}
+
+	records, total, err := s.store.List(ctx, status, consignmentID, search, res.Filter, offset, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -324,10 +343,42 @@ func (s *service) GetApplicationByTaskCode(ctx context.Context, consignmentID st
 	return s.buildApplication(ctx, record)
 }
 
+// checkScope reports whether the caller's resolved data-scope filter (see
+// internal/datascope) matches record's parent consignment, returning
+// ErrApplicationNotFound if not — the same sentinel and 404 shape as a
+// straight GET, so an out-of-scope application looks identical to one that
+// simply doesn't exist. Every caller that reads OR mutates a specific
+// application by taskID must run this before any other check (claim
+// ownership, status, etc.) that could otherwise leak the record's existence
+// via a different error/status (e.g. "must claim first" instead of 404).
+func (s *service) checkScope(ctx context.Context, record *ApplicationRecord) error {
+	res, err := s.dataScope.Resolve(ctx)
+	if err != nil {
+		return err
+	}
+	if res.Unrestricted {
+		return nil
+	}
+	if !res.Satisfiable {
+		return ErrApplicationNotFound
+	}
+	for pointer, want := range res.Filter {
+		got, ok := jsonpointer.Get(record.Consignment.CustomData, pointer)
+		if !ok || !reflect.DeepEqual(got, want) {
+			return ErrApplicationNotFound
+		}
+	}
+	return nil
+}
+
 // buildApplication assembles the API-facing Application DTO from a stored
 // record: resolving the caller's roles and attaching task config metadata,
 // permissions, and forms.
 func (s *service) buildApplication(ctx context.Context, record *ApplicationRecord) (*Application, error) {
+	if err := s.checkScope(ctx, record); err != nil {
+		return nil, err
+	}
+
 	principal, authenticated := authn.FromContext(ctx)
 	var roles []rbac.RoleRecord
 	if authenticated && principal.Kind == authn.KindUser {
@@ -407,6 +458,14 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 			return ErrApplicationNotFound
 		}
 		return fmt.Errorf("failed to get application: %w", err)
+	}
+	// Scope check must come before the claim-ownership check below: an
+	// out-of-scope caller must always see a plain 404, never
+	// ErrApplicationNotClaimedByYou (403) — the latter would leak that the
+	// application exists (and is unclaimed) to someone who shouldn't be able
+	// to tell either way.
+	if err := s.checkScope(ctx, record); err != nil {
+		return err
 	}
 
 	principal, authenticated := authn.FromContext(ctx)
@@ -501,6 +560,20 @@ func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
 		return fmt.Errorf("claiming an application requires an authenticated user")
 	}
 
+	// Resolve scope before the claim itself: an out-of-scope caller must get
+	// the same 404 a GET would give them, not a successful (or conflicting)
+	// claim on a record they shouldn't even be able to tell exists.
+	record, err := s.store.GetByTaskID(taskID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrApplicationNotFound
+		}
+		return fmt.Errorf("failed to get application: %w", err)
+	}
+	if err := s.checkScope(ctx, record); err != nil {
+		return err
+	}
+
 	if err := s.store.ClaimApplication(taskID, principal.UserID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrApplicationNotFound
@@ -511,6 +584,18 @@ func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
 }
 
 // ReleaseApplication releases the calling officer's claim on the application.
+//
+// Deliberately does NOT check data scope, unlike ClaimApplication and
+// ReviewApplication: scope can drift after a valid claim (a later task's
+// consignmentFields push can overwrite the same target field on the
+// consignment; a deployer can edit the rules file), and a claim that drifts
+// out of scope must still be releasable — there's no admin/force-release
+// path in this codebase, so failing closed here would leave it permanently
+// stuck (unclaimable by anyone else, unreviewable and unreleasable by the
+// claimant). Releasing doesn't grant new access or leak anything an
+// already-claiming officer doesn't already know, unlike Claim (which would
+// grant access) or Review (which finalizes a decision) — so there's nothing
+// here worth trading that deadlock risk for.
 func (s *service) ReleaseApplication(ctx context.Context, taskID string) error {
 	principal, authenticated := authn.FromContext(ctx)
 	if !authenticated || principal.Kind != authn.KindUser {

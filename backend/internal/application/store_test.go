@@ -384,7 +384,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List all
-	apps, total, err := store.List(ctx, "", "", "", 0, 10)
+	apps, total, err := store.List(ctx, "", "", "", nil, 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List with status filter
-	_, total, err = store.List(ctx, "APPROVED", "", "", 0, 10)
+	_, total, err = store.List(ctx, "APPROVED", "", "", nil, 0, 10)
 	if err != nil {
 		t.Fatalf("List with status filter failed: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List with pagination
-	apps, _, err = store.List(ctx, "", "", "", 0, 2)
+	apps, _, err = store.List(ctx, "", "", "", nil, 0, 2)
 	if err != nil {
 		t.Fatalf("List with limit failed: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestApplicationStore_List_Pagination(t *testing.T) {
 	}
 
 	// List with offset
-	apps, _, err = store.List(ctx, "", "", "", 3, 10)
+	apps, _, err = store.List(ctx, "", "", "", nil, 3, 10)
 	if err != nil {
 		t.Fatalf("List with offset failed: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestApplicationStore_List_OrderingPriority(t *testing.T) {
 	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", Status: "FEEDBACK_REQUESTED"}, nil)
 	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", Status: "PENDING"}, nil)
 
-	apps, _, err := store.List(ctx, "", "wf-order", "", 0, 10)
+	apps, _, err := store.List(ctx, "", "wf-order", "", nil, 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -449,6 +449,72 @@ func TestApplicationStore_List_OrderingPriority(t *testing.T) {
 	}
 	if apps[2].TaskID != "task-done" {
 		t.Errorf("expected third app to be task-done, got %s", apps[2].TaskID)
+	}
+}
+
+func TestApplicationStore_List_ScopedByConsignmentCustomData(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	if err := store.CreateOrUpdate(&ApplicationRecord{TaskID: "t-colombo", TaskCode: "test", ConsignmentID: "c-colombo", Status: "PENDING"}, nil); err != nil {
+		t.Fatalf("failed to seed c-colombo: %v", err)
+	}
+	if err := store.CreateOrUpdate(&ApplicationRecord{TaskID: "t-gampaha", TaskCode: "test", ConsignmentID: "c-gampaha", Status: "PENDING"}, nil); err != nil {
+		t.Fatalf("failed to seed c-gampaha: %v", err)
+	}
+	setConsignmentCustomData(t, store, "c-colombo", consignment.JSONB{"location": consignment.JSONB{"district": "Colombo"}})
+	setConsignmentCustomData(t, store, "c-gampaha", consignment.JSONB{"location": consignment.JSONB{"district": "Gampaha"}})
+
+	scope := map[string]any{"/location/district": "Colombo"}
+
+	apps, total, err := store.List(ctx, "", "", "", scope, 0, 10)
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+	if len(apps) != 1 || apps[0].TaskID != "t-colombo" {
+		t.Fatalf("unexpected list: %+v", apps)
+	}
+
+	// Unrestricted (nil scope) sees everything.
+	all, allTotal, err := store.List(ctx, "", "", "", nil, 0, 10)
+	if err != nil {
+		t.Fatalf("List (unrestricted) failed: %v", err)
+	}
+	if allTotal != 2 || len(all) != 2 {
+		t.Fatalf("unrestricted List: total=%d items=%d, want 2/2", allTotal, len(all))
+	}
+}
+
+// setConsignmentCustomData directly sets a consignment's custom_data, for
+// exercising List's/GetByTaskID's scope handling without depending on
+// consignment.Store.MergeCustomData's own rules.
+func setConsignmentCustomData(t *testing.T, store *ApplicationStore, consignmentID string, data consignment.JSONB) {
+	t.Helper()
+	if err := store.db.Model(&consignment.ConsignmentRecord{}).Where("id = ?", consignmentID).Update("custom_data", data).Error; err != nil {
+		t.Fatalf("failed to set custom_data for %s: %v", consignmentID, err)
+	}
+}
+
+func TestApplicationStore_GetByTaskID_PreloadsConsignment(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.CreateOrUpdate(&ApplicationRecord{TaskID: "t-preload", TaskCode: "test", ConsignmentID: "c-preload", Status: "PENDING"}, nil); err != nil {
+		t.Fatalf("failed to seed: %v", err)
+	}
+	setConsignmentCustomData(t, store, "c-preload", consignment.JSONB{"location": consignment.JSONB{"district": "Colombo"}})
+
+	app, err := store.GetByTaskID("t-preload")
+	if err != nil {
+		t.Fatalf("GetByTaskID failed: %v", err)
+	}
+	if app.Consignment.ID != "c-preload" {
+		t.Errorf("Consignment.ID = %q, want %q (Consignment not preloaded)", app.Consignment.ID, "c-preload")
+	}
+	if got := app.Consignment.CustomData["location"]; got == nil {
+		t.Errorf("Consignment.CustomData not populated: %+v", app.Consignment)
 	}
 }
 
@@ -470,7 +536,7 @@ func TestApplicationStore_List_ConsignmentFilter(t *testing.T) {
 	}
 
 	// Filter by wf-seed
-	apps, total, err := store.List(ctx, "", "wf-seed", "", 0, 10)
+	apps, total, err := store.List(ctx, "", "wf-seed", "", nil, 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -482,7 +548,7 @@ func TestApplicationStore_List_ConsignmentFilter(t *testing.T) {
 	}
 
 	// Filter by wf-custom
-	_, total, err = store.List(ctx, "", "wf-custom", "", 0, 10)
+	_, total, err = store.List(ctx, "", "wf-custom", "", nil, 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}

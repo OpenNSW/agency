@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/OpenNSW/agency/backend/pkg/dbtype"
 	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
+	"github.com/OpenNSW/agency/backend/pkg/jsonquery"
 	"github.com/OpenNSW/agency/backend/pkg/jsonschemautil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -59,11 +61,15 @@ type Summary struct {
 // Store handles database operations for consignments.
 type Store struct {
 	db *gorm.DB
+	// driver is db's dialect name ("postgres" or "sqlite"), captured once at
+	// construction so List can build a dialect-appropriate SQL predicate for
+	// a datascope-resolved custom_data filter (see pkg/jsonquery).
+	driver string
 }
 
 // NewConsignmentStore creates a new ConsignmentStore backed by db.
 func NewConsignmentStore(db *gorm.DB) *Store {
-	return &Store{db: db}
+	return &Store{db: db, driver: db.Name()}
 }
 
 // Create inserts a consignment row with optional NSW extras if one does not
@@ -174,13 +180,20 @@ type summaryRow struct {
 	TaskCount     int       `gorm:"column:task_count"`
 }
 
-// List returns a paginated list of consignments with task count and optional search.
-func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]Summary, int64, error) {
+// List returns a paginated list of consignments with task count and optional
+// search, restricted to those matching scope (a datascope-resolved map of
+// custom_data JSON Pointer -> required value, applied as an AND of equality
+// predicates; nil/empty means unrestricted).
+func (s *Store) List(ctx context.Context, search string, scope map[string]any, offset, limit int) ([]Summary, int64, error) {
 	var total int64
 
 	countQ := s.db.WithContext(ctx).Model(&ConsignmentRecord{})
 	if search != "" {
 		countQ = countQ.Where("id LIKE ?", "%"+search+"%")
+	}
+	countQ, err := s.applyScope(countQ, scope, "custom_data")
+	if err != nil {
+		return nil, 0, err
 	}
 	if err := countQ.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -197,6 +210,10 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 	if search != "" {
 		dataQ = dataQ.Where("consignments.id LIKE ?", "%"+search+"%")
 	}
+	dataQ, err = s.applyScope(dataQ, scope, "consignments.custom_data")
+	if err != nil {
+		return nil, 0, err
+	}
 
 	var rows []summaryRow
 	if err := dataQ.Scan(&rows).Error; err != nil {
@@ -209,6 +226,30 @@ func (s *Store) List(ctx context.Context, search string, offset, limit int) ([]S
 	}
 
 	return summaries, total, nil
+}
+
+// applyScope adds an AND'd equality predicate to q for each entry in scope
+// (a custom_data JSON Pointer -> required value), reading column via a
+// dialect-appropriate jsonquery.Predicate. Keys are applied in sorted order
+// so the generated SQL is deterministic across identical requests. A nil or
+// empty scope is a no-op.
+func (s *Store) applyScope(q *gorm.DB, scope map[string]any, column string) (*gorm.DB, error) {
+	if len(scope) == 0 {
+		return q, nil
+	}
+	pointers := make([]string, 0, len(scope))
+	for pointer := range scope {
+		pointers = append(pointers, pointer)
+	}
+	sort.Strings(pointers)
+	for _, pointer := range pointers {
+		sql, arg, err := jsonquery.Predicate(s.driver, column, pointer, scope[pointer])
+		if err != nil {
+			return nil, err
+		}
+		q = q.Where(sql, arg)
+	}
+	return q, nil
 }
 
 func summaryFrom(id, status string, updatedAt time.Time, data JSONB, taskCount int) Summary {

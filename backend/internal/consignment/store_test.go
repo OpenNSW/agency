@@ -72,7 +72,7 @@ func TestConsignmentStore_List(t *testing.T) {
 	seedConsignment(t, store, "wf2", "PENDING", "wf2-t1")
 	seedConsignment(t, store, "wf3", "REJECTED", "wf3-t1")
 
-	summaries, total, err := store.List(ctx, "", 0, 10)
+	summaries, total, err := store.List(ctx, "", nil, 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestConsignmentStore_List_Search(t *testing.T) {
 	seedConsignment(t, store, "alpha-wf", "PENDING", "t1")
 	seedConsignment(t, store, "beta-wf", "PENDING", "t2")
 
-	summaries, total, err := store.List(ctx, "alpha", 0, 10)
+	summaries, total, err := store.List(ctx, "alpha", nil, 0, 10)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
@@ -225,6 +225,46 @@ func getCustomData(t *testing.T, store *Store, id string) JSONB {
 		t.Fatalf("failed to fetch consignment %s: %v", id, err)
 	}
 	return rec.CustomData
+}
+
+// seedConsignmentWithCustomData inserts a consignment with the given
+// custom_data directly, for exercising List's scope filter.
+func seedConsignmentWithCustomData(t *testing.T, store *Store, id, status string, customData JSONB) {
+	t.Helper()
+	if err := store.db.Create(&ConsignmentRecord{ID: id, Status: status, CustomData: customData}).Error; err != nil {
+		t.Fatalf("seed consignment %s: %v", id, err)
+	}
+}
+
+func TestConsignmentStore_List_ScopedByCustomData(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	seedConsignmentWithCustomData(t, store, "c-colombo", "PENDING", JSONB{"location": JSONB{"district": "Colombo"}})
+	seedConsignmentWithCustomData(t, store, "c-gampaha", "PENDING", JSONB{"location": JSONB{"district": "Gampaha"}})
+	seedConsignmentWithCustomData(t, store, "c-no-location", "PENDING", JSONB{})
+
+	scope := map[string]any{"/location/district": "Colombo"}
+
+	summaries, total, err := store.List(ctx, "", scope, 0, 10)
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+	if len(summaries) != 1 || summaries[0].ConsignmentID != "c-colombo" {
+		t.Fatalf("unexpected list: %+v", summaries)
+	}
+
+	// Unrestricted (nil scope) sees everything.
+	all, allTotal, err := store.List(ctx, "", nil, 0, 10)
+	if err != nil {
+		t.Fatalf("List (unrestricted) failed: %v", err)
+	}
+	if allTotal != 3 || len(all) != 3 {
+		t.Fatalf("unrestricted List: total=%d items=%d, want 3/3", allTotal, len(all))
+	}
 }
 
 func TestMergeCustomData_FirstMerge(t *testing.T) {
