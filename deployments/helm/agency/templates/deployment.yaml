@@ -22,6 +22,18 @@ spec:
         checksum/config: {{ toYaml .Values.configFiles | sha256sum }}
       {{- end }}
     spec:
+      {{- if .Values.configFiles }}
+      {{- range .Values.volumes }}
+      {{- if eq .name "config" }}
+      {{- fail "volumes: \"config\" is reserved for the configFiles ConfigMap — rename this volume" }}
+      {{- end }}
+      {{- end }}
+      {{- range .Values.volumeMounts }}
+      {{- if eq .name "config" }}
+      {{- fail "volumeMounts: \"config\" is reserved for the configFiles ConfigMap — rename this volumeMount" }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
