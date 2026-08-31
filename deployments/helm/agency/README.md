@@ -7,9 +7,21 @@ override file from the parent `helm/` directory on top of the chart defaults.
 
 ## Files Included
 - **[deployment.yaml](templates/deployment.yaml)**: Deployment, container, ports, environment variables, mounts, and probes.
+- **[configmap.yaml](templates/configmap.yaml)**: Renders `configFiles` into a ConfigMap, mounted read-only into the container (when `configFiles` is set).
 - **[service.yaml](templates/service.yaml)**: Exposes the container port as a cluster-internal Service.
 - **[route.yaml](templates/route.yaml)**: Exposes the Service externally via an OpenShift Route (when `route.enabled`).
 - **[ingress.yaml](templates/ingress.yaml)**: Exposes the Service externally via a Kubernetes Ingress (when `ingress.enabled`).
+
+### Static config files
+
+Some optional, deployment-level config (JSON Schemas, data-scope rules — see
+`backend/config/<agency>/`) isn't part of the versioned task/form artifact
+registry; the backend reads it once from disk at startup via an env var file
+path (e.g. `DATA_SCOPE_RULES_PATH`). Populate `configFiles` in your values file
+to have the chart render a ConfigMap and mount it at `configFilesMountPath`,
+then point the matching env var at the mounted file — see
+`values-example.yaml` for NPQS's config as a worked example. Non-secret only;
+the pod restarts automatically when `configFiles` content changes.
 
 ## Layout
 

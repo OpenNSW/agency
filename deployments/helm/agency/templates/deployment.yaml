@@ -15,6 +15,12 @@ spec:
     metadata:
       labels:
         {{- include "agency.selectorLabels" . | nindent 8 }}
+      {{- if .Values.configFiles }}
+      annotations:
+        # Force a rollout when configFiles content changes, since the
+        # Deployment otherwise has no reference to the ConfigMap's contents.
+        checksum/config: {{ toYaml .Values.configFiles | sha256sum }}
+      {{- end }}
     spec:
       {{- with .Values.podSecurityContext }}
       securityContext:
@@ -63,11 +69,25 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- end }}
-          {{- if .Values.volumeMounts }}
+          {{- if or .Values.configFiles .Values.volumeMounts }}
           volumeMounts:
-            {{- toYaml .Values.volumeMounts | nindent 12 }}
+            {{- if .Values.configFiles }}
+            - name: config
+              mountPath: {{ .Values.configFilesMountPath }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
-      {{- if .Values.volumes }}
+      {{- if or .Values.configFiles .Values.volumes }}
       volumes:
-        {{- toYaml .Values.volumes | nindent 8 }}
+        {{- if .Values.configFiles }}
+        - name: config
+          configMap:
+            name: {{ include "agency.fullname" . }}-config
+        {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}

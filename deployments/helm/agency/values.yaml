@@ -118,6 +118,21 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 
+# Static config files (JSON schemas, data-scope rules, etc.) that the app reads
+# from disk at startup via an env var file path — e.g. backend's
+# CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH, DATA_SCOPE_RULES_PATH, and
+# USER_CUSTOM_DATA_SCHEMA_PATH (see backend/config/<agency>/ for the per-agency
+# content). Each key here becomes one file in a Helm-managed ConfigMap, mounted
+# read-only at configFilesMountPath; point the matching env var at the mounted
+# path to enable it. Left empty by default — see values-example.yaml. e.g.:
+#   configFiles:
+#     data-scope-rules.json: |
+#       { "rules": [...] }
+#   env:
+#     DATA_SCOPE_RULES_PATH: /app/config/data-scope-rules.json
+configFiles: {}
+configFilesMountPath: /app/config
+
 # Volumes and mounts
 volumes: []
 volumeMounts: []

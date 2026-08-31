@@ -36,6 +36,49 @@ service:
   type: ClusterIP
   port: 80
 
+# Static config files mounted into the container from a Helm-managed
+# ConfigMap (see agency/values.yaml: configFiles / configFilesMountPath).
+# The content below is NPQS's config (backend/config/npqs/) — a concrete
+# example for this repo's own agency. Another agency (see
+# docs/agency-tasks/) would substitute the JSON from its own
+# backend/config/<agency>/ directory here instead. Non-secret, so it is
+# fine to inline in plain text like the rest of this file.
+configFiles:
+  consignment-custom-data-schema.json: |
+    {
+      "type": "object",
+      "properties": {
+        "officeLocation": {
+          "type": "string",
+          "description": "Pushed from the applicant's nppo_office_location field by npqs_application_review_v1's consignmentFields rule. Office 1: Katunayake. Office 2: Head Office (Colombo). Office 3: Port of Colombo. Office 4: Hambantota Port. Office 5: Mattala Airport. Office 6: Jaffna Airport.",
+          "enum": ["Office 1", "Office 2", "Office 3", "Office 4", "Office 5", "Office 6"]
+        }
+      },
+      "additionalProperties": false
+    }
+  data-scope-rules.json: |
+    {
+      "rules": [
+        {
+          "consignmentField": "/officeLocation",
+          "userField": "/assignedOffice"
+        }
+      ]
+    }
+  user-custom-data-schema.json: |
+    {
+      "type": "object",
+      "required": ["assignedOffice"],
+      "properties": {
+        "assignedOffice": {
+          "type": "string",
+          "description": "The NPQS office this officer is assigned to, matching consignments' officeLocation values (see consignment-custom-data-schema.json) so data scoping (docs/data-scoping.md) can compare them. Office 1: Katunayake. Office 2: Head Office (Colombo). Office 3: Port of Colombo. Office 4: Hambantota Port. Office 5: Mattala Airport. Office 6: Jaffna Airport.",
+          "enum": ["Office 1", "Office 2", "Office 3", "Office 4", "Office 5", "Office 6"]
+        }
+      },
+      "additionalProperties": false
+    }
+
 env:
   PORT: "8081"
   # Request size and timeout settings (helps protect against slowloris / stalled clients)
@@ -60,6 +103,14 @@ env:
         key: db-password
 
   MIGRATION_DIR: "/app/migrations"
+
+  # --- Static config files (see configFiles above) ---
+  # Optional deployment-level schema/rules, read once at startup — not
+  # per-task/versioned, so they don't go through the artifact loader below.
+  CONSIGNMENT_CUSTOM_DATA_SCHEMA_PATH: "/app/config/consignment-custom-data-schema.json"
+  DATA_SCOPE_RULES_PATH: "/app/config/data-scope-rules.json"
+  # Read by the nswac CLI (kubectl exec into the pod), not the server itself.
+  USER_CUSTOM_DATA_SCHEMA_PATH: "/app/config/user-custom-data-schema.json"
   # The portal and API share one origin now, so browser→API calls are
   # same-origin (no CORS preflight). Keep this scoped to the public host.
   ALLOWED_ORIGINS: "https://agency.example.com"
