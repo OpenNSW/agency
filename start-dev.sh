@@ -315,6 +315,10 @@ run_migrations() {
     if [[ -f .env ]]; then
       source_env_nonclobber .env
     fi
+    # LoadAndExpand resolves every "{{env:NAME}}" in config.yaml, including
+    # nsw.clientSecret, even though migrate's own Config struct never reads
+    # it — so it still needs a default here, same as start_backend below.
+    export NSW_CLIENT_SECRET="${NSW_CLIENT_SECRET:-1234}"
 
     echo "[start-dev] Running migrations..."
     for agency in "${agencies[@]}"; do

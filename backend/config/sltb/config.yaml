@@ -39,7 +39,7 @@ nsw:
   clientSecret: "{{env:NSW_CLIENT_SECRET}}"
   tokenURL: https://localhost:8090/oauth2/token
   tokenParams:
-    resource: ["https://api.nsw-agency.local"]
+    resource: ["https://api.nsw-srilanka.local"]
   scopes:
     - "nsw:task:write"
     - "nsw:consignment:read"
