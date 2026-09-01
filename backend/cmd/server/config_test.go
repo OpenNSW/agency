@@ -1,56 +1,104 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/OpenNSW/core/artifact/loaders"
+	"github.com/OpenNSW/core/artifact/loaders/github"
+	"github.com/OpenNSW/core/artifact/loaders/local"
+	"github.com/OpenNSW/core/artifact/loaders/s3"
 )
 
-func setBaseConfigEnv(t *testing.T) {
+const defaultDB = `db:
+  driver: sqlite
+  sqlite:
+    path: ./test.db
+`
+
+const defaultNSW = `nsw:
+  baseURL: http://localhost:8080
+  clientID: NPQS_TO_NSW
+  clientSecret: secret
+  tokenURL: https://localhost:8090/oauth2/token
+`
+
+const defaultAuthn = `authn:
+  jwksURL: https://localhost:8090/.well-known/jwks.json
+  issuer: https://localhost:8090
+  audience: OGA_PORTAL_APP
+  clientIDs: [OGA_PORTAL_APP]
+  expectedOU: default
+`
+
+// buildConfig assembles a config.yaml fixture from one block per top-level
+// section (db, nsw, authn) plus trailing top-level lines (extra, e.g.
+// "readHeaderTimeout: 1s"). Passing "" for db/nsw/authn uses the corresponding
+// default block above, so a test only has to spell out the section it's
+// actually overriding.
+func buildConfig(t *testing.T, db, nsw, authn, extra string) string {
 	t.Helper()
-	t.Setenv("DB_DRIVER", "sqlite")
-	t.Setenv("DB_PATH", "./test.db")
-	// Point the artifact loader at a valid directory so its startup validation
-	// passes and does not mask the config errors these tests assert on.
-	t.Setenv("ARTIFACT_LOCAL_ROOT", t.TempDir())
+	if db == "" {
+		db = defaultDB
+	}
+	if nsw == "" {
+		nsw = defaultNSW
+	}
+	if authn == "" {
+		authn = defaultAuthn
+	}
+	artifactLoader := "artifactLoader:\n  type: local\n  local:\n    root: " + t.TempDir() + "\n"
+	return db + artifactLoader + nsw + authn + extra
 }
 
-func setRequiredNSWOAuth2Env(t *testing.T) {
+// writeConfig writes yamlContent to a temp file and points CONFIG_PATH at it,
+// so LoadConfig() reads exactly this fixture.
+func writeConfig(t *testing.T, yamlContent string) {
 	t.Helper()
-	t.Setenv("NSW_API_BASE_URL", "http://localhost:8080")
-	t.Setenv("NSW_CLIENT_ID", "NPQS_TO_NSW")
-	t.Setenv("NSW_CLIENT_SECRET", "secret")
-	t.Setenv("NSW_TOKEN_URL", "https://localhost:8090/oauth2/token")
-}
-
-func setRequiredAuthEnv(t *testing.T) {
-	t.Helper()
-	t.Setenv("AUTH_JWKS_URL", "https://localhost:8090/.well-known/jwks.json")
-	t.Setenv("AUTH_ISSUER", "https://localhost:8090")
-	t.Setenv("AUTH_AUDIENCE", "OGA_PORTAL_APP")
-	t.Setenv("AUTH_CLIENT_IDS", "OGA_PORTAL_APP")
-	t.Setenv("AUTH_EXPECTED_OU", "default")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("writing config fixture: %v", err)
+	}
+	t.Setenv("CONFIG_PATH", path)
 }
 
 func TestLoadConfig_RequiresNSWOAuth2Vars(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-
 	testCases := []struct {
 		name     string
-		missing  string
+		nsw      string
 		expected string
 	}{
-		{name: "missing api base url", missing: "NSW_API_BASE_URL", expected: "NSW_API_BASE_URL is required"},
-		{name: "missing client id", missing: "NSW_CLIENT_ID", expected: "NSW_CLIENT_ID is required"},
-		{name: "missing client secret", missing: "NSW_CLIENT_SECRET", expected: "NSW_CLIENT_SECRET is required"},
-		{name: "missing token url", missing: "NSW_TOKEN_URL", expected: "NSW_TOKEN_URL is required"},
+		{name: "missing api base url", nsw: `nsw:
+  clientID: NPQS_TO_NSW
+  clientSecret: secret
+  tokenURL: https://localhost:8090/oauth2/token
+`, expected: "nsw.baseURL is required"},
+		{name: "missing client id", nsw: `nsw:
+  baseURL: http://localhost:8080
+  clientSecret: secret
+  tokenURL: https://localhost:8090/oauth2/token
+`, expected: "nsw.clientID is required"},
+		{name: "missing client secret", nsw: `nsw:
+  baseURL: http://localhost:8080
+  clientID: NPQS_TO_NSW
+  tokenURL: https://localhost:8090/oauth2/token
+`, expected: "nsw.clientSecret is required"},
+		{name: "missing token url", nsw: `nsw:
+  baseURL: http://localhost:8080
+  clientID: NPQS_TO_NSW
+  clientSecret: secret
+`, expected: "nsw.tokenURL is required"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(tc.missing, "")
+			writeConfig(t, buildConfig(t, "", tc.nsw, "", ""))
+
 			_, err := LoadConfig()
 			if err == nil {
 				t.Fatalf("expected error, got nil")
@@ -63,25 +111,47 @@ func TestLoadConfig_RequiresNSWOAuth2Vars(t *testing.T) {
 }
 
 func TestLoadConfig_RequiresAuthVars(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-
 	testCases := []struct {
 		name     string
-		missing  string
+		authn    string
 		expected string
 	}{
-		{name: "missing jwks url", missing: "AUTH_JWKS_URL", expected: "AUTH_JWKS_URL is required"},
-		{name: "missing issuer", missing: "AUTH_ISSUER", expected: "AUTH_ISSUER is required"},
-		{name: "missing audience", missing: "AUTH_AUDIENCE", expected: "AUTH_AUDIENCE is required"},
-		{name: "missing client ids", missing: "AUTH_CLIENT_IDS", expected: "AUTH_CLIENT_IDS is required"},
-		{name: "missing agency", missing: "AUTH_EXPECTED_OU", expected: "ExpectedOU is required"},
+		{name: "missing jwks url", authn: `authn:
+  issuer: https://localhost:8090
+  audience: OGA_PORTAL_APP
+  clientIDs: [OGA_PORTAL_APP]
+  expectedOU: default
+`, expected: "authn.jwksURL is required"},
+		{name: "missing issuer", authn: `authn:
+  jwksURL: https://localhost:8090/.well-known/jwks.json
+  audience: OGA_PORTAL_APP
+  clientIDs: [OGA_PORTAL_APP]
+  expectedOU: default
+`, expected: "authn.issuer is required"},
+		{name: "missing audience", authn: `authn:
+  jwksURL: https://localhost:8090/.well-known/jwks.json
+  issuer: https://localhost:8090
+  clientIDs: [OGA_PORTAL_APP]
+  expectedOU: default
+`, expected: "authn.audience is required"},
+		{name: "missing client ids", authn: `authn:
+  jwksURL: https://localhost:8090/.well-known/jwks.json
+  issuer: https://localhost:8090
+  audience: OGA_PORTAL_APP
+  expectedOU: default
+`, expected: "authn.clientIDs is required"},
+		{name: "missing agency", authn: `authn:
+  jwksURL: https://localhost:8090/.well-known/jwks.json
+  issuer: https://localhost:8090
+  audience: OGA_PORTAL_APP
+  clientIDs: [OGA_PORTAL_APP]
+`, expected: "authn.expectedOU is required"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(tc.missing, "")
+			writeConfig(t, buildConfig(t, "", "", tc.authn, ""))
+
 			_, err := LoadConfig()
 			if err == nil {
 				t.Fatalf("expected error, got nil")
@@ -94,10 +164,8 @@ func TestLoadConfig_RequiresAuthVars(t *testing.T) {
 }
 
 func TestLoadConfig_ParsesOptionalScopes(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("NSW_SCOPES", "scope.a, scope.b, ,scope.c")
+	nsw := defaultNSW + "  scopes: [scope.a, scope.b, scope.c]\n"
+	writeConfig(t, buildConfig(t, "", nsw, "", ""))
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -116,10 +184,7 @@ func TestLoadConfig_ParsesOptionalScopes(t *testing.T) {
 }
 
 func TestLoadConfig_AllowsEmptyScopes(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("NSW_SCOPES", "")
+	writeConfig(t, buildConfig(t, "", "", "", ""))
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -131,11 +196,9 @@ func TestLoadConfig_AllowsEmptyScopes(t *testing.T) {
 }
 
 func TestLoadConfig_ParsesTokenInsecureSkipVerify(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("APP_ENV", "development") // insecure TLS is only honored in development
-	t.Setenv("NSW_TOKEN_INSECURE_SKIP_VERIFY", "true")
+	nsw := defaultNSW + "  tokenInsecureSkipVerify: true\n"
+	// insecure TLS is only honored in development
+	writeConfig(t, buildConfig(t, "", nsw, "", "environment: development\n"))
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -147,12 +210,12 @@ func TestLoadConfig_ParsesTokenInsecureSkipVerify(t *testing.T) {
 }
 
 func TestServerLoadConfig_Postgres_DefaultSSLModeRequire(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("DB_DRIVER", "postgres")
-	t.Setenv("DB_PASSWORD", "secret")
-	t.Setenv("DB_SSLMODE", "")
+	db := `db:
+  driver: postgres
+  postgres:
+    password: secret
+`
+	writeConfig(t, buildConfig(t, db, "", "", ""))
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -164,81 +227,83 @@ func TestServerLoadConfig_Postgres_DefaultSSLModeRequire(t *testing.T) {
 }
 
 func TestLoadConfig_RejectsDBSSLModeDisableOutsideDev(t *testing.T) {
-	t.Setenv("DB_DRIVER", "postgres")
-	t.Setenv("DB_SSLMODE", "disable")
-	t.Setenv("APP_ENV", "production") // Or unset, acting as production
+	// environment left unset, acting as production
+	db := `db:
+  driver: postgres
+  postgres:
+    password: secret
+    sslMode: disable
+`
+	writeConfig(t, buildConfig(t, db, "", "", ""))
 
 	_, err := LoadConfig()
 	if err == nil {
-		t.Fatal("expected an error when DB_SSLMODE=disable outside development, but got nil")
+		t.Fatal("expected an error when db.postgres.sslMode=disable outside development, but got nil")
 	}
-	if !strings.Contains(err.Error(), "DB_SSLMODE=disable") {
-		t.Errorf("expected error to mention DB_SSLMODE=disable, got: %v", err)
+	if !strings.Contains(err.Error(), "db.postgres.sslMode=disable") {
+		t.Errorf("expected error to mention db.postgres.sslMode=disable, got: %v", err)
 	}
 }
 
 func TestLoadConfig_RejectsInvalidTokenInsecureSkipVerify(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("NSW_TOKEN_INSECURE_SKIP_VERIFY", "not-a-bool")
+	nsw := defaultNSW + "  tokenInsecureSkipVerify: not-a-bool\n"
+	writeConfig(t, buildConfig(t, "", nsw, "", ""))
 
 	_, err := LoadConfig()
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
-	if err.Error() != "invalid value for NSW_TOKEN_INSECURE_SKIP_VERIFY: \"not-a-bool\"" {
-		t.Fatalf("unexpected error: %v", err)
+	if !strings.Contains(err.Error(), "parsing config file") {
+		t.Fatalf("expected a config-parse error, got: %v", err)
 	}
 }
 
-// --- insecure-TLS guard (APP_ENV) ---
+// --- insecure-TLS guard (environment) ---
 //
-// AUTH_JWKS_INSECURE_SKIP_VERIFY and NSW_TOKEN_INSECURE_SKIP_VERIFY are only
-// honored when APP_ENV=development; LoadConfig is the sole place APP_ENV is
-// read (isDevEnvironment, below), so it is also the sole enforcement point —
-// downstream (auth, nswclient, pkg/httpclient) simply trusts the flag it's
-// handed. Unset/any other value is treated as production and fails closed.
+// authn.insecureSkipTLSVerify and nsw.tokenInsecureSkipVerify are only
+// honored when environment: development; Config.Validate is the sole
+// enforcement point — downstream (auth, nswclient, pkg/httpclient) simply
+// trusts the flag it's handed. Unset/any other value is treated as
+// production and fails closed.
 
 func TestLoadConfig_NSWInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("NSW_TOKEN_INSECURE_SKIP_VERIFY", "true")
+	nsw := defaultNSW + "  tokenInsecureSkipVerify: true\n"
+	writeConfig(t, buildConfig(t, "", nsw, "", ""))
 
 	_, err := LoadConfig()
-	if err == nil || !strings.Contains(err.Error(), "NSW_TOKEN_INSECURE_SKIP_VERIFY") {
-		t.Fatalf("expected LoadConfig to fail closed with an NSW_TOKEN_INSECURE_SKIP_VERIFY guard error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "nsw.tokenInsecureSkipVerify") {
+		t.Fatalf("expected LoadConfig to fail closed with an nsw.tokenInsecureSkipVerify guard error, got: %v", err)
 	}
 }
 
-// A stray space or newline is easy to introduce in an env file or a secret
-// manager, and AUTH_EXPECTED_OU is compared to the token's ouHandle verbatim,
+// A stray space or newline is easy to introduce in a config file or a secret
+// manager, and authn.expectedOU is compared to the token's ouHandle verbatim,
 // so such a value denies every user. It must fail here, at startup, and not be
 // silently trimmed into a working one: the handle also has to agree with the
 // portal's VITE_IDP_EXPECTED_OU_HANDLE, and correcting one side of that on the
 // fly would hide the divergence.
 func TestLoadConfig_PaddedExpectedOU_FailsClosed(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("AUTH_EXPECTED_OU", "  fcau\n")
+	authn := `authn:
+  jwksURL: https://localhost:8090/.well-known/jwks.json
+  issuer: https://localhost:8090
+  audience: OGA_PORTAL_APP
+  clientIDs: [OGA_PORTAL_APP]
+  expectedOU: "  fcau\n"
+`
+	writeConfig(t, buildConfig(t, "", "", authn, ""))
 
 	_, err := LoadConfig()
 	if err == nil {
-		t.Fatal("expected an error for an AUTH_EXPECTED_OU with surrounding whitespace")
+		t.Fatal("expected an error for an authn.expectedOU with surrounding whitespace")
 	}
-	if !strings.Contains(err.Error(), "ExpectedOU must not have surrounding whitespace") {
+	if !strings.Contains(err.Error(), "authn.expectedOU must not have surrounding whitespace") {
 		t.Fatalf("error = %q, want it to name the whitespace problem", err)
 	}
 }
 
 func TestLoadConfig_AuthJWKSInsecureSkipVerify_AllowedInDev(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("APP_ENV", "development")
-	t.Setenv("AUTH_JWKS_INSECURE_SKIP_VERIFY", "true")
+	authn := defaultAuthn + "  insecureSkipTLSVerify: true\n"
+	writeConfig(t, buildConfig(t, "", "", authn, "environment: development\n"))
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -250,21 +315,17 @@ func TestLoadConfig_AuthJWKSInsecureSkipVerify_AllowedInDev(t *testing.T) {
 }
 
 func TestLoadConfig_AuthJWKSInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("AUTH_JWKS_INSECURE_SKIP_VERIFY", "true")
+	authn := defaultAuthn + "  insecureSkipTLSVerify: true\n"
+	writeConfig(t, buildConfig(t, "", "", authn, ""))
 
 	_, err := LoadConfig()
-	if err == nil || !strings.Contains(err.Error(), "AUTH_JWKS_INSECURE_SKIP_VERIFY") {
-		t.Fatalf("expected LoadConfig to fail closed with an AUTH_JWKS_INSECURE_SKIP_VERIFY guard error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "authn.insecureSkipTLSVerify") {
+		t.Fatalf("expected LoadConfig to fail closed with an authn.insecureSkipTLSVerify guard error, got: %v", err)
 	}
 }
 
 func TestLoadConfig_ServerTimeoutDefaults(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
+	writeConfig(t, buildConfig(t, "", "", "", ""))
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -284,14 +345,9 @@ func TestLoadConfig_ServerTimeoutDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_ServerTimeoutsFromEnv(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("SERVER_READ_HEADER_TIMEOUT", "1s")
-	t.Setenv("SERVER_READ_TIMEOUT", "2s")
-	t.Setenv("SERVER_WRITE_TIMEOUT", "3s")
-	t.Setenv("SERVER_IDLE_TIMEOUT", "4s")
+func TestLoadConfig_ServerTimeoutsFromConfig(t *testing.T) {
+	extra := "readHeaderTimeout: 1s\nreadTimeout: 2s\nwriteTimeout: 3s\nidleTimeout: 4s\n"
+	writeConfig(t, buildConfig(t, "", "", "", extra))
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -312,46 +368,124 @@ func TestLoadConfig_ServerTimeoutsFromEnv(t *testing.T) {
 }
 
 func TestLoadConfig_RejectsInvalidServerTimeout(t *testing.T) {
-	setBaseConfigEnv(t)
-	setRequiredNSWOAuth2Env(t)
-	setRequiredAuthEnv(t)
-	t.Setenv("SERVER_READ_TIMEOUT", "not-a-duration")
+	writeConfig(t, buildConfig(t, "", "", "", "readTimeout: not-a-duration\n"))
 
 	_, err := LoadConfig()
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
-	if err.Error() != `invalid value for SERVER_READ_TIMEOUT: "not-a-duration"` {
+	if !strings.Contains(err.Error(), `invalid duration "not-a-duration"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestLoadConfig_RejectsInvalidMaxRequestBytes(t *testing.T) {
 	testCases := []struct {
-		name     string
-		value    string
-		expected string
+		name  string
+		value string
 	}{
-		{name: "zero", value: "0", expected: `invalid value for MAX_REQUEST_BYTES: "0"`},
-		{name: "negative", value: "-1", expected: `invalid value for MAX_REQUEST_BYTES: "-1"`},
-		{name: "invalid integer", value: "abc", expected: `invalid value for MAX_REQUEST_BYTES: "abc"`},
+		{name: "zero", value: "0"},
+		{name: "negative", value: "-1"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			setBaseConfigEnv(t)
-			setRequiredNSWOAuth2Env(t)
-			setRequiredAuthEnv(t)
-			t.Setenv("MAX_REQUEST_BYTES", tc.value)
+			writeConfig(t, buildConfig(t, "", "", "", "maxRequestBytes: "+tc.value+"\n"))
 
 			_, err := LoadConfig()
 			if err == nil {
 				t.Fatalf("expected error, got nil")
 			}
-			if err.Error() != tc.expected {
-				t.Fatalf("expected error %q, got %q", tc.expected, err.Error())
+			if !strings.Contains(err.Error(), "maxRequestBytes must be greater than zero") {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadConfig_MissingConfigFile(t *testing.T) {
+	t.Setenv("CONFIG_PATH", filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected an error for a missing config file")
+	}
+	if !strings.Contains(err.Error(), "reading config file") {
+		t.Fatalf("expected a file-read error, got: %v", err)
+	}
+}
+
+func TestLoadConfig_ResolvesSecretFromEnv(t *testing.T) {
+	t.Setenv("DB_PASSWORD_FOR_TEST", "s3cr3t")
+	db := `db:
+  driver: postgres
+  postgres:
+    password: "{{env:DB_PASSWORD_FOR_TEST}}"
+`
+	writeConfig(t, buildConfig(t, db, "", "", ""))
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.DB.Postgres.Password != "s3cr3t" {
+		t.Fatalf("expected resolved password %q, got %q", "s3cr3t", cfg.DB.Postgres.Password)
+	}
+}
+
+// Placeholder resolution isn't limited to fields the app considers
+// "secrets" — any scalar, including a non-string one, can be sourced from an
+// env var. Exercises maxRequestBytes (an *int64) to prove the resolved
+// node's tag/style reset lets the real type still get inferred correctly.
+func TestLoadConfig_ResolvesPlaceholderOnNonStringField(t *testing.T) {
+	t.Setenv("MAX_REQUEST_BYTES_FOR_TEST", "12345")
+	writeConfig(t, buildConfig(t, "", "", "", "maxRequestBytes: \"{{env:MAX_REQUEST_BYTES_FOR_TEST}}\"\n"))
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.MaxRequestBytes != 12345 {
+		t.Fatalf("expected MaxRequestBytes 12345, got %d", cfg.MaxRequestBytes)
+	}
+}
+
+func TestLoadConfig_UnsetSecretEnvFailsClosed(t *testing.T) {
+	nsw := `nsw:
+  baseURL: http://localhost:8080
+  clientID: NPQS_TO_NSW
+  clientSecret: "{{env:NSW_CLIENT_SECRET_DOES_NOT_EXIST}}"
+  tokenURL: https://localhost:8090/oauth2/token
+`
+	writeConfig(t, buildConfig(t, "", nsw, "", ""))
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected an error for an unset secret env var")
+	}
+	if !strings.Contains(err.Error(), "nsw.clientSecret") {
+		t.Fatalf("error = %q, want it to name the failing field", err)
+	}
+}
+
+// A value that only partly looks like a placeholder (extra text alongside
+// the braces) is left as a literal, not resolved — the whole scalar must be
+// the placeholder.
+func TestLoadConfig_PartialPlaceholderIsLiteral(t *testing.T) {
+	nsw := `nsw:
+  baseURL: http://localhost:8080
+  clientID: NPQS_TO_NSW
+  clientSecret: "prefix-{{env:SOME_VAR}}-suffix"
+  tokenURL: https://localhost:8090/oauth2/token
+`
+	writeConfig(t, buildConfig(t, "", nsw, "", ""))
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.NSW.ClientSecret != "prefix-{{env:SOME_VAR}}-suffix" {
+		t.Fatalf("expected literal passthrough, got %q", cfg.NSW.ClientSecret)
 	}
 }
 
@@ -369,10 +503,62 @@ func TestIsDevEnvironment(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.val, func(t *testing.T) {
-			t.Setenv("APP_ENV", c.val)
-			if got := isDevEnvironment(); got != c.want {
-				t.Fatalf("isDevEnvironment() with APP_ENV=%q = %v, want %v", c.val, got, c.want)
+			if got := isDevEnvironment(c.val); got != c.want {
+				t.Fatalf("isDevEnvironment(%q) = %v, want %v", c.val, got, c.want)
 			}
 		})
 	}
+}
+
+// TestYamlLoaderMirrors_MatchUpstreamFields guards against
+// yamlArtifactLoaderConfig (and its sub-configs) silently missing a field
+// added to the upstream loaders.Config/local.Config/github.Config/s3.Config
+// types it mirrors for YAML decoding (see toLoadersConfig): a new upstream
+// field must be deliberately handled here — either mirrored, or added to
+// intentionallyOmittedUpstreamFields with a reason.
+func TestYamlLoaderMirrors_MatchUpstreamFields(t *testing.T) {
+	// Fields that exist upstream but are deliberately not part of the YAML
+	// shape (not something a config file can express, e.g. an injected
+	// *http.Client).
+	intentionallyOmittedUpstreamFields := map[string][]string{
+		"github.Config": {"HTTPClient"},
+	}
+
+	cases := []struct {
+		upstreamName string
+		upstream     any
+		mirror       any
+	}{
+		{"loaders.Config", loaders.Config{}, yamlArtifactLoaderConfig{}},
+		{"local.Config", local.Config{}, yamlLocalLoaderConfig{}},
+		{"github.Config", github.Config{}, yamlGitHubLoaderConfig{}},
+		{"s3.Config", s3.Config{}, yamlS3LoaderConfig{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.upstreamName, func(t *testing.T) {
+			mirrorFields := fieldNameSet(tc.mirror)
+			omitted := intentionallyOmittedUpstreamFields[tc.upstreamName]
+
+			ut := reflect.TypeOf(tc.upstream)
+			for i := range ut.NumField() {
+				name := ut.Field(i).Name
+				if slices.Contains(omitted, name) {
+					continue
+				}
+				if !mirrorFields[name] {
+					t.Errorf("%s.%s has no matching field in its yaml mirror struct — mirror it in cmd/server/config.go, or add it to intentionallyOmittedUpstreamFields with a reason", tc.upstreamName, name)
+				}
+			}
+		})
+	}
+}
+
+func fieldNameSet(v any) map[string]bool {
+	t := reflect.TypeOf(v)
+	set := make(map[string]bool, t.NumField())
+	for i := range t.NumField() {
+		set[t.Field(i).Name] = true
+	}
+	return set
 }

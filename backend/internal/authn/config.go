@@ -14,11 +14,11 @@ import (
 // this package's own business, not a per-deployment setting, so coreConfig
 // declares them from the claim constants in principal.go.
 type Config struct {
-	JWKSURL               string
-	Issuer                string
-	Audience              string
-	ClientIDs             []string
-	InsecureSkipTLSVerify bool
+	JWKSURL               string   `yaml:"jwksURL"`
+	Issuer                string   `yaml:"issuer"`
+	Audience              string   `yaml:"audience"`
+	ClientIDs             []string `yaml:"clientIDs"`
+	InsecureSkipTLSVerify bool     `yaml:"insecureSkipTLSVerify"`
 
 	// ExpectedOU is the OU handle every user token must carry. It has no
 	// equivalent in core/authn — enforcing it is the main reason this package
@@ -30,29 +30,41 @@ type Config struct {
 	// quietly correcting the value would leave a wrong configuration working,
 	// with nothing to say it was wrong — and this handle has to agree with the
 	// portal's VITE_IDP_EXPECTED_OU_HANDLE, which no code checks.
-	ExpectedOU string
+	ExpectedOU string `yaml:"expectedOU"`
 }
+
+// authFieldNames remaps core/authn's error messages, which name its own
+// env-var-styled public contract (predating this service's config.yaml),
+// onto the YAML field paths this package's Config actually reads them from —
+// so a validation error names the field a deployer would recognize in
+// config.yaml, not an env var that no longer exists.
+var authFieldNames = strings.NewReplacer(
+	"AUTH_JWKS_URL", "authn.jwksURL",
+	"AUTH_ISSUER", "authn.issuer",
+	"AUTH_AUDIENCE", "authn.audience",
+	"AUTH_CLIENT_IDS", "authn.clientIDs",
+)
 
 // Validate reports whether the configuration is usable.
 //
-// The shared settings are validated by core/authn so their messages stay in
-// step with the library, and so the claim declarations coreConfig adds are
-// checked too — a claim name colliding with core's fixed schema is rejected
-// here rather than silently shadowing a built-in field. Only ExpectedOU, which
+// The shared settings are validated by core/authn (so the claim declarations
+// coreConfig adds are checked too — a claim name colliding with core's fixed
+// schema is rejected here rather than silently shadowing a built-in field),
+// with its error text passed through authFieldNames. Only ExpectedOU, which
 // core knows nothing about, is validated locally.
 //
 // The resulting error strings are asserted verbatim by this package's tests and
 // by cmd/server's, so they are part of this function's contract.
 func (c Config) Validate() error {
 	if err := c.coreConfig().Validate(); err != nil {
-		return err
+		return fmt.Errorf("%s", authFieldNames.Replace(err.Error()))
 	}
 	trimmed := strings.TrimSpace(c.ExpectedOU)
 	if trimmed == "" {
-		return fmt.Errorf("ExpectedOU is required")
+		return fmt.Errorf("authn.expectedOU is required")
 	}
 	if trimmed != c.ExpectedOU {
-		return fmt.Errorf("ExpectedOU must not have surrounding whitespace: AUTH_EXPECTED_OU=%q is compared to the token's ouHandle verbatim, which core/authn trims, so it would deny every user", c.ExpectedOU)
+		return fmt.Errorf("authn.expectedOU must not have surrounding whitespace: authn.expectedOU=%q is compared to the token's ouHandle verbatim, which core/authn trims, so it would deny every user", c.ExpectedOU)
 	}
 	return nil
 }

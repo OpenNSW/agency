@@ -7,17 +7,17 @@ import (
 
 // SQLiteConfig holds SQLite-specific settings.
 type SQLiteConfig struct {
-	Path string // SQLite file path
+	Path string `yaml:"path"` // SQLite file path
 }
 
 // PostgresConfig holds PostgreSQL-specific settings.
 type PostgresConfig struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	Name     string
-	SSLMode  string
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Name     string `yaml:"name"`
+	SSLMode  string `yaml:"sslMode"`
 }
 
 // Config selects a database driver and carries the per-driver settings. Only
@@ -25,9 +25,9 @@ type PostgresConfig struct {
 // mirrors the artifact loaders.Config shape (a discriminator plus one
 // sub-config per backend).
 type Config struct {
-	Driver   string // "sqlite" or "postgres"
-	SQLite   SQLiteConfig
-	Postgres PostgresConfig
+	Driver   string         `yaml:"driver"` // "sqlite" or "postgres"
+	SQLite   SQLiteConfig   `yaml:"sqlite"`
+	Postgres PostgresConfig `yaml:"postgres"`
 }
 
 // Validate reports whether the selected driver is supported and its required

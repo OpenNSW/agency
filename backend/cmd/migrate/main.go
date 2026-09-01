@@ -115,16 +115,11 @@ Commands:
   status           Print the applied/pending state of all migrations
   generate <name>  Create a new migration file with the next version number
 
+Configuration is read from a YAML file (see backend/config.example.yaml for
+the full schema — this command only reads its db and migrationDir fields):
+
 Environment variables:
-  MIGRATION_DIR   Path to SQL migration files (default: ./migrations)
-  DB_DRIVER       sqlite or postgres (default: sqlite)
-  DB_PATH         SQLite file path (default: ./agency_applications.db)
-  DB_HOST         PostgreSQL host (default: localhost)
-  DB_PORT         PostgreSQL port (default: 5432)
-  DB_USER         PostgreSQL user (default: postgres)
-  DB_PASSWORD     PostgreSQL password (required for postgres)
-  DB_NAME         PostgreSQL database name (default: nsw_agency_db)
-  DB_SSLMODE      PostgreSQL SSL mode (default: require)
+  CONFIG_PATH     Path to the config.yaml file (default: ./config.yaml)
 `)
 }
 

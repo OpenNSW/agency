@@ -12,42 +12,45 @@ var reservedTokenParams = []string{"grant_type", "scope", "client_id", "client_s
 
 // Config holds the connection and OAuth2 credentials for the NSW service.
 type Config struct {
-	BaseURL      string
-	ClientID     string
-	ClientSecret string
-	TokenURL     string
-	Scopes       []string
+	BaseURL      string   `yaml:"baseURL"`
+	ClientID     string   `yaml:"clientID"`
+	ClientSecret string   `yaml:"clientSecret"`
+	TokenURL     string   `yaml:"tokenURL"`
+	Scopes       []string `yaml:"scopes"`
 	// TokenParams carries extra token-request parameters, sent in the body (RFC 6749
 	// §3.2). Which ones are needed is a property of the authorization server, not of
-	// this client. Left empty, nothing extra is sent.
-	TokenParams             url.Values
-	TokenInsecureSkipVerify bool
+	// this client. Left empty, nothing extra is sent. Each value is a list (the
+	// url.Values shape), e.g. `resource: ["https://api.example"]`.
+	TokenParams             url.Values `yaml:"tokenParams"`
+	TokenInsecureSkipVerify bool       `yaml:"tokenInsecureSkipVerify"`
 }
 
-// Validate ensures the required OAuth2 connection fields are present.
+// Validate ensures the required OAuth2 connection fields are present. Error
+// messages name config.yaml's field paths (nsw.*) — cmd/server's sole
+// source for this Config — not env vars.
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.BaseURL) == "" {
-		return fmt.Errorf("NSW_API_BASE_URL is required")
+		return fmt.Errorf("nsw.baseURL is required")
 	}
 	u, err := url.Parse(c.BaseURL)
 	if err != nil {
-		return fmt.Errorf("NSW_API_BASE_URL must be a valid URL: %w", err)
+		return fmt.Errorf("nsw.baseURL must be a valid URL: %w", err)
 	}
 	if path := strings.Trim(u.Path, "/"); path != "" {
-		return fmt.Errorf("NSW_API_BASE_URL must be the NSW service origin only, with no path (got %q): endpoint paths are set by the client, not configured", u.Path)
+		return fmt.Errorf("nsw.baseURL must be the NSW service origin only, with no path (got %q): endpoint paths are set by the client, not configured", u.Path)
 	}
 	if strings.TrimSpace(c.ClientID) == "" {
-		return fmt.Errorf("NSW_CLIENT_ID is required")
+		return fmt.Errorf("nsw.clientID is required")
 	}
 	if strings.TrimSpace(c.ClientSecret) == "" {
-		return fmt.Errorf("NSW_CLIENT_SECRET is required")
+		return fmt.Errorf("nsw.clientSecret is required")
 	}
 	if strings.TrimSpace(c.TokenURL) == "" {
-		return fmt.Errorf("NSW_TOKEN_URL is required")
+		return fmt.Errorf("nsw.tokenURL is required")
 	}
 	for _, k := range reservedTokenParams {
 		if _, ok := c.TokenParams[k]; ok {
-			return fmt.Errorf("NSW_TOKEN_PARAMS must not set %q: it is set by the client-credentials flow", k)
+			return fmt.Errorf("nsw.tokenParams must not set %q: it is set by the client-credentials flow", k)
 		}
 	}
 	return nil

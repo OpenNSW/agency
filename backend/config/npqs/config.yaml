@@ -1,0 +1,54 @@
+# Dev config for the NPQS agency (National Plant Quarantine Service), used by
+# ../../../start-dev.sh via CONFIG_PATH=config/npqs/config.yaml. Checked into
+# the repo — see backend/config.example.yaml for the full schema and every
+# field's meaning. port/allowedOrigins here must match start-dev.sh's
+# CONFIG_npqs line (BE_PORT/FE_PORT).
+port: "8081"
+environment: development # dev-only local IdP; never set this in a real deployment
+allowedOrigins: ["http://localhost:5174"]
+
+# This agency has optional custom-data schema / data-scope files (see
+# docs/consignment-custom-data.md, docs/data-scoping.md) — most agencies
+# don't, so this section is agency-specific, not part of the shared template.
+consignmentCustomDataSchemaPath: ./config/npqs/consignment-custom-data-schema.json
+dataScopeRulesPath: ./config/npqs/data-scope-rules.json
+
+db:
+  driver: sqlite
+  sqlite:
+    path: ./npqs_applications.db
+
+artifactLoader:
+  type: local
+  local:
+    root: ../../one-trade-artifacts/npqs
+
+# Native dev serves the frontend via its own Vite dev server (start_frontend
+# in start-dev.sh), so the backend stays API-only — dir points at a path that
+# won't exist.
+web:
+  dir: /nonexistent
+
+authn:
+  jwksURL: https://localhost:8090/oauth2/jwks
+  issuer: https://localhost:8090
+  audience: https://api.nsw-agency.local
+  # The SPA portal client plus the inbound NSW->Agency m2m client (so NSW core
+  # can call /api/v1/inject).
+  clientIDs: ["OGA_PORTAL_APP_NPQS", "NSW_TO_NPQS"]
+  expectedOU: npqs
+  insecureSkipTLSVerify: true # dev-only local IdP; never set this in a real deployment
+
+nsw:
+  baseURL: http://localhost:8080
+  clientID: NPQS_TO_NSW
+  clientSecret: "{{env:NSW_CLIENT_SECRET}}"
+  tokenURL: https://localhost:8090/oauth2/token
+  tokenParams:
+    resource: ["https://api.nsw-srilanka.local"]
+  scopes:
+    - "nsw:task:write"
+    - "nsw:consignment:read"
+    - "nsw:storage:read"
+    - "nsw:storage:write"
+  tokenInsecureSkipVerify: true # dev-only local IdP; never set this in a real deployment

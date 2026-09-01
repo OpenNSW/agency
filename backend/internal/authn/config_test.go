@@ -28,18 +28,18 @@ func TestConfig_Validate_RequiredFields(t *testing.T) {
 		mutate  func(c *Config)
 		wantErr string
 	}{
-		{"missing JWKS URL", func(c *Config) { c.JWKSURL = "" }, "AUTH_JWKS_URL is required"},
-		{"relative JWKS URL", func(c *Config) { c.JWKSURL = "/jwks" }, "AUTH_JWKS_URL must be a valid absolute URL"},
-		{"non-http JWKS URL", func(c *Config) { c.JWKSURL = "ftp://idp.example.com" }, "AUTH_JWKS_URL must use http or https"},
-		{"missing issuer", func(c *Config) { c.Issuer = "" }, "AUTH_ISSUER is required"},
-		{"relative issuer", func(c *Config) { c.Issuer = "idp" }, "AUTH_ISSUER must be a valid absolute URL"},
-		{"missing audience", func(c *Config) { c.Audience = "" }, "AUTH_AUDIENCE is required"},
-		{"missing client ids", func(c *Config) { c.ClientIDs = nil }, "AUTH_CLIENT_IDS is required"},
-		{"missing expected OU", func(c *Config) { c.ExpectedOU = "" }, "ExpectedOU is required"},
-		{"whitespace-only expected OU", func(c *Config) { c.ExpectedOU = "   " }, "ExpectedOU is required"},
+		{"missing JWKS URL", func(c *Config) { c.JWKSURL = "" }, "authn.jwksURL is required"},
+		{"relative JWKS URL", func(c *Config) { c.JWKSURL = "/jwks" }, "authn.jwksURL must be a valid absolute URL"},
+		{"non-http JWKS URL", func(c *Config) { c.JWKSURL = "ftp://idp.example.com" }, "authn.jwksURL must use http or https"},
+		{"missing issuer", func(c *Config) { c.Issuer = "" }, "authn.issuer is required"},
+		{"relative issuer", func(c *Config) { c.Issuer = "idp" }, "authn.issuer must be a valid absolute URL"},
+		{"missing audience", func(c *Config) { c.Audience = "" }, "authn.audience is required"},
+		{"missing client ids", func(c *Config) { c.ClientIDs = nil }, "authn.clientIDs is required"},
+		{"missing expected OU", func(c *Config) { c.ExpectedOU = "" }, "authn.expectedOU is required"},
+		{"whitespace-only expected OU", func(c *Config) { c.ExpectedOU = "   " }, "authn.expectedOU is required"},
 		// Rejected rather than trimmed: a value that matches no token must not
 		// be quietly corrected into one that does.
-		{"padded expected OU", func(c *Config) { c.ExpectedOU = " fcau\n" }, `ExpectedOU must not have surrounding whitespace: AUTH_EXPECTED_OU=" fcau\n" is compared to the token's ouHandle verbatim, which core/authn trims, so it would deny every user`},
+		{"padded expected OU", func(c *Config) { c.ExpectedOU = " fcau\n" }, `authn.expectedOU must not have surrounding whitespace: authn.expectedOU=" fcau\n" is compared to the token's ouHandle verbatim, which core/authn trims, so it would deny every user`},
 	}
 
 	for _, tc := range cases {

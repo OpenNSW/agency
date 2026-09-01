@@ -4,21 +4,26 @@
 # One image now serves both the API and the SPA from one process and one port,
 # so this is a single release (there is no separate frontend deployment).
 #
-# Mirrors backend/.env.example AND frontend/.env.example. NON-secret config lives
-# here in plain text; SECRETS (DB_PASSWORD, NSW_CLIENT_SECRET) are referenced from
-# a Kubernetes Secret and must NEVER be written here. Create the Secret
-# out-of-band, e.g.:
+# Most server config now lives in a config.yaml file (see
+# backend/config.example.yaml), not env vars — mirrors backend/.env.example.
+# This chart does not (yet) generate a ConfigMap from inline values for it;
+# create one yourself and mount it with the generic volumes/volumeMounts
+# below. NON-secret config goes in that ConfigMap's config.yaml; SECRETS
+# (DB_PASSWORD, NSW_CLIENT_SECRET) are referenced from a Kubernetes Secret via
+# config.yaml's "{{env:NAME}}" syntax (see backend/config.example.yaml) and must
+# NEVER be written into the ConfigMap. Create both out-of-band, e.g.:
 #   kubectl create secret generic agency-secrets \
 #     --from-literal=db-password=... \
 #     --from-literal=nsw-client-secret=... \
 #     --from-literal=artifact-s3-access-key=... \
 #     --from-literal=artifact-s3-secret-key=...
+#   kubectl create configmap agency-config --from-file=config.yaml=./config.yaml
 #
-# The artifact-s3-* keys are only needed when the artifact loader uses S3/R2 with
-# static credentials (see the ARTIFACT_* env below).
+# The artifact-s3-* secret keys are only needed when the artifact loader uses
+# S3/R2 with static credentials (see config.yaml's artifactLoader.s3 section).
 #
-# The https:// URLs and *_CLIENT_ID / *_OU values below are placeholders —
-# replace them with your environment's real IdP and NSW API endpoints.
+# The https:// URLs and *ClientID / *OU values in config.yaml are placeholders
+# — replace them with your environment's real IdP and NSW API endpoints.
 
 replicaCount: 1
 
@@ -37,113 +42,49 @@ service:
   port: 80
 
 env:
-  PORT: "8081"
-  # Request size and timeout settings (helps protect against slowloris / stalled clients)
-  MAX_REQUEST_BYTES: "33554432"
-  SERVER_READ_HEADER_TIMEOUT: "5s"
-  SERVER_READ_TIMEOUT: "15s"
-  SERVER_WRITE_TIMEOUT: "30s"
-  SERVER_IDLE_TIMEOUT: "60s"
+  # Where cmd/server AND the migration Job (see migration.enabled below,
+  # which reuses this same env/volumes) find config.yaml — the mount path
+  # below. Everything else, including `environment` (DEV-ONLY: "development"
+  # enables config.yaml's insecure-TLS escape hatches — never set this in a
+  # real deployment) and the db section cmd/migrate also reads from it, lives
+  # in that one file, not here.
+  CONFIG_PATH: "/app/config/config.yaml"
 
-  # --- Database (PostgreSQL) ---
-  DB_DRIVER: "postgres"
-  DB_HOST: "nsw-db"            # Postgres Service name in the cluster
-  DB_PORT: "5432"
-  DB_USER: "postgres"
-  DB_NAME: "nsw_agency_db"
-  DB_SSLMODE: "disable"        # set to "require" when the DB enforces TLS
+  # Secrets config.yaml resolves via "{{env:NAME}}" (see backend/config.example.yaml).
   # SECRET — pulled from a Kubernetes Secret, never inlined.
   DB_PASSWORD:
     valueFrom:
       secretKeyRef:
         name: agency-secrets
         key: db-password
-
-  MIGRATION_DIR: "/app/migrations"
-  # The portal and API share one origin now, so browser→API calls are
-  # same-origin (no CORS preflight). Keep this scoped to the public host.
-  ALLOWED_ORIGINS: "https://agency.example.com"
-
-  # --- Artifact loader: task configs, forms, and manifest.json ---
-  # These are NO LONGER baked into the image; they are fetched at runtime from an
-  # external source. ARTIFACT_LOADER_TYPE picks the backend (local | github | s3)
-  # and only the selected backend's vars are read. Use "github" (pinned to an
-  # immutable ref) or "s3" (e.g. Cloudflare R2) in a cluster — "local" only works
-  # with a mounted volume. See backend/.env.example for the complete set.
-  ARTIFACT_LOADER_TYPE: "s3"
-  ARTIFACT_S3_BUCKET: "one-trade-artifacts"
-  ARTIFACT_S3_REGION: "auto"                # "auto" for R2
-  ARTIFACT_S3_ENDPOINT: "https://<accountid>.r2.cloudflarestorage.com"
-  ARTIFACT_S3_PREFIX: "fcau"                # in-bucket key prefix (empty = root)
-  # Static S3/R2 credentials — SECRETS, pulled from the Kubernetes Secret. Set
-  # both or neither; omit both to fall back to the pod's default AWS credential
-  # chain (IRSA / instance profile). R2 requires static keys, so keep these.
-  ARTIFACT_S3_ACCESS_KEY:
-    valueFrom:
-      secretKeyRef:
-        name: agency-secrets
-        key: artifact-s3-access-key
-  ARTIFACT_S3_SECRET_KEY:
-    valueFrom:
-      secretKeyRef:
-        name: agency-secrets
-        key: artifact-s3-secret-key
-  # For a GitHub source instead of S3, comment out the ARTIFACT_S3_* block above
-  # and use:
-  #   ARTIFACT_LOADER_TYPE: "github"
-  #   ARTIFACT_GITHUB_OWNER: "OpenNSW"
-  #   ARTIFACT_GITHUB_REPO: "one-trade-artifacts"
-  #   ARTIFACT_GITHUB_REF: "<tag-or-sha>"      # prefer an immutable tag/SHA
-  #   ARTIFACT_GITHUB_BASE_PATH: "fcau"        # optional in-repo prefix
-  # For a private repo (or to lift the unauthenticated rate limit), the token is
-  # a SECRET — pull it from the Kubernetes Secret rather than inlining it:
-  #   ARTIFACT_GITHUB_TOKEN:
-  #     valueFrom:
-  #       secretKeyRef:
-  #         name: agency-secrets
-  #         key: artifact-github-token
-
-  # --- Inbound auth: tokens this backend accepts ---
-  AUTH_JWKS_URL: "https://idp.example.com/oauth2/jwks"
-  AUTH_ISSUER: "https://idp.example.com"
-  AUTH_AUDIENCE: "https://api.nsw-agency.local"
-  AUTH_CLIENT_IDS: "<SPA_AGENCY_PORTAL>,<M2M_NSW_TO_AGENCY>"
-  AUTH_EXPECTED_OU: "<AGENCY_OU_HANDLE>"
-  AUTH_JWKS_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
-
-  # --- Outbound auth: this backend calling the NSW API ---
-  NSW_API_BASE_URL: "https://nsw-api.example.com"
-  NSW_CLIENT_ID: "<M2M_AGENCY_TO_NSW>"
-  # SECRET — pulled from a Kubernetes Secret, never inlined.
   NSW_CLIENT_SECRET:
     valueFrom:
       secretKeyRef:
         name: agency-secrets
         key: nsw-client-secret
-  NSW_TOKEN_URL: "https://idp.example.com/oauth2/token"
-  NSW_SCOPES: "nsw:task:write,nsw:consignment:read,nsw:storage:read,nsw:storage:write"
-  # Extra token-request parameters, query-string encoded (sent in the request body).
-  # NSW's IdP requires an RFC 8707 `resource` indicator on scope-bearing requests.
-  NSW_TOKEN_PARAMS: "resource=https://api.nsw-srilanka.local"
-  NSW_TOKEN_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
+  # Only needed if config.yaml's artifactLoader uses S3/R2 with static
+  # credentials, or a private GitHub repo (see backend/config.example.yaml).
+  # ARTIFACT_S3_ACCESS_KEY / ARTIFACT_S3_SECRET_KEY / ARTIFACT_GITHUB_TOKEN:
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: agency-secrets
+  #       key: artifact-s3-access-key # / artifact-s3-secret-key / artifact-github-token
 
-  # --- Officer portal runtime config ---
-  # The server emits these to the browser at /runtime-env.js (no entrypoint
-  # script). All public SPA config — no secrets. WEB_DIR is omitted: it defaults
-  # to "web", which is where the root Dockerfile copies the built SPA (/app/web).
-  VITE_BRANDING_NAME: "default"
-  # Browser-facing API base URL. Same origin as the portal now, so it is just the
-  # public host below (NOT the in-cluster Service name).
-  VITE_API_BASE_URL: "https://agency.example.com"
-  VITE_IDP_BASE_URL: "https://idp.example.com"
-  VITE_IDP_CLIENT_ID: "<AGENCY_PORTAL_CLIENT_ID>"
-  VITE_APP_URL: "https://agency.example.com"
-  VITE_IDP_SCOPES: "openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write"
-  # Extra /authorize parameters. The `resource` value must equal AUTH_AUDIENCE above,
-  # or the agency:* scopes are dropped from the issued token.
-  VITE_IDP_EXTRA_QUERY_PARAMS: "resource=https://api.nsw-agency.local"
-  # Org/OU handle for this portal instance — must match AUTH_EXPECTED_OU above.
-  VITE_IDP_EXPECTED_OU_HANDLE: "<AGENCY_OU_HANDLE>"
+# Everything else — db, artifactLoader, nsw, authn, web (see
+# backend/config.example.yaml for the full schema and every field's meaning:
+# Postgres connection, the artifact loader backend (local | github | s3),
+# inbound/outbound auth endpoints and client ids, officer-portal runtime
+# config, request-size/timeout settings) — lives in a config.yaml mounted from
+# a ConfigMap you create out-of-band (see the kubectl create configmap
+# command above) and reference here:
+volumes:
+  - name: agency-config
+    configMap:
+      name: agency-config
+volumeMounts:
+  - name: agency-config
+    mountPath: /app/config
+    readOnly: true
 
 # Run database migrations as a pre-upgrade hook before the server rolls out.
 # Reuses the env above (same DB) and the same image, running /app/migrate up.
