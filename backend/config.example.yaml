@@ -6,7 +6,8 @@
 # ANY value below (not just the ones marked "secret") can be a literal, or a
 # "{{env:NAME}}" (read from an env var) / "{{file:/path}}" (read from a
 # mounted file) placeholder instead — see expandPlaceholders in
-# cmd/server/config.go and github.com/OpenNSW/core/secret.SecretRef. This is
+# backend/internal/configyaml/configyaml.go (shared by cmd/server and
+# cmd/migrate) and github.com/OpenNSW/core/secret.SecretRef. This is
 # a property of how this file is authored, not something the Go config types
 # care about. Prefer {{env:...}}/{{file:...}} for anything actually secret in
 # a real deployment; a literal is fine for the rest.
@@ -58,9 +59,9 @@ db:
 
   # Used when driver: postgres. Placeholder resolution runs over the whole
   # file regardless of which driver is selected (see expandPlaceholders in
-  # cmd/server/config.go), so leave password unset here for a sqlite/local
-  # run — a "{{env:NAME}}" placeholder makes LoadConfig require that env var
-  # even when postgres isn't selected.
+  # backend/internal/configyaml/configyaml.go), so leave password unset here
+  # for a sqlite/local run — a "{{env:NAME}}" placeholder makes LoadConfig
+  # require that env var even when postgres isn't selected.
   postgres:
     host: localhost
     port: "5432"

@@ -25,30 +25,32 @@ type Config struct {
 	TokenInsecureSkipVerify bool       `yaml:"tokenInsecureSkipVerify"`
 }
 
-// Validate ensures the required OAuth2 connection fields are present.
+// Validate ensures the required OAuth2 connection fields are present. Error
+// messages name config.yaml's field paths (nsw.*) — cmd/server's sole
+// source for this Config — not env vars.
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.BaseURL) == "" {
-		return fmt.Errorf("NSW_API_BASE_URL is required")
+		return fmt.Errorf("nsw.baseURL is required")
 	}
 	u, err := url.Parse(c.BaseURL)
 	if err != nil {
-		return fmt.Errorf("NSW_API_BASE_URL must be a valid URL: %w", err)
+		return fmt.Errorf("nsw.baseURL must be a valid URL: %w", err)
 	}
 	if path := strings.Trim(u.Path, "/"); path != "" {
-		return fmt.Errorf("NSW_API_BASE_URL must be the NSW service origin only, with no path (got %q): endpoint paths are set by the client, not configured", u.Path)
+		return fmt.Errorf("nsw.baseURL must be the NSW service origin only, with no path (got %q): endpoint paths are set by the client, not configured", u.Path)
 	}
 	if strings.TrimSpace(c.ClientID) == "" {
-		return fmt.Errorf("NSW_CLIENT_ID is required")
+		return fmt.Errorf("nsw.clientID is required")
 	}
 	if strings.TrimSpace(c.ClientSecret) == "" {
-		return fmt.Errorf("NSW_CLIENT_SECRET is required")
+		return fmt.Errorf("nsw.clientSecret is required")
 	}
 	if strings.TrimSpace(c.TokenURL) == "" {
-		return fmt.Errorf("NSW_TOKEN_URL is required")
+		return fmt.Errorf("nsw.tokenURL is required")
 	}
 	for _, k := range reservedTokenParams {
 		if _, ok := c.TokenParams[k]; ok {
-			return fmt.Errorf("NSW_TOKEN_PARAMS must not set %q: it is set by the client-credentials flow", k)
+			return fmt.Errorf("nsw.tokenParams must not set %q: it is set by the client-credentials flow", k)
 		}
 	}
 	return nil

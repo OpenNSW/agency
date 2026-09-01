@@ -3,9 +3,16 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/OpenNSW/core/artifact/loaders"
+	"github.com/OpenNSW/core/artifact/loaders/github"
+	"github.com/OpenNSW/core/artifact/loaders/local"
+	"github.com/OpenNSW/core/artifact/loaders/s3"
 )
 
 const defaultDB = `db:
@@ -70,22 +77,22 @@ func TestLoadConfig_RequiresNSWOAuth2Vars(t *testing.T) {
   clientID: NPQS_TO_NSW
   clientSecret: secret
   tokenURL: https://localhost:8090/oauth2/token
-`, expected: "NSW_API_BASE_URL is required"},
+`, expected: "nsw.baseURL is required"},
 		{name: "missing client id", nsw: `nsw:
   baseURL: http://localhost:8080
   clientSecret: secret
   tokenURL: https://localhost:8090/oauth2/token
-`, expected: "NSW_CLIENT_ID is required"},
+`, expected: "nsw.clientID is required"},
 		{name: "missing client secret", nsw: `nsw:
   baseURL: http://localhost:8080
   clientID: NPQS_TO_NSW
   tokenURL: https://localhost:8090/oauth2/token
-`, expected: "NSW_CLIENT_SECRET is required"},
+`, expected: "nsw.clientSecret is required"},
 		{name: "missing token url", nsw: `nsw:
   baseURL: http://localhost:8080
   clientID: NPQS_TO_NSW
   clientSecret: secret
-`, expected: "NSW_TOKEN_URL is required"},
+`, expected: "nsw.tokenURL is required"},
 	}
 
 	for _, tc := range testCases {
@@ -114,31 +121,31 @@ func TestLoadConfig_RequiresAuthVars(t *testing.T) {
   audience: OGA_PORTAL_APP
   clientIDs: [OGA_PORTAL_APP]
   expectedOU: default
-`, expected: "AUTH_JWKS_URL is required"},
+`, expected: "authn.jwksURL is required"},
 		{name: "missing issuer", authn: `authn:
   jwksURL: https://localhost:8090/.well-known/jwks.json
   audience: OGA_PORTAL_APP
   clientIDs: [OGA_PORTAL_APP]
   expectedOU: default
-`, expected: "AUTH_ISSUER is required"},
+`, expected: "authn.issuer is required"},
 		{name: "missing audience", authn: `authn:
   jwksURL: https://localhost:8090/.well-known/jwks.json
   issuer: https://localhost:8090
   clientIDs: [OGA_PORTAL_APP]
   expectedOU: default
-`, expected: "AUTH_AUDIENCE is required"},
+`, expected: "authn.audience is required"},
 		{name: "missing client ids", authn: `authn:
   jwksURL: https://localhost:8090/.well-known/jwks.json
   issuer: https://localhost:8090
   audience: OGA_PORTAL_APP
   expectedOU: default
-`, expected: "AUTH_CLIENT_IDS is required"},
+`, expected: "authn.clientIDs is required"},
 		{name: "missing agency", authn: `authn:
   jwksURL: https://localhost:8090/.well-known/jwks.json
   issuer: https://localhost:8090
   audience: OGA_PORTAL_APP
   clientIDs: [OGA_PORTAL_APP]
-`, expected: "ExpectedOU is required"},
+`, expected: "authn.expectedOU is required"},
 	}
 
 	for _, tc := range testCases {
@@ -270,7 +277,7 @@ func TestLoadConfig_NSWInsecureSkipVerify_FailsClosedOutsideDev(t *testing.T) {
 }
 
 // A stray space or newline is easy to introduce in a config file or a secret
-// manager, and AUTH_EXPECTED_OU is compared to the token's ouHandle verbatim,
+// manager, and authn.expectedOU is compared to the token's ouHandle verbatim,
 // so such a value denies every user. It must fail here, at startup, and not be
 // silently trimmed into a working one: the handle also has to agree with the
 // portal's VITE_IDP_EXPECTED_OU_HANDLE, and correcting one side of that on the
@@ -289,7 +296,7 @@ func TestLoadConfig_PaddedExpectedOU_FailsClosed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error for an authn.expectedOU with surrounding whitespace")
 	}
-	if !strings.Contains(err.Error(), "ExpectedOU must not have surrounding whitespace") {
+	if !strings.Contains(err.Error(), "authn.expectedOU must not have surrounding whitespace") {
 		t.Fatalf("error = %q, want it to name the whitespace problem", err)
 	}
 }
@@ -338,7 +345,7 @@ func TestLoadConfig_ServerTimeoutDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_ServerTimeoutsFromEnv(t *testing.T) {
+func TestLoadConfig_ServerTimeoutsFromConfig(t *testing.T) {
 	extra := "readHeaderTimeout: 1s\nreadTimeout: 2s\nwriteTimeout: 3s\nidleTimeout: 4s\n"
 	writeConfig(t, buildConfig(t, "", "", "", extra))
 
@@ -501,4 +508,57 @@ func TestIsDevEnvironment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestYamlLoaderMirrors_MatchUpstreamFields guards against
+// yamlArtifactLoaderConfig (and its sub-configs) silently missing a field
+// added to the upstream loaders.Config/local.Config/github.Config/s3.Config
+// types it mirrors for YAML decoding (see toLoadersConfig): a new upstream
+// field must be deliberately handled here — either mirrored, or added to
+// intentionallyOmittedUpstreamFields with a reason.
+func TestYamlLoaderMirrors_MatchUpstreamFields(t *testing.T) {
+	// Fields that exist upstream but are deliberately not part of the YAML
+	// shape (not something a config file can express, e.g. an injected
+	// *http.Client).
+	intentionallyOmittedUpstreamFields := map[string][]string{
+		"github.Config": {"HTTPClient"},
+	}
+
+	cases := []struct {
+		upstreamName string
+		upstream     any
+		mirror       any
+	}{
+		{"loaders.Config", loaders.Config{}, yamlArtifactLoaderConfig{}},
+		{"local.Config", local.Config{}, yamlLocalLoaderConfig{}},
+		{"github.Config", github.Config{}, yamlGitHubLoaderConfig{}},
+		{"s3.Config", s3.Config{}, yamlS3LoaderConfig{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.upstreamName, func(t *testing.T) {
+			mirrorFields := fieldNameSet(tc.mirror)
+			omitted := intentionallyOmittedUpstreamFields[tc.upstreamName]
+
+			ut := reflect.TypeOf(tc.upstream)
+			for i := range ut.NumField() {
+				name := ut.Field(i).Name
+				if slices.Contains(omitted, name) {
+					continue
+				}
+				if !mirrorFields[name] {
+					t.Errorf("%s.%s has no matching field in its yaml mirror struct — mirror it in cmd/server/config.go, or add it to intentionallyOmittedUpstreamFields with a reason", tc.upstreamName, name)
+				}
+			}
+		})
+	}
+}
+
+func fieldNameSet(v any) map[string]bool {
+	t := reflect.TypeOf(v)
+	set := make(map[string]bool, t.NumField())
+	for i := range t.NumField() {
+		set[t.Field(i).Name] = true
+	}
+	return set
 }

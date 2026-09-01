@@ -10,7 +10,9 @@
 #
 # Flags:
 #   --clean-run       Wipe agency database(s) before starting.
-#                     SQLite: deletes {agency}_applications.db files.
+#                     SQLite: deletes each agency's db.sqlite.path file (from
+#                     its config/<agency>/config.yaml — {agency}_applications.db
+#                     by default).
 #                     Postgres: drops and recreates the database.
 #                     Migrations (go run ./cmd/migrate up) always run before
 #                     the server starts, clean-run or not, so the schema is
@@ -213,9 +215,25 @@ source_env_nonclobber() {
   done <"$file"
 }
 
+# sqlite_path_from_config extracts db.sqlite.path from a config.yaml file (a
+# light grep matching this repo's own fixed 2-space/4-space indentation —
+# not a full YAML parser, but sufficient for the checked-in
+# config/<agency>/config.yaml files this script points CONFIG_PATH at) so
+# seeding, cleanup, and logging target the same SQLite file cmd/server and
+# cmd/migrate will use, even if a config.yaml is edited to a non-default
+# path. Falls back to $2 when the file has no such line (e.g. driver:
+# postgres) or can't be read.
+sqlite_path_from_config() {
+  local config_path="$1" default="$2"
+  local path
+  path=$(sed -n 's/^ \{4\}path:[[:space:]]*//p' "$config_path" 2>/dev/null | head -1)
+  printf '%s' "${path:-$default}"
+}
+
 # ---------------------------------------------------------------------------
 # clean_databases: wipe agency DB(s) before starting.
-#   SQLite   -> delete {agency}_applications.db from BACKEND_DIR
+#   SQLite   -> delete each agency's db.sqlite.path file, resolved from its
+#               config/<agency>/config.yaml (see sqlite_path_from_config)
 #   Postgres -> terminate connections, drop, and recreate the database
 # ---------------------------------------------------------------------------
 clean_databases() {
@@ -226,7 +244,18 @@ clean_databases() {
 
   if [[ "$db_driver" == "sqlite" ]]; then
     for agency in "${agencies[@]}"; do
-      local db_path="$BACKEND_DIR/${agency}_applications.db"
+      # Resolve CONFIG_PATH the same way start_backend/run_migrations do
+      # (relative to BACKEND_DIR, since that's their cwd when they read it).
+      local agency_config="${CONFIG_PATH:-config/${agency}/config.yaml}"
+      [[ "$agency_config" == /* ]] || agency_config="$BACKEND_DIR/$agency_config"
+      local sqlite_path
+      sqlite_path=$(sqlite_path_from_config "$agency_config" "./${agency}_applications.db")
+      local db_path
+      if [[ "$sqlite_path" == /* ]]; then
+        db_path="$sqlite_path"
+      else
+        db_path="$BACKEND_DIR/${sqlite_path#./}"
+      fi
       if [[ -f "$db_path" ]]; then
         echo "[start-dev]   Deleting SQLite DB for $agency: $db_path"
         rm -f "$db_path"
@@ -322,7 +351,6 @@ EOF
 start_backend() {
   local agency=$1
   resolve_agency "$agency"
-  echo "[start-dev] Starting $agency backend  -> http://localhost:$BE_PORT (db: ${agency}_applications.db, config: config/${agency}/config.yaml)"
   (
     cd "$BACKEND_DIR"
     # The Go server does not autoload .env — source it (non-clobber) so
@@ -334,18 +362,22 @@ start_backend() {
     fi
     export NSW_CLIENT_SECRET="${NSW_CLIENT_SECRET:-1234}"
 
+    # A parent-shell/--env-file CONFIG_PATH still wins, as an escape hatch to
+    # point at a config.yaml other than this agency's checked-in one.
+    export CONFIG_PATH="${CONFIG_PATH:-config/${agency}/config.yaml}"
+
     # Still plain env vars: read directly by cmd/cli (seeding, below) — its
     # own config, unlike cmd/server's and cmd/migrate's, wasn't part of this
-    # config.yaml migration.
+    # config.yaml migration. DB_PATH's default is derived from the same
+    # config.yaml cmd/server/cmd/migrate read, so seeding always targets the
+    # same database even if that file customizes db.sqlite.path.
     export DB_DRIVER="${DB_DRIVER:-sqlite}"
-    export DB_PATH="${DB_PATH:-./${agency}_applications.db}"
+    export DB_PATH="${DB_PATH:-$(sqlite_path_from_config "$CONFIG_PATH" "./${agency}_applications.db")}"
     if [[ -z "${USER_CUSTOM_DATA_SCHEMA_PATH:-}" && -f "config/${agency}/user-custom-data-schema.json" ]]; then
       export USER_CUSTOM_DATA_SCHEMA_PATH="./config/${agency}/user-custom-data-schema.json"
     fi
 
-    # A parent-shell/--env-file CONFIG_PATH still wins, as an escape hatch to
-    # point at a config.yaml other than this agency's checked-in one.
-    export CONFIG_PATH="${CONFIG_PATH:-config/${agency}/config.yaml}"
+    echo "[start-dev] Starting $agency backend  -> http://localhost:$BE_PORT (db: $DB_PATH, config: $CONFIG_PATH)"
 
     local seed_file="./data/seed/${agency}_users.json"
     if [[ -f "$seed_file" ]]; then
