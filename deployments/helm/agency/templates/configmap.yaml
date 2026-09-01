@@ -1,0 +1,16 @@
+{{- if or .Values.config .Values.configFiles }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agency.fullname" . }}-config
+  labels:
+    {{- include "agency.labels" . | nindent 4 }}
+data:
+  {{- if .Values.config }}
+  config.yaml: |
+    {{- toYaml .Values.config | nindent 4 }}
+  {{- end }}
+  {{- with .Values.configFiles }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}

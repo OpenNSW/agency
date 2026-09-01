@@ -15,7 +15,12 @@ spec:
     metadata:
       labels:
         {{- include "agency.selectorLabels" . | nindent 8 }}
+      {{- if or .Values.config .Values.configFiles }}
+      annotations:
+        checksum/config: {{ include "agency.configChecksum" . }}
+      {{- end }}
     spec:
+      {{- include "agency.configVolumeGuard" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -36,8 +41,9 @@ spec:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
-          {{- if .Values.env }}
+          {{- if or .Values.env .Values.config }}
           env:
+            {{- include "agency.autoEnv" . | nindent 12 }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               {{- if kindIs "map" $value }}
@@ -63,11 +69,25 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- end }}
-          {{- if .Values.volumeMounts }}
+          {{- if or .Values.config .Values.configFiles .Values.volumeMounts }}
           volumeMounts:
-            {{- toYaml .Values.volumeMounts | nindent 12 }}
+            {{- if or .Values.config .Values.configFiles }}
+            - name: config
+              mountPath: {{ .Values.configMountPath }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
-      {{- if .Values.volumes }}
+      {{- if or .Values.config .Values.configFiles .Values.volumes }}
       volumes:
-        {{- toYaml .Values.volumes | nindent 8 }}
+        {{- if or .Values.config .Values.configFiles }}
+        - name: config
+          configMap:
+            name: {{ include "agency.fullname" . }}-config
+        {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}

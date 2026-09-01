@@ -53,6 +53,47 @@ env: {}
 # Load environments from existing ConfigMaps or Secrets
 envFrom: []
 
+# ---------------------------------------------------------------------------
+# App config (config.yaml) — rendered into a chart-managed ConfigMap and
+# mounted read-only at configMountPath/config.yaml for the server and
+# migration Job. Structure mirrors backend/config.example.yaml 1:1 (see that
+# file for the full schema and every field's meaning) — this section IS
+# config.yaml, just authored as Helm values so it gets the same -f layering
+# and --set overrides as the rest of this chart, instead of a hand-maintained
+# ConfigMap created out-of-band.
+#
+# SECRETS (db.postgres.password, nsw.clientSecret, artifactLoader.github.token,
+# artifactLoader.s3.secretKey) must stay as "{{env:NAME}}" placeholders here —
+# NEVER a literal secret value — resolved by the app at container startup from
+# the env var named, which in turn must come from a Kubernetes Secret you
+# create out-of-band (see the chart README) and reference below under `env`
+# via valueFrom.secretKeyRef. Helm does not template "{{...}}" appearing
+# inside values data (only files under templates/ go through Go's text/template),
+# so these placeholders pass through to the rendered config.yaml verbatim, for
+# the app's own placeholder expansion to resolve — not Helm's.
+#
+# Left empty by default — see values-example.yaml for a complete example.
+config: {}
+
+# Directory config.yaml (and any configFiles below) are mounted into. When
+# `config` is set, this path is also used as CONFIG_PATH automatically
+# (unless you set env.CONFIG_PATH yourself).
+configMountPath: /app/config
+
+# Extra static files config.yaml references by relative/absolute path — e.g.
+# JSON Schemas or data-scope rules (see docs/consignment-custom-data.md,
+# docs/data-scoping.md, and config.yaml's consignmentCustomDataSchemaPath /
+# dataScopeRulesPath). These aren't baked into the image, so populate here if
+# used. Each key becomes one file in the same ConfigMap as config.yaml,
+# mounted alongside it at configMountPath — point the matching config.yaml
+# path at configMountPath/<key>. Non-secret only. e.g.:
+#   configFiles:
+#     data-scope-rules.json: |
+#       { "rules": [...] }
+#   config:
+#     dataScopeRulesPath: /app/config/data-scope-rules.json
+configFiles: {}
+
 # Database migration Job. Runs the /app/migrate binary from the SAME image as
 # the server, as a Helm pre-install/pre-upgrade hook, so the schema is migrated
 # before the new server rolls out. It reuses the env above for DB config.
@@ -118,6 +159,8 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 
-# Volumes and mounts
+# Volumes and mounts. "config" is reserved when `config`/`configFiles` above
+# is set — the chart generates that volume/mount itself; naming one of your
+# own entries "config" fails the render.
 volumes: []
 volumeMounts: []

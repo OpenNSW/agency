@@ -49,3 +49,44 @@ Selector labels
 app.kubernetes.io/name: {{ include "agency.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Fail the render if the user's own volumes/volumeMounts reuse the "config"
+name, which is reserved for the ConfigMap generated from .Values.config /
+.Values.configFiles (see templates/configmap.yaml).
+*/}}
+{{- define "agency.configVolumeGuard" -}}
+{{- if or .Values.config .Values.configFiles }}
+{{- range .Values.volumes }}
+{{- if eq .name "config" }}
+{{- fail "volumes: \"config\" is reserved for the generated config ConfigMap — rename this volume" }}
+{{- end }}
+{{- end }}
+{{- range .Values.volumeMounts }}
+{{- if eq .name "config" }}
+{{- fail "volumeMounts: \"config\" is reserved for the generated config ConfigMap — rename this volumeMount" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Env entries the chart injects automatically ahead of .Values.env, currently
+just CONFIG_PATH when .Values.config is set (unless the caller already
+defines env.CONFIG_PATH themselves).
+*/}}
+{{- define "agency.autoEnv" -}}
+{{- if and .Values.config (not (hasKey .Values.env "CONFIG_PATH")) }}
+- name: CONFIG_PATH
+  value: {{ printf "%s/config.yaml" .Values.configMountPath | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
+checksum/config annotation value — forces a rollout when .Values.config /
+.Values.configFiles content changes, since the Deployment otherwise has no
+reference to the generated ConfigMap's contents.
+*/}}
+{{- define "agency.configChecksum" -}}
+{{- list .Values.config .Values.configFiles | toYaml | sha256sum -}}
+{{- end }}
