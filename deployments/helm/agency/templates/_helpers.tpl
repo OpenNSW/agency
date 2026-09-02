@@ -90,3 +90,34 @@ reference to the generated ConfigMap's contents.
 {{- define "agency.configChecksum" -}}
 {{- list .Values.config .Values.configFiles | toYaml | sha256sum -}}
 {{- end }}
+
+{{/*
+Fully qualified name for migration-related resources (the Job and its
+hook-scoped ConfigMap — see templates/migration-configmap.yaml) — kept as one
+helper so the two stay in sync.
+*/}}
+{{- define "agency.migrationFullname" -}}
+{{- printf "%s-migrate" (include "agency.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{/*
+The "data:" body shared by the Deployment's config ConfigMap
+(templates/configmap.yaml) and the migration Job's hook-scoped copy
+(templates/migration-configmap.yaml): .Values.config as "config.yaml", plus
+.Values.configFiles. Renders as if starting at column 0 — the caller nindents
+the result under its own "data:" key. Fails the render if configFiles reuses
+the reserved "config.yaml" key, which would otherwise produce a ConfigMap
+with two "config.yaml" data entries.
+*/}}
+{{- define "agency.configMapData" -}}
+{{- if hasKey .Values.configFiles "config.yaml" -}}
+{{- fail "configFiles: \"config.yaml\" is reserved for the rendered config.yaml (from .Values.config) — rename this configFiles entry" -}}
+{{- end -}}
+{{- if .Values.config }}
+config.yaml: |
+{{- toYaml .Values.config | nindent 2 }}
+{{- end }}
+{{- with .Values.configFiles }}
+{{- toYaml . | nindent 0 }}
+{{- end }}
+{{- end }}

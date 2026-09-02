@@ -1,0 +1,22 @@
+{{- if and .Values.migration.enabled (or .Values.config .Values.configFiles) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agency.migrationFullname" . }}-config
+  labels:
+    {{- include "agency.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Hook-scoped, on the SAME pre-install/pre-upgrade phase as the migration
+    # Job but with an earlier (more negative) weight, so it exists before
+    # that Job starts. Helm creates/updates normal resources — including the
+    # Deployment's own "<fullname>-config" ConfigMap — only AFTER all
+    # pre-install/pre-upgrade hooks finish, so the Job can't depend on that
+    # one: on a fresh install it wouldn't exist yet, and on upgrade the Job
+    # would see the previous release's content instead of this one's.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-6"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  {{- include "agency.configMapData" . | nindent 2 }}
+{{- end }}

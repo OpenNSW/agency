@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ printf "%s-migrate" (include "agency.fullname" .) | trunc 63 | trimSuffix "-" }}
+  name: {{ include "agency.migrationFullname" . }}
   labels:
     {{- include "agency.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
@@ -81,8 +81,11 @@ spec:
       volumes:
         {{- if or .Values.config .Values.configFiles }}
         - name: config
+          # The hook-scoped copy (templates/migration-configmap.yaml), NOT
+          # the Deployment's "<fullname>-config" — see that file's comment
+          # for why this Job can't depend on the normal one.
           configMap:
-            name: {{ include "agency.fullname" . }}-config
+            name: {{ include "agency.migrationFullname" . }}-config
         {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}

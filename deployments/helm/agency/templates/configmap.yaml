@@ -6,11 +6,5 @@ metadata:
   labels:
     {{- include "agency.labels" . | nindent 4 }}
 data:
-  {{- if .Values.config }}
-  config.yaml: |
-    {{- toYaml .Values.config | nindent 4 }}
-  {{- end }}
-  {{- with .Values.configFiles }}
-  {{- toYaml . | nindent 2 }}
-  {{- end }}
+  {{- include "agency.configMapData" . | nindent 2 }}
 {{- end }}

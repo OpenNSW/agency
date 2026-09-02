@@ -83,8 +83,12 @@ config:
       endpoint: https://<accountid>.r2.cloudflarestorage.com
       prefix: npqs # in-bucket key prefix (empty = root)
       # Static S3/R2 credentials — secrets, resolved from the env below. Set
-      # both or neither; omit both to fall back to the pod's default AWS
-      # credential chain (IRSA / instance profile). R2 requires static keys.
+      # both or neither; R2 requires static keys, so this example sets them.
+      # Falling back to the pod's default AWS credential chain (IRSA /
+      # instance profile) instead? Remove BOTH these two lines AND the
+      # matching ARTIFACT_S3_ACCESS_KEY/ARTIFACT_S3_SECRET_KEY env entries
+      # below — leaving only the env entries out is not enough, since the
+      # app would still try (and fail) to resolve these placeholders.
       accessKey: "{{env:ARTIFACT_S3_ACCESS_KEY}}"
       secretKey: "{{env:ARTIFACT_S3_SECRET_KEY}}"
 
@@ -159,16 +163,22 @@ env:
       secretKeyRef:
         name: agency-secrets
         key: nsw-client-secret
+  # optional: true so the pod isn't blocked from starting on a setup that
+  # removed the config.artifactLoader.s3 credentials above (falling back to
+  # the pod's default AWS credential chain instead) but left these entries —
+  # still remove both together when you don't need them; see the comment above.
   ARTIFACT_S3_ACCESS_KEY:
     valueFrom:
       secretKeyRef:
         name: agency-secrets
         key: artifact-s3-access-key
+        optional: true
   ARTIFACT_S3_SECRET_KEY:
     valueFrom:
       secretKeyRef:
         name: agency-secrets
         key: artifact-s3-secret-key
+        optional: true
   # CONFIG_PATH itself is set automatically by the chart (configMountPath +
   # "/config.yaml") whenever `config` is set — no need to set it here.
 
