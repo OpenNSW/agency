@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ printf "%s-migrate" (include "agency.fullname" .) | trunc 63 | trimSuffix "-" }}
+  name: {{ include "agency.migrationFullname" . }}
   labels:
     {{- include "agency.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
@@ -27,6 +27,7 @@ spec:
     spec:
       # A Job pod must not be restarted forever; run once and stop.
       restartPolicy: Never
+      {{- include "agency.configVolumeGuard" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -45,8 +46,9 @@ spec:
           image: "{{ .Values.image.repository }}:{{ required "image.tag is required — set it per environment or at install (e.g. --set image.tag=1.4.0)" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: {{ .Values.migration.command | toJson }}
-          {{- if .Values.env }}
+          {{- if or .Values.env .Values.config }}
           env:
+            {{- include "agency.autoEnv" . | nindent 12 }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               {{- if kindIs "map" $value }}
@@ -64,12 +66,29 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- end }}
-          {{- if .Values.volumeMounts }}
+          {{- if or .Values.config .Values.configFiles .Values.volumeMounts }}
           volumeMounts:
-            {{- toYaml .Values.volumeMounts | nindent 12 }}
+            {{- if or .Values.config .Values.configFiles }}
+            - name: config
+              mountPath: {{ .Values.configMountPath }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
-      {{- if .Values.volumes }}
+      {{- if or .Values.config .Values.configFiles .Values.volumes }}
       volumes:
-        {{- toYaml .Values.volumes | nindent 8 }}
+        {{- if or .Values.config .Values.configFiles }}
+        - name: config
+          # The hook-scoped copy (templates/migration-configmap.yaml), NOT
+          # the Deployment's "<fullname>-config" — see that file's comment
+          # for why this Job can't depend on the normal one.
+          configMap:
+            name: {{ include "agency.migrationFullname" . }}-config
+        {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
 {{- end }}

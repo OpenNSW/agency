@@ -4,26 +4,26 @@
 # One image now serves both the API and the SPA from one process and one port,
 # so this is a single release (there is no separate frontend deployment).
 #
-# Most server config now lives in a config.yaml file (see
-# backend/config.example.yaml), not env vars — mirrors backend/.env.example.
-# This chart does not (yet) generate a ConfigMap from inline values for it;
-# create one yourself and mount it with the generic volumes/volumeMounts
-# below. NON-secret config goes in that ConfigMap's config.yaml; SECRETS
-# (DB_PASSWORD, NSW_CLIENT_SECRET) are referenced from a Kubernetes Secret via
-# config.yaml's "{{env:NAME}}" syntax (see backend/config.example.yaml) and must
-# NEVER be written into the ConfigMap. Create both out-of-band, e.g.:
+# Server config (config.yaml) is authored below under `config:`, mirroring
+# backend/config.example.yaml 1:1 — see that file for the full schema and
+# every field's meaning. The chart renders it into a ConfigMap and mounts it
+# for you (agency/templates/configmap.yaml); there is no ConfigMap to create
+# out-of-band any more. NON-secret config goes directly under `config:` below;
+# SECRETS (db.postgres.password, nsw.clientSecret) stay as "{{env:NAME}}"
+# placeholders (resolved by the app at container startup, NOT by Helm — see
+# agency/values.yaml's `config` comment) and must be backed by a Kubernetes
+# Secret you create out-of-band, referenced under `env` further down:
 #   kubectl create secret generic agency-secrets \
 #     --from-literal=db-password=... \
 #     --from-literal=nsw-client-secret=... \
 #     --from-literal=artifact-s3-access-key=... \
 #     --from-literal=artifact-s3-secret-key=...
-#   kubectl create configmap agency-config --from-file=config.yaml=./config.yaml
 #
 # The artifact-s3-* secret keys are only needed when the artifact loader uses
-# S3/R2 with static credentials (see config.yaml's artifactLoader.s3 section).
+# S3/R2 with static credentials (see config.artifactLoader.s3 below).
 #
-# The https:// URLs and *ClientID / *OU values in config.yaml are placeholders
-# — replace them with your environment's real IdP and NSW API endpoints.
+# The https:// URLs and *ClientID / *OU values below are placeholders —
+# replace them with your environment's real IdP and NSW API endpoints.
 
 replicaCount: 1
 
@@ -33,25 +33,126 @@ image:
   # fails to render if this is unset (appVersion is metadata, not the image tag).
   tag: "0.1.0"
 
-# The server listens here (matches PORT below and EXPOSE in the root Dockerfile).
-# It serves both the API and the officer portal on this single port.
+# The server listens here (matches config.port below and EXPOSE in the root
+# Dockerfile). It serves both the API and the officer portal on this port.
 containerPort: 8081
 
 service:
   type: ClusterIP
   port: 80
 
-env:
-  # Where cmd/server AND the migration Job (see migration.enabled below,
-  # which reuses this same env/volumes) find config.yaml — the mount path
-  # below. Everything else, including `environment` (DEV-ONLY: "development"
-  # enables config.yaml's insecure-TLS escape hatches — never set this in a
-  # real deployment) and the db section cmd/migrate also reads from it, lives
-  # in that one file, not here.
-  CONFIG_PATH: "/app/config/config.yaml"
+# ---------------------------------------------------------------------------
+# config.yaml, authored as Helm values — see agency/values.yaml's `config`
+# comment for how this gets rendered/mounted, and backend/config.example.yaml
+# for the full schema. The content below is a worked example for this repo's
+# own NPQS agency; another agency (see docs/agency-tasks/) would substitute
+# its own values here instead — start from backend/config/<agency>/config.yaml.
+# ---------------------------------------------------------------------------
+config:
+  port: "8081"
 
-  # Secrets config.yaml resolves via "{{env:NAME}}" (see backend/config.example.yaml).
-  # SECRET — pulled from a Kubernetes Secret, never inlined.
+  allowedOrigins: ["https://agency.example.com"]
+
+  # This agency has optional custom-data schema / data-scope files (see
+  # docs/consignment-custom-data.md, docs/data-scoping.md) — most agencies
+  # don't need these two lines. Paths point at the files under `configFiles`
+  # below, which the chart mounts alongside config.yaml at the same
+  # directory (agency/values.yaml's configMountPath, default /app/config).
+  consignmentCustomDataSchemaPath: /app/config/consignment-custom-data-schema.json
+  dataScopeRulesPath: /app/config/data-scope-rules.json
+
+  db:
+    driver: postgres
+    postgres:
+      host: nsw-db # Postgres Service name in the cluster
+      port: "5432"
+      user: postgres
+      password: "{{env:DB_PASSWORD}}" # secret — resolved from the env below
+      name: nsw_agency_db
+      sslMode: require
+
+  # Task configs and forms are fetched at runtime from an external source, not
+  # baked into the image. Use "github" (pinned to an immutable ref) or "s3"
+  # (e.g. Cloudflare R2) in a cluster — "local" only works with a mounted
+  # volume, which this example doesn't set up.
+  artifactLoader:
+    type: s3
+    s3:
+      bucket: one-trade-artifacts
+      region: auto # "auto" for R2
+      endpoint: https://<accountid>.r2.cloudflarestorage.com
+      prefix: npqs # in-bucket key prefix (empty = root)
+      # Static S3/R2 credentials — secrets, resolved from the env below. Set
+      # both or neither; R2 requires static keys, so this example sets them.
+      # Falling back to the pod's default AWS credential chain (IRSA /
+      # instance profile) instead? Remove BOTH these two lines AND the
+      # matching ARTIFACT_S3_ACCESS_KEY/ARTIFACT_S3_SECRET_KEY env entries
+      # below — leaving only the env entries out is not enough, since the
+      # app would still try (and fail) to resolve these placeholders.
+      accessKey: "{{env:ARTIFACT_S3_ACCESS_KEY}}"
+      secretKey: "{{env:ARTIFACT_S3_SECRET_KEY}}"
+
+  web:
+    dir: web
+    runtime:
+      brandingName: default
+      apiBaseURL: https://agency.example.com
+      idpBaseURL: https://idp.example.com
+      idpClientID: "<SPA_AGENCY_PORTAL>"
+      idpExpectedOU: npqs
+      appURL: https://agency.example.com
+      idpScopes: openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write
+      idpExtraQueryParams: resource=https://api.nsw-agency.local
+
+  authn:
+    jwksURL: https://idp.example.com/oauth2/jwks
+    issuer: https://idp.example.com
+    audience: https://api.nsw-agency.local
+    clientIDs: ["<SPA_AGENCY_PORTAL>", "NSW_TO_NPQS"]
+    expectedOU: npqs
+
+  nsw:
+    baseURL: https://nsw-api.example.com
+    clientID: "<M2M_AGENCY_TO_NSW>"
+    clientSecret: "{{env:NSW_CLIENT_SECRET}}" # secret — resolved from the env below
+    tokenURL: https://idp.example.com/oauth2/token
+    tokenParams:
+      resource: ["https://api.nsw-srilanka.local"]
+    scopes:
+      - "nsw:task:write"
+      - "nsw:consignment:read"
+      - "nsw:storage:read"
+      - "nsw:storage:write"
+
+# Static files config.yaml points at above (consignmentCustomDataSchemaPath /
+# dataScopeRulesPath) — NPQS's actual content from backend/config/npqs/.
+# Mounted read-only alongside config.yaml (same ConfigMap, same volume).
+configFiles:
+  consignment-custom-data-schema.json: |
+    {
+      "type": "object",
+      "properties": {
+        "officeLocation": {
+          "type": "string",
+          "description": "Pushed from the applicant's nppo_office_location field by npqs_application_review_v1's consignmentFields rule. Office 1: Katunayake. Office 2: Head Office (Colombo). Office 3: Port of Colombo. Office 4: Hambantota Port. Office 5: Mattala Airport. Office 6: Jaffna Airport.",
+          "enum": ["Office 1", "Office 2", "Office 3", "Office 4", "Office 5", "Office 6"]
+        }
+      },
+      "additionalProperties": false
+    }
+  data-scope-rules.json: |
+    {
+      "rules": [
+        {
+          "consignmentField": "/officeLocation",
+          "userField": "/assignedOffice"
+        }
+      ]
+    }
+
+env:
+  # SECRETS config.yaml resolves via "{{env:NAME}}" placeholders above.
+  # Pulled from a Kubernetes Secret, never inlined.
   DB_PASSWORD:
     valueFrom:
       secretKeyRef:
@@ -62,32 +163,28 @@ env:
       secretKeyRef:
         name: agency-secrets
         key: nsw-client-secret
-  # Only needed if config.yaml's artifactLoader uses S3/R2 with static
-  # credentials, or a private GitHub repo (see backend/config.example.yaml).
-  # ARTIFACT_S3_ACCESS_KEY / ARTIFACT_S3_SECRET_KEY / ARTIFACT_GITHUB_TOKEN:
-  #   valueFrom:
-  #     secretKeyRef:
-  #       name: agency-secrets
-  #       key: artifact-s3-access-key # / artifact-s3-secret-key / artifact-github-token
-
-# Everything else — db, artifactLoader, nsw, authn, web (see
-# backend/config.example.yaml for the full schema and every field's meaning:
-# Postgres connection, the artifact loader backend (local | github | s3),
-# inbound/outbound auth endpoints and client ids, officer-portal runtime
-# config, request-size/timeout settings) — lives in a config.yaml mounted from
-# a ConfigMap you create out-of-band (see the kubectl create configmap
-# command above) and reference here:
-volumes:
-  - name: agency-config
-    configMap:
-      name: agency-config
-volumeMounts:
-  - name: agency-config
-    mountPath: /app/config
-    readOnly: true
+  # optional: true so the pod isn't blocked from starting on a setup that
+  # removed the config.artifactLoader.s3 credentials above (falling back to
+  # the pod's default AWS credential chain instead) but left these entries —
+  # still remove both together when you don't need them; see the comment above.
+  ARTIFACT_S3_ACCESS_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: agency-secrets
+        key: artifact-s3-access-key
+        optional: true
+  ARTIFACT_S3_SECRET_KEY:
+    valueFrom:
+      secretKeyRef:
+        name: agency-secrets
+        key: artifact-s3-secret-key
+        optional: true
+  # CONFIG_PATH itself is set automatically by the chart (configMountPath +
+  # "/config.yaml") whenever `config` is set — no need to set it here.
 
 # Run database migrations as a pre-upgrade hook before the server rolls out.
-# Reuses the env above (same DB) and the same image, running /app/migrate up.
+# Reuses the env/config above (same DB) and the same image, running
+# /app/migrate up.
 migration:
   enabled: true
 

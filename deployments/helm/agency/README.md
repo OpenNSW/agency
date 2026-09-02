@@ -7,9 +7,54 @@ override file from the parent `helm/` directory on top of the chart defaults.
 
 ## Files Included
 - **[deployment.yaml](templates/deployment.yaml)**: Deployment, container, ports, environment variables, mounts, and probes.
+- **[configmap.yaml](templates/configmap.yaml)**: Renders `config` (config.yaml) and `configFiles` (accompanying static files) into a ConfigMap, mounted read-only into the server (when either is set).
+- **[migration-configmap.yaml](templates/migration-configmap.yaml)**: The same `config`/`configFiles` content, rendered as a separate hook-scoped ConfigMap the migration Job mounts instead — see [Migration Job config](#migration-job-config) for why.
 - **[service.yaml](templates/service.yaml)**: Exposes the container port as a cluster-internal Service.
 - **[route.yaml](templates/route.yaml)**: Exposes the Service externally via an OpenShift Route (when `route.enabled`).
 - **[ingress.yaml](templates/ingress.yaml)**: Exposes the Service externally via a Kubernetes Ingress (when `ingress.enabled`).
+
+### App config (config.yaml)
+
+The server and migration Job both read a single `config.yaml` (see
+`backend/config.example.yaml` for the full schema). Author it as Helm values
+under `config:` — the chart renders it into a ConfigMap and mounts it at
+`configMountPath` (default `/app/config`), and sets `CONFIG_PATH`
+automatically so you don't have to. `configFiles` mounts any accompanying
+static files config.yaml references by path (JSON Schemas, data-scope rules)
+alongside it in the same directory. See `values-example.yaml` for a complete
+worked example. A pod rolls automatically when `config`/`configFiles` content
+changes (`checksum/config` annotation).
+
+SECRET fields (`db.postgres.password`, `nsw.clientSecret`,
+`artifactLoader.github.token`, `artifactLoader.s3.secretKey`) must stay as
+`"{{env:NAME}}"` placeholders under `config:` — Helm does not template
+`{{...}}` inside values data, so these pass through to the rendered
+config.yaml untouched, for the app's own placeholder expansion to resolve at
+startup from the env var named. Back that env var with a Kubernetes Secret
+(see [Prerequisite: secrets](#prerequisite-secrets)) and reference it under
+`env` with `valueFrom.secretKeyRef`, same as any other secret in this chart —
+never write a literal secret value under `config:`.
+
+#### Migration Job config
+
+The migration Job mounts its own copy of the SAME content
+(`migration-configmap.yaml`), not the Deployment's `<fullname>-config`. This
+is required, not incidental: the Job runs as a `pre-install,pre-upgrade` Helm
+hook, and Helm creates/updates normal resources (including the Deployment's
+ConfigMap) only *after* all pre-install/pre-upgrade hooks finish. Sharing the
+Deployment's ConfigMap would mean the Job's volume mount points at nothing on
+a fresh install, and at the *previous* release's content on an upgrade. The
+migration Job's copy is instead a hook itself, given an earlier hook weight
+so it's guaranteed to exist — with this upgrade's content — before the Job
+starts.
+
+One consequence: Helm does not track hook-created resources as part of the
+release (per [Helm's hooks docs](https://helm.sh/docs/topics/charts_hooks/)),
+so `helm uninstall` will not remove this ConfigMap automatically. It's
+recreated fresh on every install/upgrade regardless (`hook-delete-policy:
+before-hook-creation`), so this only matters for full cleanup — delete it
+manually if that matters for your environment:
+`kubectl delete configmap <release>-migrate-config`.
 
 ## Layout
 
@@ -44,11 +89,11 @@ kubectl create secret generic agency-secrets \
   --from-literal=artifact-s3-secret-key=...
 ```
 
-The `artifact-s3-*` keys are only required when the artifact loader uses S3/R2
-with static credentials (`ARTIFACT_LOADER_TYPE=s3`). Omit them for the `github`
-loader or when relying on the pod's default AWS credential chain. For a private
-GitHub source, add an `artifact-github-token` key instead and reference it the
-same way.
+The `artifact-s3-*` keys are only required when `config.artifactLoader.type`
+is `s3` and you're using static S3/R2 credentials. Omit them for the `github`
+loader or when relying on the pod's default AWS credential chain. For a
+private GitHub source, add an `artifact-github-token` key instead and
+reference it the same way.
 
 ## Accessing the portal (secure context required)
 
