@@ -12,25 +12,27 @@ type Config struct {
 	// server serves API-only — see Handler / cmd/server/main.go.
 	Dir string `yaml:"dir"`
 
-	// Runtime is the public SPA config served via /runtime-env.js.
+	// Runtime is the public SPA config served via /config.js.
 	Runtime RuntimeConfig `yaml:"runtime"`
 }
 
-// Validate reports whether the frontend can be served with a usable runtime
-// config. Call it only when actually serving the frontend (the assets exist);
-// API-only runs don't need these values.
+// Validate reports whether the runtime config served at /config.js is usable.
+// Called unconditionally at startup (cmd/server/main.go): /config.js is always
+// served, in dev (proxied by Vite, see frontend/vite.config.ts) as much as in
+// prod, so every deployment — including each agency's dev config.yaml — must
+// supply a valid Runtime.
 func (c Config) Validate() error {
 	return c.Runtime.Validate()
 }
 
 // RuntimeConfig is the public SPA config the browser reads from
 // window.__APP_CONFIG__ (see frontend/src/runtimeConfig.ts). Every field is
-// public client config (no secrets), so /runtime-env.js needs no auth.
+// public client config (no secrets), so /config.js needs no auth.
 //
 // The JSON tags are the VITE_* names the frontend looks up. omitempty means an
-// unset optional value is omitted from /runtime-env.js entirely, so the frontend
-// falls back to its build-time value (getEnv). Required values are enforced by
-// Validate at startup rather than failing later in the browser.
+// unset optional value is omitted from /config.js entirely, so the frontend
+// falls back to its own default (see getEnv's fallback param). Required values
+// are enforced by Validate at startup rather than failing later in the browser.
 type RuntimeConfig struct {
 	BrandingName  string `json:"VITE_BRANDING_NAME,omitempty" yaml:"brandingName"`
 	APIBaseURL    string `json:"VITE_API_BASE_URL,omitempty" yaml:"apiBaseURL"`

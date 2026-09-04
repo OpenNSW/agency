@@ -23,11 +23,27 @@ artifactLoader:
   local:
     root: ../../one-trade-artifacts/npqs
 
-# Native dev serves the frontend via its own Vite dev server (start_frontend
-# in start-dev.sh), so the backend stays API-only — dir points at a path that
-# won't exist.
+# Native dev serves the frontend via its own Vite dev server (start_frontend in
+# start-dev.sh), so the backend stays API-only — dir points at a path that
+# won't exist. It still serves /config.js from runtime below: the Vite dev
+# server proxies /config.js to this backend (see frontend/vite.config.ts), so
+# dev and prod share this one source of frontend runtime config.
 web:
   dir: /nonexistent
+
+  runtime:
+    brandingName: npqs
+    apiBaseURL: http://localhost:8081
+    idpBaseURL: https://localhost:8090
+    idpClientID: OGA_PORTAL_APP_NPQS
+    idpExpectedOU: npqs
+    appURL: http://localhost:5174
+    # Only scopes requested here are granted, regardless of what the role
+    # permits. Keep in sync with frontend/.env.example.
+    idpScopes: openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write
+    # The `resource` value must equal authn.audience above, or the agency:*
+    # scopes are dropped from the issued token.
+    idpExtraQueryParams: resource=https://api.nsw-agency.local
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks

@@ -104,24 +104,25 @@ artifactLoader:
     prefix: "" # optional in-bucket key prefix (empty = bucket root)
 
 # ---------------------------------------------------------------------------
-# Officer-portal SPA (optional for bare-metal dev)
+# Officer-portal SPA
 # ---------------------------------------------------------------------------
-# The server serves the built portal and /runtime-env.js when web.dir exists.
-# For normal `go run` dev the frontend runs via its own Vite dev server and
-# this dir is absent, so the server runs API-only and you can leave `runtime`
-# blank. It applies only to a local bundled-serving test build:
-#   (cd frontend && pnpm build --outDir ../backend/web)
-# in which case runtime is served to the browser and the four REQUIRED fields
-# are validated at startup.
+# The server always serves /config.js from web.runtime — the single source of
+# runtime config for the frontend, in prod and in dev alike. It also serves the
+# built portal itself when web.dir exists; for normal `go run` dev the frontend
+# runs via its own Vite dev server instead (dir absent, so the server runs
+# API-only), which proxies /config.js to this backend rather than reimplementing
+# config assembly (see frontend/vite.config.ts). Either way the four REQUIRED
+# fields below are validated at startup — see backend/config/<agency>/config.yaml
+# for the values a native dev instance uses.
 web:
   dir: web
 
   runtime:
     brandingName: default # -> /configs/${brandingName}.branding.json
-    apiBaseURL: http://localhost:8081 # REQUIRED when serving the portal
-    idpBaseURL: https://localhost:8090 # REQUIRED when serving the portal
-    idpClientID: "<SPA_AGENCY_PORTAL>"
-    idpExpectedOU: "" # REQUIRED when serving the portal
+    apiBaseURL: http://localhost:8081 # REQUIRED
+    idpBaseURL: https://localhost:8090 # REQUIRED
+    idpClientID: "<SPA_AGENCY_PORTAL>" # REQUIRED
+    idpExpectedOU: "" # REQUIRED
     appURL: http://localhost:8081 # used in OIDC redirects
     # Only scopes requested here are granted, regardless of what the role
     # permits. Keep in sync with frontend/.env.example.

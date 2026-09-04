@@ -19,7 +19,7 @@ Each agency runs **one** workload:
 | ----------------------------- | ------------------------------ | ----------------------------- | ------------------- |
 | Agency (Go server: API + SPA) | `ghcr.io/opennsw/agency:<tag>` | `8081` (override with `PORT`) | `Service` + `Route` |
 
-The server emits the SPA's runtime config (`VITE_*`) at `/runtime-env.js` from its
+The server emits the SPA's runtime config (`VITE_*`) at `/config.js` from its
 environment, so the same image is reconfigurable per environment/agency without a rebuild.
 
 The image is OpenShift-friendly out of the box:
@@ -162,7 +162,7 @@ data:
   # RFC 8707 resource indicator, required by NSW's IdP for scope-bearing requests.
   NSW_TOKEN_PARAMS: "resource=https://api.nsw-srilanka.local"
 
-  # Browser runtime config (served at /runtime-env.js). The API and SPA share one
+  # Browser runtime config (served at /config.js). The API and SPA share one
   # origin now, so VITE_API_BASE_URL and VITE_APP_URL both point at this route.
   VITE_BRANDING_NAME: "fcau"
   VITE_API_BASE_URL: "https://agency.apps.example.com"
