@@ -19,8 +19,9 @@ Each agency runs **one** workload:
 | ----------------------------- | ------------------------------ | ----------------------------- | ------------------- |
 | Agency (Go server: API + SPA) | `ghcr.io/opennsw/agency:<tag>` | `8081` (override with `PORT`) | `Service` + `Route` |
 
-The server emits the SPA's runtime config (`VITE_*`) at `/config.js` from its
-environment, so the same image is reconfigurable per environment/agency without a rebuild.
+The server emits the SPA's runtime config (`VITE_*` keys) at `/config.js` from
+`config.yaml`'s `web.runtime` section (§4.2), so the same image is reconfigurable per
+environment/agency by editing that ConfigMap, without a rebuild.
 
 The image is OpenShift-friendly out of the box:
 
@@ -29,16 +30,17 @@ The image is OpenShift-friendly out of the box:
 
 ### What ships in the image vs. what is supplied at deploy time
 
-| Artifact                    | Source                                                 | How it reaches the pod                                                               |
-| --------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| `agency` server binary      | root `Dockerfile`                                      | Baked into image (`/app/agency`)                                                     |
-| `migrate` CLI binary        | root `Dockerfile`                                      | Baked into image (`/app/migrate`)                                                    |
-| `nswac` CLI binary          | root `Dockerfile`                                      | Baked into image (`/usr/local/bin/nswac`)                                            |
-| Officer-portal SPA          | `frontend/` (built in the image)                       | Baked into image (`/app/web`, served by the server when `WEB_DIR` resolves)          |
-| SQL migrations              | `backend/migrations/`                                  | **Baked into image** (`/app/migrations`)                                             |
-| Task configs & forms        | External artifact source (GitHub repo or S3/R2 bucket) | **Fetched at runtime** via the artifact loader — not baked into the image (see §4.2) |
-| User/role seed JSON         | `backend/data/seed/<agency>_users.json`                | **Mounted at deploy time** via ConfigMap (see §5)                                    |
-| All configuration / secrets | env vars                                               | `Secret` + `ConfigMap` (see §4)                                                      |
+| Artifact                 | Source                                                 | How it reaches the pod                                                               |
+|--------------------------|--------------------------------------------------------|--------------------------------------------------------------------------------------|
+| `agency` server binary   | root `Dockerfile`                                      | Baked into image (`/app/agency`)                                                     |
+| `migrate` CLI binary     | root `Dockerfile`                                      | Baked into image (`/app/migrate`)                                                    |
+| `nswac` CLI binary       | root `Dockerfile`                                      | Baked into image (`/usr/local/bin/nswac`)                                            |
+| Officer-portal SPA       | `frontend/` (built in the image)                       | Baked into image (`/app/web`, served by the server when `WEB_DIR` resolves)          |
+| SQL migrations           | `backend/migrations/`                                  | **Baked into image** (`/app/migrations`)                                             |
+| Task configs & forms     | External artifact source (GitHub repo or S3/R2 bucket) | **Fetched at runtime** via the artifact loader — not baked into the image (see §4.2) |
+| User/role seed JSON      | `backend/data/seed/<agency>_users.json`                | **Mounted at deploy time** via ConfigMap (see §5)                                    |
+| Non-secret server config | `config.yaml` (mirrors `backend/config.example.yaml`)  | Mounted from a `ConfigMap` (see §4.2)                                                |
+| Secrets                  | env vars                                               | `Secret`, referenced from `config.yaml` via `{{env:NAME}}` placeholders (see §4.1)   |
 
 ---
 
@@ -82,6 +84,14 @@ database — the migrations and seed are idempotent per database.
 
 ## 4. Create the configuration objects
 
+`cmd/server` and `cmd/migrate` read **only** `config.yaml` (via the `CONFIG_PATH` env
+var — the one setting that has to stay a literal env var, since it's needed to find the
+file in the first place); there is no per-field env-var mapping for anything else. Any
+value in it can be a literal or a `"{{env:NAME}}"` / `"{{file:/path}}"` placeholder — see
+`backend/config.example.yaml` for the full schema. `cmd/cli` (the `nswac` binary used by
+the seed Job in §5.3) is the one exception: it isn't part of this and still reads
+`DB_DRIVER`/`DB_HOST`/etc. as plain env vars directly.
+
 ### 4.1 Secret — credentials
 
 ```yaml
@@ -94,17 +104,23 @@ type: Opaque
 stringData:
   DB_PASSWORD: "<postgres-password>"
   NSW_CLIENT_SECRET: "<m2m-client-secret>"
-  # Only when ARTIFACT_LOADER_TYPE=s3 with static credentials (must be set
+  # Only when artifactLoader.type: s3 with static credentials (must be set
   # together). Omit to use the pod's default AWS credential chain. For a private
   # GitHub source use ARTIFACT_GITHUB_TOKEN here instead.
   ARTIFACT_S3_ACCESS_KEY: "<r2-access-key>"
   ARTIFACT_S3_SECRET_KEY: "<r2-secret-key>"
 ```
 
-### 4.2 ConfigMap — non-secret config
+These keys are never read directly — `config.yaml` below references them by name via
+`"{{env:NAME}}"` placeholders, resolved by the app at container startup.
 
-A single ConfigMap holds all non-secret config for the one workload — server, database,
-inbound/outbound auth, and the `VITE_*` values the server serves to the browser.
+### 4.2 ConfigMap — config.yaml
+
+`config.yaml` is authored here directly (mirroring `backend/config.example.yaml` 1:1 — see
+that file for the full schema and every field's meaning) and mounted read-only into the
+pod; there is no ConfigMap-of-flat-env-vars any more. This one file carries server,
+database, inbound/outbound auth, and the `web.runtime` values the server serves to the
+browser at `/config.js`.
 
 ```yaml
 apiVersion: v1
@@ -113,74 +129,105 @@ metadata:
   name: agency-config
   labels: { app: agency }
 data:
-  # Server
-  PORT: "8081"
-  MAX_REQUEST_BYTES: "33554432"
-  SERVER_READ_HEADER_TIMEOUT: "5s"
-  SERVER_READ_TIMEOUT: "15s"
-  SERVER_WRITE_TIMEOUT: "30s"
-  SERVER_IDLE_TIMEOUT: "60s"
-  ALLOWED_ORIGINS: "https://agency.apps.example.com"
+  config.yaml: |
+    port: "8081"
+    allowedOrigins: ["https://agency.apps.example.com"]
 
-  # Database (PostgreSQL)
+    db:
+      driver: postgres
+      postgres:
+        host: postgresql
+        port: "5432"
+        user: postgres
+        password: "{{env:DB_PASSWORD}}"
+        name: nsw_agency_db
+        sslMode: require
+
+    # Task configs and forms are fetched at runtime from an external source, not
+    # baked into the image. Use "github" (pinned to an immutable ref) or "s3"
+    # (e.g. Cloudflare R2) in a cluster — "local" only works with a mounted volume.
+    artifactLoader:
+      type: s3
+      s3:
+        bucket: one-trade-artifacts
+        region: auto # "auto" for R2
+        endpoint: https://<accountid>.r2.cloudflarestorage.com
+        prefix: fcau
+        accessKey: "{{env:ARTIFACT_S3_ACCESS_KEY}}"
+        secretKey: "{{env:ARTIFACT_S3_SECRET_KEY}}"
+      # For github instead:
+      # type: github
+      # github:
+      #   owner: OpenNSW
+      #   repo: one-trade-artifacts
+      #   ref: "<tag-or-sha>"
+      #   basePath: fcau
+
+    # Browser runtime config, served at /config.js (see frontend/src/runtimeConfig.ts).
+    # The API and SPA share one origin, so apiBaseURL and appURL both point at this route.
+    web:
+      dir: web
+      runtime:
+        brandingName: fcau
+        apiBaseURL: https://agency.apps.example.com
+        idpBaseURL: https://idp.example.com
+        idpClientID: "<AGENCY_PORTAL_CLIENT_ID>"
+        idpExpectedOU: fcau
+        appURL: https://agency.apps.example.com
+        idpScopes: openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write
+        # Must equal authn.audience below, or the agency:* scopes are dropped.
+        idpExtraQueryParams: resource=https://api.nsw-agency.local
+
+    authn:
+      jwksURL: https://idp.example.com/oauth2/jwks
+      issuer: https://idp.example.com
+      audience: https://api.nsw-agency.local
+      clientIDs: ["<SPA_AGENCY_PORTAL>", "NSW_TO_AGENCY"]
+      expectedOU: fcau
+
+    nsw:
+      baseURL: https://nsw.example.com
+      clientID: "<M2M_AGENCY_TO_NSW>"
+      clientSecret: "{{env:NSW_CLIENT_SECRET}}"
+      tokenURL: https://idp.example.com/oauth2/token
+      tokenParams:
+        resource: ["https://api.nsw-srilanka.local"]
+      scopes:
+        - "nsw:task:write"
+        - "nsw:consignment:read"
+        - "nsw:storage:read"
+        - "nsw:storage:write"
+```
+
+> Do **not** set `insecureSkipTLSVerify` / `tokenInsecureSkipVerify` (`authn`/`nsw`) to
+> `true` in production — those are dev-only TLS-skip flags. Make sure the cluster trusts
+> the IdP/NSW certificate chain instead. These are now **enforced**: the backend refuses to
+> start if either is `true` unless `environment: development`, so a stray insecure flag
+> fails closed in production rather than silently trusting an unverified certificate. Do
+> **not** set `environment: development` in a deployment.
+
+### 4.3 ConfigMap — seed CLI env vars
+
+`nswac` (§5.3's seed Job) is not part of the `config.yaml` migration above and still reads
+its DB connection as plain env vars, so it needs its own small ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agency-cli-env
+  labels: { app: agency }
+data:
   DB_DRIVER: "postgres"
   DB_HOST: "postgresql"
   DB_PORT: "5432"
   DB_USER: "postgres"
   DB_NAME: "nsw_agency_db"
   DB_SSLMODE: "require"
-  MIGRATION_DIR: "/app/migrations"
-
-  # Artifact loader — where task configs, forms, and manifest.json are fetched
-  # from at runtime. Use "github" (pin an immutable ref) or "s3" (e.g. R2) in
-  # production; "local" only fits a mounted volume. Only the selected backend's
-  # vars are read. See backend/.env.example for the full set.
-  ARTIFACT_LOADER_TYPE: "s3"
-  ARTIFACT_S3_BUCKET: "one-trade-artifacts"
-  ARTIFACT_S3_REGION: "auto"
-  ARTIFACT_S3_ENDPOINT: "https://<accountid>.r2.cloudflarestorage.com"
-  ARTIFACT_S3_PREFIX: "fcau"
-  # For github instead:
-  # ARTIFACT_LOADER_TYPE: "github"
-  # ARTIFACT_GITHUB_OWNER: "OpenNSW"
-  # ARTIFACT_GITHUB_REPO: "one-trade-artifacts"
-  # ARTIFACT_GITHUB_REF: "<tag-or-sha>"
-  # ARTIFACT_GITHUB_BASE_PATH: "fcau"
-
-  # Inbound auth (validate JWTs from SPA / NSW)
-  AUTH_JWKS_URL: "https://idp.example.com/oauth2/jwks"
-  AUTH_ISSUER: "https://idp.example.com"
-  AUTH_AUDIENCE: "https://api.nsw-agency.local"
-  AUTH_CLIENT_IDS: "<SPA_AGENCY_PORTAL>,<M2M_NSW_TO_AGENCY>"
-  AUTH_EXPECTED_OU: "fcau"
-
-  # Outbound M2M to NSW API
-  NSW_API_BASE_URL: "https://nsw.example.com"
-  NSW_CLIENT_ID: "<M2M_AGENCY_TO_NSW>"
-  NSW_TOKEN_URL: "https://idp.example.com/oauth2/token"
-  NSW_SCOPES: "nsw:task:write,nsw:consignment:read"
-  # RFC 8707 resource indicator, required by NSW's IdP for scope-bearing requests.
-  NSW_TOKEN_PARAMS: "resource=https://api.nsw-srilanka.local"
-
-  # Browser runtime config (served at /config.js). The API and SPA share one
-  # origin now, so VITE_API_BASE_URL and VITE_APP_URL both point at this route.
-  VITE_BRANDING_NAME: "fcau"
-  VITE_API_BASE_URL: "https://agency.apps.example.com"
-  VITE_APP_URL: "https://agency.apps.example.com"
-  VITE_IDP_BASE_URL: "https://idp.example.com"
-  VITE_IDP_CLIENT_ID: "<AGENCY_PORTAL_CLIENT_ID>"
-  VITE_IDP_SCOPES: "openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write"
-  # Must equal AUTH_AUDIENCE above, or the agency:* scopes are dropped.
-  VITE_IDP_EXTRA_QUERY_PARAMS: "resource=https://api.nsw-agency.local"
-  VITE_IDP_EXPECTED_OU_HANDLE: "fcau"
 ```
 
-> Do **not** set `AUTH_JWKS_INSECURE_SKIP_VERIFY` / `NSW_TOKEN_INSECURE_SKIP_VERIFY` in
-> production — those are dev-only TLS-skip flags. Make sure the cluster trusts the IdP/NSW
-> certificate chain instead. These flags are now **enforced**: the backend refuses to start
-> if either is `true` unless `APP_ENV=development`, so a stray insecure flag fails closed in
-> production rather than silently trusting an unverified certificate. Do **not** set
-> `APP_ENV=development` in a deployment.
+Keep these in sync with `config.yaml`'s `db:` section above by hand — they describe the
+same database, but `nswac` has no access to `config.yaml`.
 
 ---
 
@@ -240,7 +287,7 @@ spec:
           image: ghcr.io/opennsw/agency:<tag>
           command: ["nswac", "user", "add", "--file", "/seed/fcau_users.json"]
           envFrom:
-            - configMapRef: { name: agency-config }
+            - configMapRef: { name: agency-cli-env }
             - secretRef: { name: agency-secrets }
           volumeMounts:
             - name: seed-data
@@ -290,17 +337,29 @@ spec:
         - name: migrate
           image: ghcr.io/opennsw/agency:<tag>
           command: ["/app/migrate", "up"]
+          env:
+            - name: CONFIG_PATH
+              value: /app/config/config.yaml
           envFrom:
-            - configMapRef: { name: agency-config }
             - secretRef: { name: agency-secrets }
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
       containers:
         - name: agency
           image: ghcr.io/opennsw/agency:<tag>
           ports:
             - containerPort: 8081
+          env:
+            - name: CONFIG_PATH
+              value: /app/config/config.yaml
           envFrom:
-            - configMapRef: { name: agency-config }
             - secretRef: { name: agency-secrets }
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
           readinessProbe:
             httpGet: { path: /health, port: 8081 }
             initialDelaySeconds: 5
@@ -309,6 +368,10 @@ spec:
             httpGet: { path: /health, port: 8081 }
             initialDelaySeconds: 10
             periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: agency-config
 ---
 apiVersion: v1
 kind: Service
@@ -333,8 +396,8 @@ spec:
 ```
 
 > **Task configs and form templates** are fetched at runtime by the artifact loader from the
-> source configured in §4.2 (`ARTIFACT_LOADER_TYPE`), so no volume mount or baked-in content
-> is needed. The server reads `manifest.json` from that source at startup and **fails fast**
+> source configured in §4.2 (`config.yaml`'s `artifactLoader.type`), so no volume mount or
+> baked-in content is needed for them. The server reads `manifest.json` from that source at startup and **fails fast**
 > if it is unreachable, then fetches individual artifacts on demand. For reproducibility, pin
 > the source to an immutable ref (a GitHub tag/SHA, or a versioned S3/R2 prefix) rather than a
 > moving branch.
@@ -346,7 +409,7 @@ spec:
 ```bash
 # 1. Config + secrets
 oc apply -f secret.yaml
-oc apply -f config.yaml
+oc apply -f configmap.yaml       # agency-config (config.yaml) + agency-cli-env
 
 # 2. Seed ConfigMap (from repo file; task configs & forms are fetched at runtime via the artifact loader)
 oc create configmap agency-seed-data \
@@ -367,12 +430,12 @@ oc logs -f job/agency-seed
 
 Deploy the same image per agency, changing only configuration:
 
-| Setting                                            | NPQS              | FCAU              | CDA              | SLPA              |
-| -------------------------------------------------- | ----------------- | ----------------- | ---------------- | ----------------- |
-| `AUTH_EXPECTED_OU` / `VITE_IDP_EXPECTED_OU_HANDLE` | `npqs`            | `fcau`            | `cda`            | `slpa`            |
-| `VITE_BRANDING_NAME`                               | `npqs`            | `fcau`            | `cda`            | `slpa`            |
-| Seed file                                          | `npqs_users.json` | `fcau_users.json` | `cda_users.json` | `slpa_users.json` |
-| `NSW_CLIENT_ID` / `VITE_IDP_CLIENT_ID`             | agency-specific   | agency-specific   | agency-specific  | agency-specific   |
+| Setting (in `config.yaml`, §4.2)                        | NPQS              | FCAU              | CDA              | SLPA              |
+| -------------------------------------------------------- | ----------------- | ----------------- | ---------------- | ----------------- |
+| `authn.expectedOU` / `web.runtime.idpExpectedOU`          | `npqs`            | `fcau`            | `cda`            | `slpa`            |
+| `web.runtime.brandingName`                                | `npqs`            | `fcau`            | `cda`            | `slpa`            |
+| Seed file                                                 | `npqs_users.json` | `fcau_users.json` | `cda_users.json` | `slpa_users.json` |
+| `nsw.clientID` / `web.runtime.idpClientID`                | agency-specific   | agency-specific   | agency-specific  | agency-specific   |
 
 Use a separate namespace (or a name suffix) per agency, e.g. `agency-fcau`.
 
@@ -401,11 +464,12 @@ oc get route agency
 
 - **Re-running migrations:** every rollout runs `migrate up` via the init container; it is a
   no-op when there is nothing pending. Roll back the last migration manually with a one-off
-  pod: `oc run migrate-down --rm -it --restart=Never --image=<image> --command --/app/migrate down` (wire in the same env).
+  pod: `oc run migrate-down --rm -it --restart=Never --image=<image> --command --/app/migrate down`
+  (give it the same `config` volume mount + `CONFIG_PATH` + secret env as the init container in §6).
 - **Re-seeding:** update `agency-seed-data` ConfigMap, then delete and re-apply the seed
   Job. Existing users are skipped, so it is safe to re-run.
 - **Secrets:** keep `DB_PASSWORD` and `NSW_CLIENT_SECRET` only in the `Secret`. Never put
   them in the ConfigMap or image.
 - **Scaling:** the server is stateless when using PostgreSQL, so `replicas` can be raised
-  freely. Avoid SQLite (`DB_DRIVER=sqlite`) on OpenShift — it does not survive pod restarts
-  and cannot be shared across replicas.
+  freely. Avoid SQLite (`config.yaml`'s `db.driver: sqlite`) on OpenShift — it does not
+  survive pod restarts and cannot be shared across replicas.

@@ -395,6 +395,11 @@ start_frontend() {
   local agency=$1
   resolve_agency "$agency"
   echo "[start-dev] Starting $agency frontend -> http://localhost:$FE_PORT (backend: http://localhost:$BE_PORT)"
+  # The frontend has no local runtime-config fallback: it loads /config.js
+  # through the Vite proxy below, which forwards to $BE_PORT. Running this
+  # target alone ('frontend', not 'all'/'backend') without that backend
+  # already up elsewhere means /config.js 404s/connection-refuses and the app
+  # never initializes — start that agency's backend first (or run 'all').
   (
     cd "$FRONTEND_DIR"
     ensure_branding_file "$agency" "$APP_NAME"
