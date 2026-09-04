@@ -3,8 +3,21 @@
   "properties": {
     "officeLocation": {
       "type": "string",
-      "description": "Pushed from the applicant's nppo_office_location field by npqs_application_review_v1's consignmentFields rule. Office 1: Katunayake. Office 2: Head Office (Colombo). Office 3: Port of Colombo. Office 4: Hambantota Port. Office 5: Mattala Airport. Office 6: Jaffna Airport.",
-      "enum": ["Office 1", "Office 2", "Office 3", "Office 4", "Office 5", "Office 6"]
+      "description": "Pushed from the applicant's nppo_office_location field by npqs_application_review_v1's consignmentFields rule. NPQS-KAT: National Plant Quarantine Service HQ, Katunayake. SEA-CMB: Plant Quarantine Station, Seaport Colombo. AIR-BIA: Plant Quarantine Station, Bandaranayake International Airport, Katunayake. AIR-JAF: Plant Quarantine Station, Jaffna International Airport, Palaly. AIR-CIAR: Plant Quarantine Unit, Colombo International Airport, Ratmalana. AIR-MRIA: Plant Quarantine Station, Mattala Rajapaksa International Airport. SEA-HAM: Plant Quarantine Station, Seaport Hambanthota. SEA-KKS: Plant Quarantine Unit, Seaport Kankesanturai. PO-CME: Plant Quarantine Unit, Central Mail Exchange, Colombo. PO-GAL: Plant Quarantine Unit, Post Office Galle. PO-KDY: Plant Quarantine Unit, Post Office Kandy. PO-JAF: Plant Quarantine Unit, Post Office Jaffna.",
+      "enum": [
+        "NPQS-KAT",
+        "SEA-CMB",
+        "AIR-BIA",
+        "AIR-JAF",
+        "AIR-CIAR",
+        "AIR-MRIA",
+        "SEA-HAM",
+        "SEA-KKS",
+        "PO-CME",
+        "PO-GAL",
+        "PO-KDY",
+        "PO-JAF"
+      ]
     }
   },
   "additionalProperties": false
