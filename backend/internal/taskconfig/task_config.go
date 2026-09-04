@@ -41,6 +41,10 @@ type TaskConfig struct {
 	// on each entry, and docs/consignment-custom-data.md for the full
 	// design (in particular: why arrays are unsupported by design here).
 	ConsignmentFields []ConsignmentField `json:"consignmentFields,omitempty"`
+	// RefID declares that this task's applications get an agency-issued
+	// reference ID, generated once on first inject and written into the
+	// reviewer response at Path. Optional — nil means this task mints none.
+	RefID *TaskRefID `json:"refid,omitempty"`
 }
 
 // Action names a permission action a role can be granted. These are the
@@ -134,6 +138,25 @@ func (c TaskConfig) Validate() error {
 			return fmt.Errorf("taskconfig %q: consignmentFields[%d].target must be a JSON Pointer (e.g. \"/district\"), got %q", c.TaskCode, i, f.Target)
 		}
 	}
+	if r := c.RefID; r != nil {
+		if strings.TrimSpace(r.Issuer) == "" {
+			return fmt.Errorf("taskconfig %q: refid.issuer is required", c.TaskCode)
+		}
+		if strings.TrimSpace(r.IDType) == "" {
+			return fmt.Errorf("taskconfig %q: refid.idType is required", c.TaskCode)
+		}
+		if !jsonpointer.Valid(r.Path) {
+			return fmt.Errorf("taskconfig %q: refid.path must be a JSON Pointer (e.g. \"/reference_number\"), got %q", c.TaskCode, r.Path)
+		}
+		for param, pointer := range r.Params {
+			if strings.TrimSpace(param) == "" {
+				return fmt.Errorf("taskconfig %q: refid.params has an entry with an empty param name", c.TaskCode)
+			}
+			if !jsonpointer.Valid(pointer) {
+				return fmt.Errorf("taskconfig %q: refid.params[%q] must be a JSON Pointer (e.g. \"/nppo_office_location\"), got %q", c.TaskCode, param, pointer)
+			}
+		}
+	}
 	return nil
 }
 
@@ -190,6 +213,25 @@ type TaskCertificate struct {
 type ConsignmentField struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
+}
+
+// TaskRefID configures reference ID generation for a task (see
+// github.com/OpenNSW/core/refid). Issuer and IDType select one of the formats
+// declared in the deployment's own refIDGen config; a task naming a format the
+// deployment hasn't configured fails the inject rather than quietly skipping,
+// since an application with no reference ID is not something to discover later.
+type TaskRefID struct {
+	Issuer string `json:"issuer"`
+	IDType string `json:"idType"`
+	// Path is a JSON Pointer into the reviewer response naming where the
+	// generated ID is written, e.g. "/reference_number". The task's review
+	// form needs a control at this path or the officer never sees it.
+	Path string `json:"path"`
+	// Params supplies the format's own inputs, keyed by refid param name;
+	// each value is a JSON Pointer resolved against the injected data, e.g.
+	// {"officeCode": "/nppo_office_location"}. refid ignores params a format
+	// doesn't consume, so these may be declared generously.
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // DefaultOutcomeField is the field name read from the review submission

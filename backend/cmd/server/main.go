@@ -22,6 +22,7 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/logging"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/refidstore"
 	"github.com/OpenNSW/agency/backend/internal/scopes"
 	"github.com/OpenNSW/agency/backend/internal/storage"
 	"github.com/OpenNSW/agency/backend/internal/user"
@@ -29,6 +30,7 @@ import (
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/loaders"
 	"github.com/OpenNSW/core/authz"
+	"github.com/OpenNSW/core/refid"
 	"github.com/OpenNSW/core/trace"
 )
 
@@ -159,8 +161,24 @@ func main() {
 	consignmentService := consignment.NewService(consignmentStore, nswClient, dataScopeResolver)
 	consignmentHandler := consignment.NewHandler(consignmentService)
 
+	// Reference ID generation (optional per deployment). NewRegistry validates
+	// every configured format up front, so a malformed refIDGen section fails
+	// the boot rather than the first inject that needs it. With no section
+	// configured the registry holds zero formats and Generate returns
+	// ErrUnknownIssuer, which is what makes a task declaring refid against an
+	// unconfigured deployment fail loudly.
+	refIDSequences, err := refidstore.New(store.DB())
+	if err != nil {
+		log.Fatalf("failed to create refid sequence store: %v", err)
+	}
+	refIDs, err := refid.NewRegistry(cfg.RefIDGen, refIDSequences)
+	if err != nil {
+		log.Fatalf("invalid refIDGen config: %v", err)
+	}
+	slog.Info("reference ID generation configured", "issuers", len(cfg.RefIDGen.Issuers))
+
 	// Initialize Agency service
-	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService, dataScopeResolver)
+	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService, dataScopeResolver, refIDs)
 	defer func() {
 		if err := service.Close(); err != nil {
 			slog.Error("failed to close service", "error", err)

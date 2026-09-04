@@ -7,6 +7,7 @@ require (
 	github.com/OpenNSW/core/authn v0.3.0
 	github.com/OpenNSW/core/authz v0.1.0
 	github.com/OpenNSW/core/httputil v0.1.0
+	github.com/OpenNSW/core/refid v0.0.0-00010101000000-000000000000
 	github.com/OpenNSW/core/secret v0.2.0
 	github.com/OpenNSW/core/trace v0.2.0
 	github.com/glebarez/sqlite v1.11.0
@@ -48,12 +49,10 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-sqlite3 v1.14.44 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
@@ -61,3 +60,7 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+// TODO: drop before merging — points at the local core checkout while the
+// driver-import removal in refid/store/* is still unreleased.
+replace github.com/OpenNSW/core/refid => ../../core/refid
