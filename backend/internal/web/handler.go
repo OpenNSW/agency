@@ -12,6 +12,8 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
@@ -33,8 +35,10 @@ type Handler struct {
 // NewHandler builds a Handler for cfg. cfg.Runtime should already be validated
 // (see Config.Validate) — /config.js is served regardless of whether the SPA
 // asset dir exists, since dev's Vite proxy and prod's bundled SPA both need it.
-// A missing/non-directory cfg.Dir is not an error: ServesSPA reports false and
-// the caller skips registering ServeSPA (native dev's API-only mode).
+// A missing cfg.Dir is not an error: ServesSPA reports false and the caller
+// skips registering ServeSPA (native dev's API-only mode). Any other os.Stat
+// error (permissions, I/O) is a real problem, not an absent dir, so it's
+// returned rather than silently treated as API-only.
 func NewHandler(cfg Config) (*Handler, error) {
 	// json.Marshal handles JS string escaping safely (replacing the old
 	// hand-rolled awk escaper); omitempty drops unset optional keys.
@@ -44,10 +48,14 @@ func NewHandler(cfg Config) (*Handler, error) {
 	}
 	h := &Handler{runtimePayload: payload}
 
-	if fi, statErr := os.Stat(cfg.Dir); statErr == nil && fi.IsDir() {
+	fi, statErr := os.Stat(cfg.Dir)
+	switch {
+	case statErr == nil && fi.IsDir():
 		h.dir = cfg.Dir
 		h.fileServer = http.FileServer(http.Dir(cfg.Dir))
 		h.spaAvailable = true
+	case statErr != nil && !errors.Is(statErr, fs.ErrNotExist):
+		return nil, statErr
 	}
 	return h, nil
 }
