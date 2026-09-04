@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// /runtime-env.js is the SPA's only channel for these values, so a key the frontend
+// /config.js is the SPA's only channel for these values, so a key the frontend
 // reads but RuntimeConfig does not carry is invisible in a deployed run.
 func TestRuntimeConfigMarshalsFrontendKeys(t *testing.T) {
 	cfg := RuntimeConfig{
@@ -35,7 +35,7 @@ func TestRuntimeConfigMarshalsFrontendKeys(t *testing.T) {
 		"VITE_IDP_EXTRA_QUERY_PARAMS",
 	} {
 		if _, ok := got[key]; !ok {
-			t.Errorf("%s missing from /runtime-env.js payload", key)
+			t.Errorf("%s missing from /config.js payload", key)
 		}
 	}
 

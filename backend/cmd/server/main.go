@@ -231,22 +231,33 @@ func main() {
 	mux.Handle("GET /api/v1/storage/{key}", protect(withScope(scopes.StorageRead)(http.HandlerFunc(storageHandler.HandleGetUploadURL))))
 	mux.Handle("POST /api/v1/applications/{taskId}/certificate", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(certificateHandler.HandleGenerate)))))
 
-	// Serve the built officer-portal SPA from this same process. The "/" pattern
-	// is the most general match, so the specific API, /health and /runtime-env.js
-	// routes take precedence. /runtime-env.js exposes cfg.Web.Runtime
-	// (window.__APP_CONFIG__) so the SPA reads config synchronously. cfg.Web.Dir
-	// is relative to the working dir (/app/web in the image); when it is absent
+	// /config.js exposes cfg.Web.Runtime (window.__APP_CONFIG__) so the SPA reads
+	// config synchronously — served unconditionally, since it's the single source
+	// of runtime config for the frontend in prod (bundled SPA) and in dev alike
+	// (the frontend's Vite dev server proxies /config.js to this same backend
+	// instance rather than reimplementing config assembly — see
+	// frontend/vite.config.ts). So cfg.Web.Runtime must be valid in every
+	// deployment, including each agency's dev config.yaml.
+	if err := cfg.Web.Validate(); err != nil {
+		log.Fatalf("FATAL: web.runtime config is invalid: %v", err)
+	}
+	spa, err := web.NewHandler(cfg.Web)
+	if err != nil {
+		log.Fatalf("FATAL: building web handler: %v", err)
+	}
+	mux.Handle("GET /config.js", http.HandlerFunc(spa.ServeConfig))
+
+	// Serve the built officer-portal SPA from this same process, when its asset
+	// dir exists. The "/" pattern is the most general match, so the specific API,
+	// /health and /config.js routes above take precedence. cfg.Web.Dir is
+	// relative to the working dir (/app/web in the image); when it is absent
 	// (e.g. local API-only dev where the frontend runs via its own dev server),
-	// skip serving rather than failing.
-	if spa, err := web.NewHandler(cfg.Web); err != nil {
-		slog.Warn("frontend not served", "asset_dir", cfg.Web.Dir, "error", err)
-	} else {
-		if err := cfg.Web.Validate(); err != nil {
-			log.Fatalf("FATAL: serving the frontend but its config is invalid: %v", err)
-		}
-		mux.Handle("GET /runtime-env.js", http.HandlerFunc(spa.ServeRuntimeEnv))
+	// skip registering this route rather than failing.
+	if spa.ServesSPA() {
 		mux.Handle("GET /", http.HandlerFunc(spa.ServeSPA))
 		slog.Info("serving officer portal alongside the API", "asset_dir", cfg.Web.Dir)
+	} else {
+		slog.Info("frontend not served from this process (API only)", "asset_dir", cfg.Web.Dir)
 	}
 
 	// Set up graceful shutdown
