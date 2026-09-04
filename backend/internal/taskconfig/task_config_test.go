@@ -340,3 +340,92 @@ func TestValidate_ConsignmentFields_MissingSlash(t *testing.T) {
 		})
 	}
 }
+
+// baseConfigWithRefID returns a minimal valid config carrying refID, so each
+// case below varies only the refid block.
+func baseConfigWithRefID(refID *TaskRefID) TaskConfig {
+	return TaskConfig{
+		SchemaVersion: CurrentSchemaVersion,
+		TaskCode:      "alpha",
+		Forms:         TaskForms{Review: "review-form"},
+		Behavior:      validBehavior(),
+		Permissions:   validPermissions(),
+		RefID:         refID,
+	}
+}
+
+func TestValidate_RefID_Omitted(t *testing.T) {
+	if err := baseConfigWithRefID(nil).Validate(); err != nil {
+		t.Errorf("expected no error when refid is omitted, got %v", err)
+	}
+}
+
+func TestValidate_RefID_Valid(t *testing.T) {
+	cases := []struct {
+		name  string
+		refID TaskRefID
+	}{
+		{"without params", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "/reference_number",
+		}},
+		{"with params", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "/reference_number",
+			Params: map[string]string{"officeCode": "/nppo_office_location"},
+		}},
+		{"nested path", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "/registration/reference_number",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := baseConfigWithRefID(&tc.refID).Validate(); err != nil {
+				t.Errorf("expected no error for a valid refid, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_RefID_Rejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		refID TaskRefID
+	}{
+		{"empty issuer", TaskRefID{
+			Issuer: "", IDType: "application_id", Path: "/reference_number",
+		}},
+		{"blank issuer", TaskRefID{
+			Issuer: "  ", IDType: "application_id", Path: "/reference_number",
+		}},
+		{"empty idType", TaskRefID{
+			Issuer: "NPQS", IDType: "", Path: "/reference_number",
+		}},
+		{"empty path", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "",
+		}},
+		{"path missing leading slash", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "reference_number",
+		}},
+		{"path with a bad escape", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "/ref~2num",
+		}},
+		{"param pointer missing leading slash", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "/reference_number",
+			Params: map[string]string{"officeCode": "nppo_office_location"},
+		}},
+		{"param pointer empty", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "/reference_number",
+			Params: map[string]string{"officeCode": ""},
+		}},
+		{"empty param name", TaskRefID{
+			Issuer: "NPQS", IDType: "application_id", Path: "/reference_number",
+			Params: map[string]string{"": "/nppo_office_location"},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := baseConfigWithRefID(&tc.refID).Validate(); err == nil {
+				t.Errorf("expected an error for %s, got nil", tc.name)
+			}
+		})
+	}
+}
