@@ -19,6 +19,7 @@ import (
 	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
+	"github.com/OpenNSW/core/refid"
 	"gorm.io/gorm"
 )
 
@@ -101,7 +102,7 @@ type Application struct {
 	TaskCode         string         `json:"taskCode"`
 	ConsignmentID    string         `json:"consignmentId"`
 	Data             map[string]any `json:"data,omitempty"`             // Data from NSW service to be rendered in the UI
-	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
+	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // The reviewer response document: values pre-filled at inject (see refid.go), then the payload sent back to the NSW after review
 	AllowedActions   []string       `json:"allowedActions,omitempty"`
 
 	// Task metadata from config
@@ -154,11 +155,17 @@ type service struct {
 	roleService        *rbac.RoleService
 	consignmentService ConsignmentService
 	dataScope          *datascope.Resolver
+	refIDs             refid.Registry
 }
 
 // NewService creates a new Agency service instance with database storage
-func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver) Service {
-	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil {
+// refIDs must be non-nil even where no deployment format is configured: pass
+// a registry built from an empty refid.Config, whose Generate returns
+// ErrUnknownIssuer. A task declaring refid against an unconfigured deployment
+// then fails its inject loudly, instead of a nil check quietly making the
+// feature a no-op.
+func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver, refIDs refid.Registry) Service {
+	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil || refIDs == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
@@ -168,6 +175,7 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 		roleService:        roleService,
 		consignmentService: consignmentService,
 		dataScope:          dataScope,
+		refIDs:             refIDs,
 	}
 }
 
@@ -217,9 +225,12 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 	if existing != nil {
 		// CreateOrUpdate does a full-row Save, so any field left unset here
 		// would be overwritten to NULL. Carry the claim forward so
-		// re-injecting an already-claimed application doesn't erase it.
+		// re-injecting an already-claimed application doesn't erase it, and
+		// the reviewer response so a re-inject doesn't destroy an
+		// already-issued reference ID (see generateRefID).
 		appRecord.ClaimedBy = existing.ClaimedBy
 		appRecord.ClaimedAt = existing.ClaimedAt
+		appRecord.ReviewerResponse = existing.ReviewerResponse
 	}
 
 	if existing == nil {
@@ -228,6 +239,17 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 			slog.WarnContext(ctx, "failed to create consignment after application inject",
 				"consignmentID", req.ConsignmentID, "error", err)
 		}
+	}
+
+	// Last thing before the write: Generate claims a counter value that a
+	// failed CreateOrUpdate can't give back, so keep the window small. Only
+	// for a brand-new application — a re-inject keeps the ID it already has.
+	if existing == nil && config.RefID != nil {
+		reviewerResponse, err := generateRefID(ctx, s.refIDs, config.RefID, req.Data)
+		if err != nil {
+			return err
+		}
+		appRecord.ReviewerResponse = reviewerResponse
 	}
 
 	if err := s.store.CreateOrUpdate(appRecord, pushedFields); err != nil {

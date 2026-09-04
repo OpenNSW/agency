@@ -172,3 +172,52 @@ nsw:
   # DEV-ONLY: skip TLS verification for the NSW token endpoint. Keep false in
   # production; only honored when environment: development.
   tokenInsecureSkipVerify: false
+
+# Reference ID generation (github.com/OpenNSW/core/refid) — OPTIONAL.
+#
+# Declares the reference ID formats this deployment can issue. Omit the whole
+# section and the feature is simply off: no task can generate a reference ID.
+# A task opts in via the `refid` block in its own task config, naming an
+# (issuer, idType) from here plus the path to store the result at — see
+# docs/task-config-reference.md. A task naming a format that isn't configured
+# here fails its inject rather than quietly skipping.
+#
+# Each format is an ordered list of segments, concatenated at generation time:
+#   literal   fixed text
+#   list      a caller-supplied value, validated against a named list below
+#   date      the current UTC time, using a Go reference-date layout
+#   sequence  a durable zero-padded counter
+#
+# A sequence's scopeKey decides both what the counter is scoped to and how
+# often it resets. Placeholders: {issuer}, {idType}, {yyyy}, {yyyyMM},
+# {yyyyMMdd}, and any param name the task config supplies. Including
+# {yyyyMMdd} resets daily; omitting every date placeholder never resets.
+#
+# Counters live in the refid_sequences table — run `migrate up` before
+# starting a server with this configured.
+#refIDGen:
+#  issuers:
+#    - issuer: "<AGENCY>"
+#      formats:
+#        # Produces <AGENCY>/COL/20260904/000001 — per office, reset daily.
+#        - idType: application_id
+#          segments:
+#            - type: literal
+#              value: "<AGENCY>/"
+#            - type: list
+#              list: office_location
+#              param: officeCode # the task config maps this to a JSON Pointer
+#            - type: literal
+#              value: "/"
+#            - type: date
+#              layout: "20060102" # Go reference date for YYYYMMDD
+#            - type: literal
+#              value: "/"
+#            - type: sequence
+#              scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}"
+#              padding: 6 # 000001 … 999999, then generation fails
+#  lists:
+#    # A list segment rejects any value not in its set, which fails the
+#    # inject — keep these in step with whatever the injected data actually
+#    # sends.
+#    office_location: [COL, GAL, KAN]

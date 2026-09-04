@@ -562,3 +562,62 @@ func fieldNameSet(v any) map[string]bool {
 	}
 	return set
 }
+
+func TestLoadConfig_RefIDGen_Omitted(t *testing.T) {
+	writeConfig(t, buildConfig(t, "", "", "", ""))
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	// No section means the feature is simply off — not an error.
+	if len(cfg.RefIDGen.Issuers) != 0 {
+		t.Errorf("RefIDGen.Issuers = %d, want 0 when no refIDGen section is present", len(cfg.RefIDGen.Issuers))
+	}
+}
+
+func TestLoadConfig_RefIDGen_Decoded(t *testing.T) {
+	writeConfig(t, buildConfig(t, "", "", "", `refIDGen:
+  issuers:
+    - issuer: NPQS
+      formats:
+        - idType: application_id
+          segments:
+            - {type: literal, value: "NPQS/"}
+            - {type: list, list: office_location, param: officeCode}
+            - {type: sequence, scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}", padding: 6}
+  lists:
+    office_location: [NPQS-KAT, SEA-CMB]
+`))
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	if len(cfg.RefIDGen.Issuers) != 1 {
+		t.Fatalf("RefIDGen.Issuers = %d, want 1", len(cfg.RefIDGen.Issuers))
+	}
+	issuer := cfg.RefIDGen.Issuers[0]
+	if issuer.Issuer != "NPQS" {
+		t.Errorf("issuer = %q, want \"NPQS\"", issuer.Issuer)
+	}
+	if len(issuer.Formats) != 1 || issuer.Formats[0].IDType != "application_id" {
+		t.Fatalf("formats = %+v, want one application_id format", issuer.Formats)
+	}
+	segments := issuer.Formats[0].Segments
+	if len(segments) != 3 {
+		t.Fatalf("segments = %d, want 3", len(segments))
+	}
+	// The camelCase yaml tags are the reason refid.Config can be inlined
+	// rather than needing a mirror struct — check the ones that would break.
+	if segments[2].ScopeKey != "{issuer}:{idType}:{officeCode}:{yyyyMMdd}" {
+		t.Errorf("scopeKey = %q, want the configured template", segments[2].ScopeKey)
+	}
+	if segments[2].Padding != 6 {
+		t.Errorf("padding = %d, want 6", segments[2].Padding)
+	}
+	if got := cfg.RefIDGen.Lists["office_location"]; len(got) != 2 || got[0] != "NPQS-KAT" {
+		t.Errorf("lists[office_location] = %v, want [NPQS-KAT SEA-CMB]", got)
+	}
+}
