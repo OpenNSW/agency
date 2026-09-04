@@ -117,6 +117,37 @@ func TestConsignmentStore_List(t *testing.T) {
 	}
 }
 
+func TestConsignmentStore_List_CountsPendingTasksOnly(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	if err := store.db.Create(&ConsignmentRecord{ID: "wf-mixed", Status: "PENDING"}).Error; err != nil {
+		t.Fatalf("seed consignment: %v", err)
+	}
+	apps := []testApplicationRow{
+		{TaskID: "t-pending", ConsignmentID: "wf-mixed", Status: "PENDING"},
+		{TaskID: "t-approved", ConsignmentID: "wf-mixed", Status: "APPROVED"},
+		{TaskID: "t-feedback", ConsignmentID: "wf-mixed", Status: "FEEDBACK_REQUESTED"},
+		{TaskID: "t-done", ConsignmentID: "wf-mixed", Status: "DONE"},
+	}
+	for _, app := range apps {
+		if err := store.db.Create(&app).Error; err != nil {
+			t.Fatalf("seed application %s: %v", app.TaskID, err)
+		}
+	}
+
+	summaries, _, err := store.List(ctx, "", nil, 0, 10)
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 summary, got %d", len(summaries))
+	}
+	if summaries[0].TaskCount != 1 {
+		t.Errorf("expected 1 remaining PENDING task, got %d", summaries[0].TaskCount)
+	}
+}
+
 func TestConsignmentStore_Upsert_PreservesCreatedAtAndNSWData(t *testing.T) {
 	store := newTestStore(t)
 
