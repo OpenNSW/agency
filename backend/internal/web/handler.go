@@ -1,15 +1,17 @@
 // Package web serves the built officer-portal SPA from a directory on disk so
 // the API and the frontend can ship in a single image.
 //
-// It also serves /runtime-env.js, rendered from RuntimeConfig loaded at startup,
+// It also serves /config.js, rendered from RuntimeConfig loaded at startup,
 // which the browser loads before the app bundle to populate window.__APP_CONFIG__.
 // This is the single source of runtime config — there is no entrypoint script
-// writing a file.
+// writing a file. /config.js is served independently of the SPA asset dir: it is
+// available even when this process is API-only (asset dir absent), since the
+// frontend's Vite dev server proxies /config.js to this same backend instance
+// (see frontend/vite.config.ts) rather than reimplementing config assembly.
 package web
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path"
@@ -17,43 +19,49 @@ import (
 	"strings"
 )
 
-// Handler serves the built officer-portal SPA and its /runtime-env.js. Build it
-// with NewHandler, which stats the asset dir and marshals the runtime config
-// once, then wire ServeRuntimeEnv and ServeSPA onto a mux (see cmd/server/main.go).
+// Handler serves /config.js always, and the built officer-portal SPA when its
+// asset dir exists. Build it with NewHandler, which marshals the runtime config
+// once and stats the asset dir, then wire ServeConfig (always) and ServeSPA
+// (only if ServesSPA) onto a mux — see cmd/server/main.go.
 type Handler struct {
 	dir            string
 	fileServer     http.Handler
+	spaAvailable   bool
 	runtimePayload []byte // pre-marshaled window.__APP_CONFIG__ JSON object
 }
 
-// NewHandler builds a Handler serving the SPA described by cfg. It returns an
-// error if cfg.Dir is missing (the caller can then serve API-only) — see
-// cmd/server/main.go. cfg.Runtime should already be validated.
+// NewHandler builds a Handler for cfg. cfg.Runtime should already be validated
+// (see Config.Validate) — /config.js is served regardless of whether the SPA
+// asset dir exists, since dev's Vite proxy and prod's bundled SPA both need it.
+// A missing/non-directory cfg.Dir is not an error: ServesSPA reports false and
+// the caller skips registering ServeSPA (native dev's API-only mode).
 func NewHandler(cfg Config) (*Handler, error) {
-	fi, err := os.Stat(cfg.Dir)
-	if err != nil {
-		return nil, err
-	}
-	if !fi.IsDir() {
-		return nil, fmt.Errorf("web: configured dir %q is not a directory", cfg.Dir)
-	}
 	// json.Marshal handles JS string escaping safely (replacing the old
 	// hand-rolled awk escaper); omitempty drops unset optional keys.
 	payload, err := json.Marshal(cfg.Runtime)
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{
-		dir:            cfg.Dir,
-		fileServer:     http.FileServer(http.Dir(cfg.Dir)),
-		runtimePayload: payload,
-	}, nil
+	h := &Handler{runtimePayload: payload}
+
+	if fi, statErr := os.Stat(cfg.Dir); statErr == nil && fi.IsDir() {
+		h.dir = cfg.Dir
+		h.fileServer = http.FileServer(http.Dir(cfg.Dir))
+		h.spaAvailable = true
+	}
+	return h, nil
 }
 
-// ServeRuntimeEnv serves /runtime-env.js. The browser loads it via <script src>
-// before the app bundle, so window.__APP_CONFIG__ is available synchronously to
-// the SPA's module-level config reads. Never cached.
-func (h *Handler) ServeRuntimeEnv(w http.ResponseWriter, r *http.Request) {
+// ServesSPA reports whether cfg.Dir existed at NewHandler time, i.e. whether
+// ServeSPA should be registered at all.
+func (h *Handler) ServesSPA() bool {
+	return h.spaAvailable
+}
+
+// ServeConfig serves /config.js. The browser loads it via <script src> before
+// the app bundle, so window.__APP_CONFIG__ is available synchronously to the
+// SPA's module-level config reads. Never cached.
+func (h *Handler) ServeConfig(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w.Header())
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
@@ -65,13 +73,16 @@ func (h *Handler) ServeRuntimeEnv(w http.ResponseWriter, r *http.Request) {
 // ServeSPA serves the built frontend with SPA fallback: requests for paths that
 // don't map to a real file return index.html so client-side routing works.
 // Hashed assets under /assets/ are cached immutably; index.html is never cached.
-// (/runtime-env.js is served by serveRuntimeEnv, not from disk.)
+// (/config.js is served by ServeConfig, not from disk.)
 //
 // A missing path that *looks* like a static asset (under assets/ or with a file
 // extension) returns 404 rather than the index.html shell. Otherwise the browser
 // receives HTML for a missing .js/.css and fails with "Unexpected token '<'".
 // This matches the old nginx config, whose /assets/ location had no index
 // fallback. The os.Stat below is served from the OS page cache, so it is cheap.
+//
+// Only meaningful when ServesSPA() is true — callers must not register this
+// route otherwise (see cmd/server/main.go).
 func (h *Handler) ServeSPA(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w.Header())
 
