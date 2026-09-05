@@ -34,7 +34,6 @@ artifactLoader:
 web:
   dir: web
   runtime:
-    brandingName: default
     # The portal and API share one origin. If you change AGENCY_PORT in root
     # .env, update apiBaseURL/appURL here too — compose can't template this
     # static file, so the container's own listen port (fixed at 8081 above)
@@ -46,6 +45,9 @@ web:
     idpScopes: openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write
     idpExtraQueryParams: resource=https://api.nsw-agency.local
     idpExpectedOU: npqs
+  branding:
+    systemName: NSW Agency
+    appName: "Dev NSW Agency"
 
 authn:
   jwksURL: https://host.docker.internal:8090/oauth2/jwks
