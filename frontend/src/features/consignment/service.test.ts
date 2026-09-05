@@ -14,7 +14,7 @@ describe('consignment service', () => {
     vi.clearAllMocks()
   })
 
-  it('fetchConsignments sends GET request with pagination and search query parameters', async () => {
+  it('fetchConsignments sends search and pagination params', async () => {
     const mockResponse = { data: { items: [], total: 0, page: 1, pageSize: 20 } }
     vi.mocked(http.request).mockResolvedValue(mockResponse)
 

@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { http } from './http'
 import { userManager } from '@/features/user/oidcUserManager'
 
@@ -13,6 +12,15 @@ vi.mock('@/features/user/oidcUserManager', () => ({
   },
 }))
 
+function jsonOk(body: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: (): Promise<unknown> => Promise.resolve(body),
+  }
+}
+
 describe('http client', () => {
   const mockedFetch = vi.fn()
 
@@ -21,56 +29,42 @@ describe('http client', () => {
     vi.stubGlobal('fetch', mockedFetch)
   })
 
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('attaches authorization header when attachToken is true', async () => {
-    vi.spyOn(userManager, 'getUser').mockResolvedValue({
+    vi.mocked(userManager).getUser.mockResolvedValue({
       access_token: 'test-bearer-token',
     } as never)
-
-    const mockResponse = {
-      ok: true,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: (): Promise<unknown> => Promise.resolve({ status: 'ok' }),
-    }
-    mockedFetch.mockResolvedValue(mockResponse)
+    mockedFetch.mockResolvedValue(jsonOk({ status: 'ok' }))
 
     const res = await http.request({
       url: 'http://localhost:8080/api/v1/test',
       attachToken: true,
     })
 
-    expect(mockedFetch).toHaveBeenCalledWith(
-      'http://localhost:8080/api/v1/test',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer test-bearer-token',
-        }),
-      }),
-    )
+    expect(mockedFetch).toHaveBeenCalledTimes(1)
+    expect(mockedFetch.mock.calls[0]?.[0]).toBe('http://localhost:8080/api/v1/test')
+    expect(mockedFetch.mock.calls[0]?.[1]).toMatchObject({
+      headers: { Authorization: 'Bearer test-bearer-token' },
+    })
     expect(res).toEqual({ data: { status: 'ok' } })
   })
 
-  it('formats query string parameters correctly', async () => {
-    const mockResponse = {
-      ok: true,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: (): Promise<unknown> => Promise.resolve({ items: [] }),
-    }
-    mockedFetch.mockResolvedValue(mockResponse)
+  it('omits null and undefined query parameters', async () => {
+    mockedFetch.mockResolvedValue(jsonOk({ items: [] }))
 
     await http.request({
       url: 'http://localhost:8080/api/v1/search',
       params: { q: 'tea', page: 1, empty: undefined, nullVal: null },
     })
 
-    expect(mockedFetch).toHaveBeenCalledWith('http://localhost:8080/api/v1/search?q=tea&page=1', expect.anything())
+    expect(mockedFetch.mock.calls[0]?.[0]).toBe('http://localhost:8080/api/v1/search?q=tea&page=1')
   })
 
-  it('throws error when response is not ok', async () => {
-    const mockResponse = {
-      ok: false,
-      status: 404,
-    }
-    mockedFetch.mockResolvedValue(mockResponse)
+  it('throws when the response is not ok', async () => {
+    mockedFetch.mockResolvedValue({ ok: false, status: 404 })
 
     await expect(
       http.request({
