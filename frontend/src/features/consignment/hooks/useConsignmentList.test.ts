@@ -12,7 +12,7 @@ describe('useConsignmentList', () => {
     vi.clearAllMocks()
   })
 
-  it('fetches consignments on mount and updates state', async () => {
+  it('loads consignments on mount', async () => {
     const mockItems = [{ id: 'C1', consignmentNumber: 'CN-100', status: 'SUBMITTED' }]
     vi.mocked(consignmentService.fetchConsignments).mockResolvedValue({
       items: mockItems as never,

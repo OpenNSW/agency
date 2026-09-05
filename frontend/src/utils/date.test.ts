@@ -16,16 +16,12 @@ describe('formatDateForTable', () => {
     vi.unstubAllEnvs()
   })
 
-  it('returns "-" when date string is undefined or empty', () => {
+  it('returns "-" when date string is missing', () => {
     expect(formatDateForTable()).toBe('-')
     expect(formatDateForTable('')).toBe('-')
   })
 
-  it('formats valid ISO date string correctly', () => {
-    const formatted = formatDateForTable('2026-08-10T10:00:00Z')
-    expect(formatted).toBe('Aug 10, 2026')
-    expect(formatted).toContain('Aug')
-    expect(formatted).toContain('10')
-    expect(formatted).toContain('2026')
+  it('formats a valid ISO date for table display', () => {
+    expect(formatDateForTable('2026-08-10T10:00:00Z')).toBe('Aug 10, 2026')
   })
 })
