@@ -1,13 +1,16 @@
 // Package web serves the built officer-portal SPA from a directory on disk so
 // the API and the frontend can ship in a single image.
 //
-// It also serves /config.js, rendered from RuntimeConfig loaded at startup,
-// which the browser loads before the app bundle to populate window.__APP_CONFIG__.
-// This is the single source of runtime config — there is no entrypoint script
-// writing a file. /config.js is served independently of the SPA asset dir: it is
-// available even when this process is API-only (asset dir absent), since the
-// frontend's Vite dev server proxies /config.js to this same backend instance
-// (see frontend/vite.config.ts) rather than reimplementing config assembly.
+// It also serves /config.js, rendered from Config (sans Dir) loaded at
+// startup, which the browser loads before the app bundle to populate
+// window.__APP_CONFIG__ = { runtime: {...}, branding: {...} }. This is the
+// single source of runtime config and branding — there is no entrypoint
+// script writing a file, and no separate per-agency static branding file.
+// /config.js is served independently of the SPA asset dir: it is available
+// even when this process is API-only (asset dir absent), since the
+// frontend's Vite dev server proxies /config.js to this same backend
+// instance (see frontend/vite.config.ts) rather than reimplementing config
+// assembly.
 package web
 
 import (
@@ -26,27 +29,29 @@ import (
 // once and stats the asset dir, then wire ServeConfig (always) and ServeSPA
 // (only if ServesSPA) onto a mux — see cmd/server/main.go.
 type Handler struct {
-	dir            string
-	fileServer     http.Handler
-	spaAvailable   bool
-	runtimePayload []byte // pre-marshaled window.__APP_CONFIG__ JSON object
+	dir           string
+	fileServer    http.Handler
+	spaAvailable  bool
+	configPayload []byte // pre-marshaled window.__APP_CONFIG__ JSON object (cfg, sans Dir)
 }
 
-// NewHandler builds a Handler for cfg. cfg.Runtime should already be validated
-// (see Config.Validate) — /config.js is served regardless of whether the SPA
-// asset dir exists, since dev's Vite proxy and prod's bundled SPA both need it.
-// A missing cfg.Dir is not an error: ServesSPA reports false and the caller
-// skips registering ServeSPA (native dev's API-only mode). Any other os.Stat
-// error (permissions, I/O) is a real problem, not an absent dir, so it's
-// returned rather than silently treated as API-only.
+// NewHandler builds a Handler for cfg. cfg.Runtime and cfg.Branding should
+// already be validated (see Config.Validate) — /config.js is served
+// regardless of whether the SPA asset dir exists, since dev's Vite proxy and
+// prod's bundled SPA both need it. A missing cfg.Dir is not an error:
+// ServesSPA reports false and the caller skips registering ServeSPA (native
+// dev's API-only mode). Any other os.Stat error (permissions, I/O) is a real
+// problem, not an absent dir, so it's returned rather than silently treated
+// as API-only.
 func NewHandler(cfg Config) (*Handler, error) {
 	// json.Marshal handles JS string escaping safely (replacing the old
-	// hand-rolled awk escaper); omitempty drops unset optional keys.
-	payload, err := json.Marshal(cfg.Runtime)
+	// hand-rolled awk escaper); omitempty drops unset optional keys; cfg.Dir's
+	// json:"-" tag keeps this server-only path out of the browser payload.
+	payload, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
 	}
-	h := &Handler{runtimePayload: payload}
+	h := &Handler{configPayload: payload}
 
 	fi, statErr := os.Stat(cfg.Dir)
 	switch {
@@ -67,14 +72,15 @@ func (h *Handler) ServesSPA() bool {
 }
 
 // ServeConfig serves /config.js. The browser loads it via <script src> before
-// the app bundle, so window.__APP_CONFIG__ is available synchronously to the
-// SPA's module-level config reads. Never cached.
+// the app bundle, so window.__APP_CONFIG__ (runtime config and branding
+// together) is available synchronously to the SPA's module-level reads.
+// Never cached.
 func (h *Handler) ServeConfig(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w.Header())
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	_, _ = w.Write([]byte("window.__APP_CONFIG__ = "))
-	_, _ = w.Write(h.runtimePayload)
+	_, _ = w.Write(h.configPayload)
 	_, _ = w.Write([]byte(";\n"))
 }
 

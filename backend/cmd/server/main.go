@@ -231,13 +231,14 @@ func main() {
 	mux.Handle("GET /api/v1/storage/{key}", protect(withScope(scopes.StorageRead)(http.HandlerFunc(storageHandler.HandleGetUploadURL))))
 	mux.Handle("POST /api/v1/applications/{taskId}/certificate", protect(withScope(scopes.ApplicationReview)(rbacMiddleware.RequireAction("REVIEW")(http.HandlerFunc(certificateHandler.HandleGenerate)))))
 
-	// /config.js exposes cfg.Web.Runtime (window.__APP_CONFIG__) so the SPA reads
-	// config synchronously — served unconditionally, since it's the single source
-	// of runtime config for the frontend in prod (bundled SPA) and in dev alike
-	// (the frontend's Vite dev server proxies /config.js to this same backend
-	// instance rather than reimplementing config assembly — see
-	// frontend/vite.config.ts). So cfg.Web.Runtime must be valid in every
-	// deployment, including each agency's dev config.yaml.
+	// /config.js exposes cfg.Web.Runtime/cfg.Web.Branding as one
+	// window.__APP_CONFIG__ = {runtime, branding} object, so the SPA reads both
+	// synchronously — served unconditionally, since it's the single source of
+	// runtime config and branding for the frontend in prod (bundled SPA) and in
+	// dev alike (the frontend's Vite dev server proxies /config.js to this same
+	// backend instance rather than reimplementing config assembly — see
+	// frontend/vite.config.ts). So cfg.Web.Runtime/cfg.Web.Branding must be
+	// valid in every deployment, including each agency's dev config.yaml.
 	if err := cfg.Web.Validate(); err != nil {
 		log.Fatalf("FATAL: web.runtime config is invalid: %v", err)
 	}

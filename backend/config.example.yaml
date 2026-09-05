@@ -106,19 +106,18 @@ artifactLoader:
 # ---------------------------------------------------------------------------
 # Officer-portal SPA
 # ---------------------------------------------------------------------------
-# The server always serves /config.js from web.runtime — the single source of
-# runtime config for the frontend, in prod and in dev alike. It also serves the
-# built portal itself when web.dir exists; for normal `go run` dev the frontend
-# runs via its own Vite dev server instead (dir absent, so the server runs
-# API-only), which proxies /config.js to this backend rather than reimplementing
-# config assembly (see frontend/vite.config.ts). Either way the four REQUIRED
-# fields below are validated at startup — see backend/config/<agency>/config.yaml
-# for the values a native dev instance uses.
+# The server always serves /config.js from web.runtime and web.branding — the
+# single source of frontend config AND branding, in prod and in dev alike. It
+# also serves the built portal itself when web.dir exists; for normal `go run`
+# dev the frontend runs via its own Vite dev server instead (dir absent, so the
+# server runs API-only), which proxies /config.js to this backend rather than
+# reimplementing config assembly (see frontend/vite.config.ts). Either way the
+# REQUIRED fields below are validated at startup — see
+# backend/config/<agency>/config.yaml for the values a native dev instance uses.
 web:
   dir: web
 
   runtime:
-    brandingName: default # -> /configs/${brandingName}.branding.json
     apiBaseURL: http://localhost:8081 # REQUIRED
     idpBaseURL: https://localhost:8090 # REQUIRED
     idpClientID: "<SPA_AGENCY_PORTAL>" # REQUIRED
@@ -130,6 +129,22 @@ web:
     # The `resource` value must equal authn.audience, or the agency:* scopes
     # are dropped from the issued token.
     idpExtraQueryParams: resource=https://api.nsw-agency.local
+
+  # Formerly a separate frontend/public/configs/<name>.branding.json static
+  # file, fetched at startup — see Branding's doc comment in
+  # backend/internal/web/config.go for why that never worked in production.
+  branding:
+    systemName: NSW # REQUIRED
+    appName: "NSW Agency Officer Portal" # REQUIRED
+    logoUrl: ""
+    systemLogoUrl: ""
+    favicon: ""
+    portalName: "NSW Agency Portal"
+    description: "A unified digital platform enabling seamless regulatory workflows and approvals for government agencies and authorised officers."
+    heroImageUrl: ""
+    partnerLogos:
+      - url: ""
+        alt: ""
 
 # ---------------------------------------------------------------------------
 # Inbound Auth — tokens the Agency backend accepts from the SPA / m2m clients

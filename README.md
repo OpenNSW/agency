@@ -7,7 +7,7 @@ This repo contains both two components of the Agency system:
 - [backend/](backend/) — Go service that holds agency side application state, talks to the NSW core backend over OAuth2 M2M, and serves the frontend.
 - [frontend/](frontend/) — React/Vite SPA used by agency officers to review submissions from the NSW core backend.
 
-The same codebase is deployed per agency, with branding and identity selected via env vars at runtime.
+The same codebase is deployed per agency, with branding and identity selected via each agency's `config.yaml` at runtime.
 
 ## Quick start
 
@@ -52,25 +52,16 @@ Use [start-dev.sh](start-dev.sh) at the repo root to launch the per-agency backe
 
 Every process runs in its own process group (`set -m`), so `Ctrl-C` cleanly stops the whole fleet — including the compiled binary `go run` spawns underneath. Logs from all processes interleave on the same terminal.
 
-| Agency | Backend port | DB file                        | NSW M2M client | Frontend port | Branding config                              | IdP client id            |
-| ---------- | ------------ | ------------------------------ | -------------- | ------------- | -------------------------------------------- | ------------------------ |
-| NPQS       | 8081         | `backend/npqs_applications.db` | `NPQS_TO_NSW`  | 5174          | `frontend/public/configs/npqs.branding.json` | `OGA_PORTAL_APP_NPQS` |
-| FCAU       | 8082         | `backend/fcau_applications.db` | `FCAU_TO_NSW`  | 5175          | `frontend/public/configs/fcau.branding.json` | `OGA_PORTAL_APP_FCAU` |
-| CDA        | 8083         | `backend/cda_applications.db`  | `CDA_TO_NSW`   | 5176          | `frontend/public/configs/cda.branding.json`  | `OGA_PORTAL_APP_CDA`  |
-| SLPA       | 8084         | `backend/slpa_applications.db` | `SLPA_TO_NSW`  | 5177          | `frontend/public/configs/slpa.branding.json` | `OGA_PORTAL_APP_SLPA` |
+| Agency | Backend port | DB file                        | NSW M2M client | Frontend port | Branding + IdP client id                          |
+| ---------- | ------------ | ------------------------------ | -------------- | ------------- | -------------------------------------------------- |
+| NPQS       | 8081         | `backend/npqs_applications.db` | `NPQS_TO_NSW`  | 5174          | `backend/config/npqs/config.yaml`'s `web.branding`/`web.runtime` |
+| FCAU       | 8082         | `backend/fcau_applications.db` | `FCAU_TO_NSW`  | 5175          | `backend/config/fcau/config.yaml`'s `web.branding`/`web.runtime` |
+| CDA        | 8083         | `backend/cda_applications.db`  | `CDA_TO_NSW`   | 5176          | `backend/config/cda/config.yaml`'s `web.branding`/`web.runtime`  |
+| SLPA       | 8084         | `backend/slpa_applications.db` | `SLPA_TO_NSW`  | 5177          | `backend/config/slpa/config.yaml`'s `web.branding`/`web.runtime` |
 
-The branding-config paths above are gitignored — copy them from [default.branding.json](frontend/public/configs/default.branding.json) (see below).
+The script sets `PORT`, `DB_PATH`, `NSW_CLIENT_ID` for the backend and `VITE_PORT`, `VITE_API_BASE_URL` for the frontend (the latter only tells the Vite dev server which backend to proxy `/config.js` to — see `frontend/vite.config.ts`). Any of these can be overridden by exporting them before invoking the script. Branding and IdP settings are no longer env vars at all — they live in each agency's `backend/config/<agency>/config.yaml` (`web.branding`/`web.runtime`), served to the browser at `/config.js`.
 
-The script sets `PORT`, `DB_PATH`, `NSW_CLIENT_ID` for the backend and `VITE_PORT`, `VITE_BRANDING_NAME`, `VITE_API_BASE_URL`, `VITE_IDP_CLIENT_ID`, `VITE_APP_URL` for the frontend. Any of these can be overridden by exporting them before invoking the script (other backend/frontend env vars — OAuth secrets, IdP base URL, etc. — still come from `backend/.env` and `frontend/.env`).
-
-Only [default.branding.json](frontend/public/configs/default.branding.json) is tracked in git — per-NSW Agency branding files (`npqs.branding.json`, `fcau.branding.json`, `cda.branding.json`, `slpa.branding.json`) are gitignored because branding is deployment-specific. To run a Agency locally, copy the default and edit it:
-
-```bash
-cd frontend/public/configs
-cp default.branding.json npqs.branding.json   # then edit appName, portalName, description, etc.
-```
-
-To add a brand-new NSW Agency, create `<name>.branding.json` the same way and add a matching `case` to [start-dev.sh](start-dev.sh).
+To add a brand-new NSW Agency, add a new `backend/config/<name>/config.yaml` (see `backend/config.example.yaml` for the schema) and a matching line to `start-dev.sh`'s `CONFIG_*` table.
 
 ## Prerequisites
 

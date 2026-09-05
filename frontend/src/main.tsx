@@ -10,21 +10,21 @@ import { initAppConfig } from './config.ts'
 import './i18n'
 import { userManager } from '@/features/user/oidcUserManager'
 
-void initAppConfig().then(() => {
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <AuthProvider
-        userManager={userManager}
-        onSigninCallback={() => {
-          window.history.replaceState({}, document.title, window.location.pathname)
-        }}
-      >
-        <Theme scaling="110%">
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
-        </Theme>
-      </AuthProvider>
-    </StrictMode>,
-  )
-})
+initAppConfig()
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <AuthProvider
+      userManager={userManager}
+      onSigninCallback={() => {
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }}
+    >
+      <Theme scaling="110%">
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </Theme>
+    </AuthProvider>
+  </StrictMode>,
+)
