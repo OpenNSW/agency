@@ -14,7 +14,7 @@ describe('application service', () => {
     vi.clearAllMocks()
   })
 
-  it('fetchApplications queries API with formatted parameters', async () => {
+  it('fetchApplications sends list query params', async () => {
     const mockResponse = { data: { items: [], total: 0, page: 1, pageSize: 20 } }
     vi.mocked(http.request).mockResolvedValue(mockResponse)
 
@@ -31,7 +31,7 @@ describe('application service', () => {
     expect(result).toEqual(mockResponse.data)
   })
 
-  it('fetchApplicationDetail queries specific task id endpoint', async () => {
+  it('fetchApplicationDetail requests the task by id', async () => {
     const mockApp = { taskId: 'T-100', title: 'Inspection Application' }
     vi.mocked(http.request).mockResolvedValue({ data: mockApp })
 
@@ -47,7 +47,7 @@ describe('application service', () => {
     expect(result).toEqual(mockApp)
   })
 
-  it('submitReview sends POST request to review endpoint', async () => {
+  it('submitReview posts form values to the review endpoint', async () => {
     const mockResult = { status: 'APPROVED' }
     vi.mocked(http.request).mockResolvedValue({ data: mockResult })
 
@@ -65,7 +65,7 @@ describe('application service', () => {
     expect(result).toEqual(mockResult)
   })
 
-  it('submitFeedback sends POST request to feedback endpoint', async () => {
+  it('submitFeedback posts content to the feedback endpoint', async () => {
     const mockResult = { status: 'FEEDBACK_REQUESTED' }
     vi.mocked(http.request).mockResolvedValue({ data: mockResult })
 
@@ -83,9 +83,10 @@ describe('application service', () => {
     expect(result).toEqual(mockResult)
   })
 
-  it('getDownloadUrl fetches download URL metadata', async () => {
-    const mockMetadata = { download_url: 'http://localhost:8080/downloads/file.pdf', expires_at: 1700000000 }
-    vi.mocked(http.request).mockResolvedValue({ data: mockMetadata })
+  it('getDownloadUrl maps storage metadata to url and expiry', async () => {
+    vi.mocked(http.request).mockResolvedValue({
+      data: { download_url: 'http://localhost:8080/downloads/file.pdf', expires_at: 1700000000 },
+    })
 
     const result = await getDownloadUrl('file-key-123')
 
