@@ -32,10 +32,6 @@ results.sarif
 .env.*.local
 .env
 
-# Per Agency branding configs are deployment-specific; only the default template is tracked.
-/frontend/public/configs/*.branding.json
-!/frontend/public/configs/default.branding.json
-
 # IDE / OS
 .DS_Store
 .vscode/

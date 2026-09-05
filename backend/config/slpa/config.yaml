@@ -21,12 +21,11 @@ artifactLoader:
 # start-dev.sh), so the backend stays API-only — dir points at a path that
 # won't exist. It still serves /config.js from runtime below: the Vite dev
 # server proxies /config.js to this backend (see frontend/vite.config.ts), so
-# dev and prod share this one source of frontend runtime config.
+# dev and prod share this one source of frontend runtime config/branding.
 web:
   dir: /nonexistent
 
   runtime:
-    brandingName: slpa
     apiBaseURL: http://localhost:8084
     idpBaseURL: https://localhost:8090
     idpClientID: OGA_PORTAL_APP_SLPA
@@ -38,6 +37,10 @@ web:
     # The `resource` value must equal authn.audience above, or the agency:*
     # scopes are dropped from the issued token.
     idpExtraQueryParams: resource=https://api.nsw-agency.local
+
+  branding:
+    systemName: NSW
+    appName: "Sri Lanka Ports Authority (SLPA)"
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks
