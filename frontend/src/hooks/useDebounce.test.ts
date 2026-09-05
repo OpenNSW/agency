@@ -11,12 +11,7 @@ describe('useDebounce', () => {
     vi.useRealTimers()
   })
 
-  it('returns initial value immediately', () => {
-    const { result } = renderHook(() => useDebounce('hello', 400))
-    expect(result.current).toBe('hello')
-  })
-
-  it('updates debounced value after specified delay', () => {
+  it('keeps the previous value until the delay elapses', () => {
     const { result, rerender } = renderHook(({ val }) => useDebounce(val, 400), {
       initialProps: { val: 'hello' },
     })
@@ -24,7 +19,6 @@ describe('useDebounce', () => {
     expect(result.current).toBe('hello')
 
     rerender({ val: 'world' })
-    // Before delay, still initial value
     expect(result.current).toBe('hello')
 
     act(() => {

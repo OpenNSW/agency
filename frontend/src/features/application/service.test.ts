@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { http } from '@/http'
-import { fetchApplications, fetchApplicationDetail, submitReview, submitFeedback, getDownloadUrl } from './service'
+import {
+  fetchApplications,
+  fetchApplicationDetail,
+  submitReview,
+  claimApplication,
+  releaseApplication,
+  submitFeedback,
+  getDownloadUrl,
+} from './service'
 
 vi.mock('@/http', () => ({
   API_BASE_URL: 'http://localhost:8080',
@@ -14,7 +22,7 @@ describe('application service', () => {
     vi.clearAllMocks()
   })
 
-  it('fetchApplications queries API with formatted parameters', async () => {
+  it('fetchApplications sends list query params', async () => {
     const mockResponse = { data: { items: [], total: 0, page: 1, pageSize: 20 } }
     vi.mocked(http.request).mockResolvedValue(mockResponse)
 
@@ -31,7 +39,7 @@ describe('application service', () => {
     expect(result).toEqual(mockResponse.data)
   })
 
-  it('fetchApplicationDetail queries specific task id endpoint', async () => {
+  it('fetchApplicationDetail requests the task by id', async () => {
     const mockApp = { taskId: 'T-100', title: 'Inspection Application' }
     vi.mocked(http.request).mockResolvedValue({ data: mockApp })
 
@@ -47,7 +55,7 @@ describe('application service', () => {
     expect(result).toEqual(mockApp)
   })
 
-  it('submitReview sends POST request to review endpoint', async () => {
+  it('submitReview posts form values to the review endpoint', async () => {
     const mockResult = { status: 'APPROVED' }
     vi.mocked(http.request).mockResolvedValue({ data: mockResult })
 
@@ -65,7 +73,35 @@ describe('application service', () => {
     expect(result).toEqual(mockResult)
   })
 
-  it('submitFeedback sends POST request to feedback endpoint', async () => {
+  it('claimApplication posts to the claim endpoint', async () => {
+    vi.mocked(http.request).mockResolvedValue({ data: undefined })
+
+    await claimApplication('T-100')
+
+    expect(http.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'http://localhost:8080/api/v1/applications/T-100/claim',
+        method: 'POST',
+        attachToken: true,
+      }),
+    )
+  })
+
+  it('releaseApplication posts to the release endpoint', async () => {
+    vi.mocked(http.request).mockResolvedValue({ data: undefined })
+
+    await releaseApplication('T-100')
+
+    expect(http.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'http://localhost:8080/api/v1/applications/T-100/release',
+        method: 'POST',
+        attachToken: true,
+      }),
+    )
+  })
+
+  it('submitFeedback posts content to the feedback endpoint', async () => {
     const mockResult = { status: 'FEEDBACK_REQUESTED' }
     vi.mocked(http.request).mockResolvedValue({ data: mockResult })
 
@@ -83,9 +119,10 @@ describe('application service', () => {
     expect(result).toEqual(mockResult)
   })
 
-  it('getDownloadUrl fetches download URL metadata', async () => {
-    const mockMetadata = { download_url: 'http://localhost:8080/downloads/file.pdf', expires_at: 1700000000 }
-    vi.mocked(http.request).mockResolvedValue({ data: mockMetadata })
+  it('getDownloadUrl maps storage metadata to url and expiry', async () => {
+    vi.mocked(http.request).mockResolvedValue({
+      data: { download_url: 'http://localhost:8080/downloads/file.pdf', expires_at: 1700000000 },
+    })
 
     const result = await getDownloadUrl('file-key-123')
 
@@ -96,6 +133,16 @@ describe('application service', () => {
         attachToken: true,
       }),
     )
+    expect(result).toEqual({ url: 'http://localhost:8080/downloads/file.pdf', expiresAt: 1700000000 })
+  })
+
+  it('getDownloadUrl resolves a relative download path against the API base', async () => {
+    vi.mocked(http.request).mockResolvedValue({
+      data: { download_url: '/downloads/file.pdf', expires_at: 1700000000 },
+    })
+
+    const result = await getDownloadUrl('file-key-123')
+
     expect(result).toEqual({ url: 'http://localhost:8080/downloads/file.pdf', expiresAt: 1700000000 })
   })
 })
