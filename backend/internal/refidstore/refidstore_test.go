@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/OpenNSW/agency/backend/internal/refidstore"
@@ -144,5 +145,21 @@ func TestRegistry_GeneratesFullID(t *testing.T) {
 	}
 	if want := "NPQS/NPQS-KAT/000002"; got != want {
 		t.Fatalf("Generate returned %q, want %q", got, want)
+	}
+}
+
+func TestDisabled_GenerateAlwaysFails(t *testing.T) {
+	_, err := refidstore.Disabled().Generate(context.Background(), "NPQS", "application_id", nil)
+	if err == nil {
+		t.Fatal("Disabled().Generate returned no error, want one")
+	}
+	// Classified like any other unknown format, so callers mapping refid
+	// errors to HTTP statuses need no special case.
+	if !errors.Is(err, refid.ErrUnknownIssuer) {
+		t.Errorf("error does not wrap refid.ErrUnknownIssuer: %v", err)
+	}
+	// ...but the message must name the real cause, not just "unknown issuer".
+	if !strings.Contains(err.Error(), "no refIDGen section is configured") {
+		t.Errorf("error message doesn't explain the cause: %v", err)
 	}
 }

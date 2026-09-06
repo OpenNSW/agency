@@ -4,6 +4,7 @@
 package refidstore
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/OpenNSW/core/refid"
@@ -17,8 +18,8 @@ import (
 // different database entirely, and on a file it is a second writer competing
 // for the same lock.
 //
-// The refid_sequences table it reads and writes is created by migration
-// 000010, not by refid's own Migrate helpers.
+// The refid_sequences table it reads and writes is created by this repo's own
+// migrations, not by refid's Migrate helpers.
 func New(db *gorm.DB) (refid.SequenceStore, error) {
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -35,4 +36,23 @@ func New(db *gorm.DB) (refid.SequenceStore, error) {
 	default:
 		return nil, fmt.Errorf("refidstore: unsupported driver %q", name)
 	}
+}
+
+// Disabled returns a Registry for a deployment with no refIDGen section, where
+// there is no format to generate from and no counter table to reach for. Every
+// Generate fails, so a task declaring a refid block against such a deployment
+// is a loud misconfiguration rather than a silent no-op.
+//
+// Returned as a value rather than a nil Registry so callers keep their
+// non-nil-dependency invariants (see application.NewService).
+func Disabled() refid.Registry { return disabledRegistry{} }
+
+type disabledRegistry struct{}
+
+// Generate implements refid.Registry. It wraps ErrUnknownIssuer so callers
+// classifying refid errors treat this like any other unknown format — the
+// message just names the actual cause, which "unknown issuer" alone would not.
+func (disabledRegistry) Generate(_ context.Context, issuer, idType string, _ map[string]string) (string, error) {
+	return "", fmt.Errorf("%w: no refIDGen section is configured for this deployment, so (%q, %q) cannot be generated",
+		refid.ErrUnknownIssuer, issuer, idType)
 }

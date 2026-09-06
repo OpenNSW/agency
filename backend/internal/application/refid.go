@@ -13,29 +13,29 @@ import (
 // generateRefID mints this task's reference ID and returns the reviewer
 // response document to store it in, with the ID written at cfg.Path.
 //
-// Unlike resolvePushedFields, an unresolved pointer here is an error rather
-// than a silent skip: a params entry the configured format requires is the
-// difference between a correct ID and none at all, and CreateApplication
-// fails the whole inject rather than persisting an application without one.
+// A params pointer that doesn't resolve to a string is skipped rather than
+// rejected here, because refid ignores params the configured format doesn't
+// consume — so a task may declare more than any one format needs. Whether an
+// absent value actually matters is refid's call, not ours: it returns
+// ErrInvalidParam for a param a segment requires, and for a scope key left
+// with an unresolved placeholder.
 //
-// Param resolution errors and refid.ErrInvalidParam wrap
-// ErrInvalidInjectRequest (a 400 — the injected data couldn't supply a value
-// the format needs). Everything else — an issuer/idType this deployment
-// hasn't configured, counter overflow, a database failure — stays unwrapped
-// and surfaces as a 500, since those are deployment or infrastructure faults
-// rather than anything wrong with the request.
+// refid.ErrInvalidParam then wraps ErrInvalidInjectRequest (a 400 — the
+// injected data couldn't supply a value the format needs). Everything else —
+// an issuer/idType this deployment hasn't configured, counter overflow, a
+// database failure — stays unwrapped and surfaces as a 500, since those are
+// deployment or infrastructure faults rather than anything wrong with the
+// request.
 func generateRefID(ctx context.Context, reg refid.Registry, cfg *taskconfig.TaskRefID, data map[string]any) (JSONB, error) {
 	params := make(map[string]string, len(cfg.Params))
 	for param, pointer := range cfg.Params {
 		value, ok := jsonpointer.Get(data, pointer)
 		if !ok {
-			return nil, fmt.Errorf("%w: refid param %q: injected data has no value at %q", ErrInvalidInjectRequest, param, pointer)
+			continue
 		}
-		str, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("%w: refid param %q: value at %q must be a string, got %T", ErrInvalidInjectRequest, param, pointer, value)
+		if str, ok := value.(string); ok {
+			params[param] = str
 		}
-		params[param] = str
 	}
 
 	id, err := reg.Generate(ctx, cfg.Issuer, cfg.IDType, params)

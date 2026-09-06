@@ -447,8 +447,7 @@ be resolved from the injected data fails the inject as a `400`.
 
 **Generated exactly once, on first inject.** Re-injecting an existing
 application keeps the number it already has, and a trader resubmitting after a
-feedback request keeps it too. Counter state lives in the `refid_sequences`
-table (migration `000010`).
+feedback request keeps it too.
 
 **The review form needs a control at `path`** or the officer never sees the
 number — `path` targets the same document `forms.review` binds to, surfaced by

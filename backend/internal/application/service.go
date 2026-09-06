@@ -233,23 +233,25 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		appRecord.ReviewerResponse = existing.ReviewerResponse
 	}
 
-	if existing == nil {
-		if err := s.consignmentService.CreateConsignment(ctx, req.ConsignmentID); err != nil {
-			// TODO: revert application creation when inject and consignment writes share a transaction.
-			slog.WarnContext(ctx, "failed to create consignment after application inject",
-				"consignmentID", req.ConsignmentID, "error", err)
-		}
-	}
-
-	// Last thing before the write: Generate claims a counter value that a
-	// failed CreateOrUpdate can't give back, so keep the window small. Only
-	// for a brand-new application — a re-inject keeps the ID it already has.
+	// Only for a brand-new application — a re-inject keeps the ID it already
+	// has. Ahead of CreateConsignment so a generation failure doesn't leave a
+	// consignment with no application behind it; the cost is a slightly wider
+	// window in which a crash strands the counter value Generate just claimed,
+	// which refid tolerates by design (its formats are not gapless).
 	if existing == nil && config.RefID != nil {
 		reviewerResponse, err := generateRefID(ctx, s.refIDs, config.RefID, req.Data)
 		if err != nil {
 			return err
 		}
 		appRecord.ReviewerResponse = reviewerResponse
+	}
+
+	if existing == nil {
+		if err := s.consignmentService.CreateConsignment(ctx, req.ConsignmentID); err != nil {
+			// TODO: revert application creation when inject and consignment writes share a transaction.
+			slog.WarnContext(ctx, "failed to create consignment after application inject",
+				"consignmentID", req.ConsignmentID, "error", err)
+		}
 	}
 
 	if err := s.store.CreateOrUpdate(appRecord, pushedFields); err != nil {

@@ -161,21 +161,25 @@ func main() {
 	consignmentService := consignment.NewService(consignmentStore, nswClient, dataScopeResolver)
 	consignmentHandler := consignment.NewHandler(consignmentService)
 
-	// Reference ID generation (optional per deployment). NewRegistry validates
-	// every configured format up front, so a malformed refIDGen section fails
-	// the boot rather than the first inject that needs it. With no section
-	// configured the registry holds zero formats and Generate returns
-	// ErrUnknownIssuer, which is what makes a task declaring refid against an
-	// unconfigured deployment fail loudly.
-	refIDSequences, err := refidstore.New(store.DB())
-	if err != nil {
-		log.Fatalf("failed to create refid sequence store: %v", err)
+	// Reference ID generation is optional per deployment: with no refIDGen
+	// section there is nothing to build, so skip the counter store and the
+	// registry entirely and hand the service a disabled one. NewRegistry
+	// validates every configured format up front, so a malformed section fails
+	// the boot rather than the first inject that needs it.
+	refIDs := refidstore.Disabled()
+	if n := len(cfg.RefIDGen.Issuers); n > 0 {
+		refIDSequences, err := refidstore.New(store.DB())
+		if err != nil {
+			log.Fatalf("failed to create refid sequence store: %v", err)
+		}
+		refIDs, err = refid.NewRegistry(cfg.RefIDGen, refIDSequences)
+		if err != nil {
+			log.Fatalf("invalid refIDGen config: %v", err)
+		}
+		slog.Info("reference ID generation configured", "issuers", n)
+	} else {
+		slog.Info("reference ID generation not configured; tasks declaring a refid block will fail at inject")
 	}
-	refIDs, err := refid.NewRegistry(cfg.RefIDGen, refIDSequences)
-	if err != nil {
-		log.Fatalf("invalid refIDGen config: %v", err)
-	}
-	slog.Info("reference ID generation configured", "issuers", len(cfg.RefIDGen.Issuers))
 
 	// Initialize Agency service
 	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService, dataScopeResolver, refIDs)
