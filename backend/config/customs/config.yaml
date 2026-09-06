@@ -41,6 +41,8 @@ web:
   branding:
     systemName: NSW
     appName: "Sri Lanka Customs (CUSTOMS)"
+    portalName: "Customs Officer Portal"
+    description: "A unified digital platform enabling seamless regulatory workflows and approvals for government agencies and authorised officers."
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks

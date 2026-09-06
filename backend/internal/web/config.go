@@ -96,9 +96,12 @@ type PartnerLogo struct {
 // RuntimeConfig instead of a second, parallel one.
 //
 // SystemName and AppName are required (enforced by Validate, and by the
-// frontend's Zod schema as a defense in depth); the rest are optional cosmetic
-// fields — an unset one is omitted from /config.js and the frontend's own
-// fallback (see config.ts) fills in for it.
+// frontend's Zod schema as a defense in depth); the rest are optional. An
+// unset PortalName/Description is omitted from /config.js and the frontend
+// fills in its own default for it (see config.ts's DEFAULT_BRANDING) — those
+// two are rendered unconditionally, so a blank value would be visible. The
+// remaining cosmetic fields (logo/favicon/hero image/partner logos) are
+// simply omitted from rendering when unset, with no substitute value needed.
 type Branding struct {
 	SystemName    string        `json:"systemName" yaml:"systemName"`
 	AppName       string        `json:"appName" yaml:"appName"`

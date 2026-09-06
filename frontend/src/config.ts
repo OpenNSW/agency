@@ -4,6 +4,19 @@ import { getBranding } from './runtimeConfig'
 
 export let appConfig: UIConfig
 
+// Emergency fallback branding, used both when window.__APP_CONFIG__.branding
+// is entirely missing/invalid, and (portalName/description only) to fill in
+// for a deployment whose web.branding sets just the required
+// systemName/appName — TopBar renders portalName and LoginScreen renders
+// description unconditionally, with no fallback of their own, so a valid but
+// partial payload must not reach them as blank.
+const DEFAULT_BRANDING = {
+  systemName: 'NSW',
+  appName: 'NSW Agency Officer Portal',
+  portalName: 'NSW Agency Portal',
+  description: 'A unified digital platform enabling regulatory consignments.',
+}
+
 // Branding used to be fetched from a separate, per-agency
 // /configs/<name>.branding.json static file; that mechanism never actually
 // reached production (see backend/internal/web/config.go's Branding doc
@@ -17,7 +30,14 @@ export function initAppConfig(): void {
   if (branding) {
     const result = UIConfigSchema.safeParse({ branding })
     if (result.success) {
-      appConfig = result.data
+      appConfig = {
+        ...result.data,
+        branding: {
+          ...result.data.branding,
+          portalName: result.data.branding.portalName || DEFAULT_BRANDING.portalName,
+          description: result.data.branding.description || DEFAULT_BRANDING.description,
+        },
+      }
       return
     }
     console.error(
@@ -29,14 +49,7 @@ export function initAppConfig(): void {
   }
 
   // Provide a hardcoded emergency config as a final safety fallback to keep the app working
-  appConfig = {
-    branding: {
-      systemName: 'NSW',
-      appName: 'NSW Agency Officer Portal',
-      portalName: 'NSW Agency Portal',
-      description: 'A unified digital platform enabling regulatory consignments.',
-    },
-  }
+  appConfig = { branding: DEFAULT_BRANDING }
 }
 
 const UIConfigSchema = z.object({

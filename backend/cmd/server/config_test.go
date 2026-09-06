@@ -36,16 +36,20 @@ const defaultAuthn = `authn:
   expectedOU: default
 `
 
-// defaultWeb satisfies RuntimeConfig.Validate's four required fields (see
-// backend/internal/web/config.go) so that buildConfig's fixtures pass
-// Config.Validate() — which now delegates to cfg.Web.Validate() — without
-// every test needing to know about web.runtime.
+// defaultWeb satisfies RuntimeConfig.Validate's four required runtime fields
+// and Branding.Validate's two required fields (see backend/internal/web/config.go)
+// so that buildConfig's fixtures pass Config.Validate() — which now delegates
+// to cfg.Web.Validate() — without every test needing to know about web.runtime
+// or web.branding.
 const defaultWeb = `web:
   runtime:
     apiBaseURL: http://localhost:8081
     idpBaseURL: https://localhost:8090
     idpClientID: TEST_CLIENT
     idpExpectedOU: default
+  branding:
+    systemName: Test
+    appName: Test Agency Portal
 `
 
 // buildConfig assembles a config.yaml fixture from one block per top-level

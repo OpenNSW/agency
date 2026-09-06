@@ -48,6 +48,8 @@ web:
   branding:
     systemName: NSW
     appName: "National Plant Quarantine Service (NPQS)"
+    portalName: "NPQS Officer Portal"
+    description: "A unified digital platform enabling seamless regulatory workflows and approvals for government agencies and authorised officers."
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks

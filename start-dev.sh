@@ -58,9 +58,11 @@ set -m
 # id/OU handle/scopes, ...) lives in backend/config/<agency>/config.yaml's
 # web.runtime/web.branding sections instead — the frontend's Vite dev server
 # proxies /config.js to its paired backend to read it (see
-# frontend/vite.config.ts), same as prod. This table only feeds the frontend
-# dev server's own port, and BE_PORT/FE_PORT here must match that agency's
-# config.yaml (port/allowedOrigins).
+# frontend/vite.config.ts), same as prod. This table supplies orchestration
+# ports for both: the frontend dev server's own port (FE_PORT), and BE_PORT,
+# which start_frontend also passes through as VITE_API_BASE_URL (the /config.js
+# proxy target). BE_PORT/FE_PORT here must match that agency's config.yaml
+# (port/allowedOrigins).
 # Adding an agency means one line here plus a new config/<agency>/config.yaml.
 # (Scalar vars rather than `declare -A` so this works on stock macOS bash 3.2.)
 CONFIG_npqs="8081|5174"

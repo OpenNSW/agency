@@ -41,6 +41,8 @@ web:
   branding:
     systemName: NSW
     appName: "Food Control Administration Unit (FCAU)"
+    portalName: "FCAU Officer Portal"
+    description: "A unified digital platform enabling seamless regulatory workflows and approvals for government agencies and authorised officers."
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks
