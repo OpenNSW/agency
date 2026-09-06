@@ -6,6 +6,8 @@ github.com/OpenNSW/core/authz v0.1.0 h1:qWM+NObLNEaG6GZ2ZnKYmtkwrtlAmEzIljfpiQw2
 github.com/OpenNSW/core/authz v0.1.0/go.mod h1:/LbQLPZtCGJ4DICQvLea8XFtSCe2M3xZCO+0SxTYsog=
 github.com/OpenNSW/core/httputil v0.1.0 h1:IEkr9sHOh065+pubjlPShqmW3X2GPB9+wlHoeNDsGiU=
 github.com/OpenNSW/core/httputil v0.1.0/go.mod h1:kZyjhx9ckd54vYxH/R65KW++X2Lrvt1N13ZvhMupk7M=
+github.com/OpenNSW/core/refid v0.1.0 h1:r9sKtojHPRc17+VLIlBxlKPIyzTcMvpxNdaybLXClV8=
+github.com/OpenNSW/core/refid v0.1.0/go.mod h1:XAsH8UTKJU4Zu6d9WcqBUP21xqmi8afqxAOH9T2pph4=
 github.com/OpenNSW/core/secret v0.2.0 h1:7kxJYbVNJhN9X9/YyTUci4bv9oYKcm0nT/wBVrxBChQ=
 github.com/OpenNSW/core/secret v0.2.0/go.mod h1:MEkX9vnlPRVTn+JQQsb192PoY6p3hbFSOIV+FxIMrc0=
 github.com/OpenNSW/core/shared v0.3.0 h1:HcWcXyMdwzMfsVvo1HG2OTBYaQTRipTpLI0AFx/5Wgs=

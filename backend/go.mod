@@ -7,7 +7,7 @@ require (
 	github.com/OpenNSW/core/authn v0.3.0
 	github.com/OpenNSW/core/authz v0.1.0
 	github.com/OpenNSW/core/httputil v0.1.0
-	github.com/OpenNSW/core/refid v0.0.0-00010101000000-000000000000
+	github.com/OpenNSW/core/refid v0.1.0
 	github.com/OpenNSW/core/secret v0.2.0
 	github.com/OpenNSW/core/trace v0.2.0
 	github.com/glebarez/sqlite v1.11.0
@@ -60,7 +60,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
-
-// TODO: drop before merging — points at the local core checkout while the
-// driver-import removal in refid/store/* is still unreleased.
-replace github.com/OpenNSW/core/refid => ../../core/refid
