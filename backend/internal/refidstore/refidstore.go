@@ -39,19 +39,16 @@ func New(db *gorm.DB) (refid.SequenceStore, error) {
 }
 
 // Disabled returns a Registry for a deployment with no refIDGen section, where
-// there is no format to generate from and no counter table to reach for. Every
-// Generate fails, so a task declaring a refid block against such a deployment
-// is a loud misconfiguration rather than a silent no-op.
-//
-// Returned as a value rather than a nil Registry so callers keep their
-// non-nil-dependency invariants (see application.NewService).
+// there is no format to generate from. Every Generate fails, so a task
+// declaring a refid block is a loud misconfiguration rather than a silent
+// no-op — and a value rather than a nil Registry keeps callers'
+// non-nil-dependency invariants intact (see application.NewService).
 func Disabled() refid.Registry { return disabledRegistry{} }
 
 type disabledRegistry struct{}
 
-// Generate implements refid.Registry. It wraps ErrUnknownIssuer so callers
-// classifying refid errors treat this like any other unknown format — the
-// message just names the actual cause, which "unknown issuer" alone would not.
+// Generate wraps ErrUnknownIssuer so callers classifying refid errors need no
+// special case; the message names the cause, which the sentinel alone doesn't.
 func (disabledRegistry) Generate(_ context.Context, issuer, idType string, _ map[string]string) (string, error) {
 	return "", fmt.Errorf("%w: no refIDGen section is configured for this deployment, so (%q, %q) cannot be generated",
 		refid.ErrUnknownIssuer, issuer, idType)

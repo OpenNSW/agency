@@ -234,10 +234,8 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 	}
 
 	// Only for a brand-new application — a re-inject keeps the ID it already
-	// has. Ahead of CreateConsignment so a generation failure doesn't leave a
-	// consignment with no application behind it; the cost is a slightly wider
-	// window in which a crash strands the counter value Generate just claimed,
-	// which refid tolerates by design (its formats are not gapless).
+	// has. Kept ahead of CreateConsignment so a generation failure leaves no
+	// consignment behind.
 	if existing == nil && config.RefID != nil {
 		reviewerResponse, err := generateRefID(ctx, s.refIDs, config.RefID, req.Data)
 		if err != nil {

@@ -14,9 +14,9 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// refidSequencesDDL mirrors the sqlite branch of
-// migrations/000010_create_refid_sequences.sql. Unit tests don't replay the
-// migrator, so the table is created here — keep the two in sync.
+// refidSequencesDDL mirrors the sqlite branch of the counter-table migration.
+// Unit tests don't replay the migrator, so the table is created here — keep
+// the two in sync.
 const refidSequencesDDL = `
 CREATE TABLE IF NOT EXISTS refid_sequences (
     scope_key  TEXT    NOT NULL PRIMARY KEY,
@@ -98,56 +98,6 @@ func TestNext_CounterOverflow(t *testing.T) {
 		t.Fatalf("Next past max returned %v, want refid.ErrCounterOverflow", err)
 	}
 }
-
-// TestRegistry_GeneratesFullID drives a real refid config end to end, so the
-// padding, list validation and scope-key resolution are all exercised against
-// this module's driver rather than just the raw counter.
-func TestRegistry_GeneratesFullID(t *testing.T) {
-	cfg := refid.Config{
-		Issuers: []refid.IssuerConfig{{
-			Issuer: "NPQS",
-			Formats: []refid.FormatConfig{{
-				IDType: "application_id",
-				Segments: []refid.SegmentConfig{
-					{Type: "literal", Value: "NPQS/"},
-					{Type: "list", List: "office_location", Param: "officeCode"},
-					{Type: "literal", Value: "/"},
-					{Type: "sequence", ScopeKey: "{issuer}:{idType}:{officeCode}:{yyyy}", Padding: 6},
-				},
-			}},
-		}},
-		Lists: map[string][]string{"office_location": {"NPQS-KAT", "SEA-CMB"}},
-	}
-
-	reg, err := refid.NewRegistry(cfg, newTestStore(t))
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
-	}
-	ctx := context.Background()
-
-	got, err := reg.Generate(ctx, "NPQS", "application_id", map[string]string{"officeCode": "NPQS-KAT"})
-	if err != nil {
-		t.Fatalf("Generate: %v", err)
-	}
-	if want := "NPQS/NPQS-KAT/000001"; got != want {
-		t.Fatalf("Generate returned %q, want %q", got, want)
-	}
-
-	// A value outside the configured list must not reach the counter.
-	if _, err := reg.Generate(ctx, "NPQS", "application_id", map[string]string{"officeCode": "NOPE"}); !errors.Is(err, refid.ErrInvalidParam) {
-		t.Fatalf("Generate with unlisted office returned %v, want refid.ErrInvalidParam", err)
-	}
-
-	// ... and the next valid call is 2, not 3 — the rejected call was side-effect free.
-	got, err = reg.Generate(ctx, "NPQS", "application_id", map[string]string{"officeCode": "NPQS-KAT"})
-	if err != nil {
-		t.Fatalf("Generate: %v", err)
-	}
-	if want := "NPQS/NPQS-KAT/000002"; got != want {
-		t.Fatalf("Generate returned %q, want %q", got, want)
-	}
-}
-
 func TestDisabled_GenerateAlwaysFails(t *testing.T) {
 	_, err := refidstore.Disabled().Generate(context.Background(), "NPQS", "application_id", nil)
 	if err == nil {

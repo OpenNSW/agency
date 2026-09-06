@@ -451,16 +451,13 @@ feedback request keeps it too.
 
 **The review form needs a control at `path`** or the officer never sees the
 number — `path` targets the same document `forms.review` binds to, surfaced by
-the API as `agencyActionData`. Every other field of that document stays absent
-until the officer fills it in, which is expected: status and `reviewedAt` are
-what mark an application reviewed, not a non-empty reviewer response. Note that
-a review form whose schema sets `"additionalProperties": false` without
-declaring the field would reject the officer's submission.
+the API as `agencyActionData`. A review form whose schema sets
+`"additionalProperties": false` without declaring the field would reject the
+officer's submission outright.
 
-> Making that control read-only is up to whoever authors the form, and is a
-> client-side convention only: review submissions are not validated
-> server-side, so an officer can still overwrite the number. Enforcing that
-> properly needs backend validation of the review payload.
+Marking that control read-only is the form author's call, and is a client-side
+convention only: review submissions aren't validated server-side, so it doesn't
+prevent the value being changed.
 
 ## Migration checklist for existing task configs
 
