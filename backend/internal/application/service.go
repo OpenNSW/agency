@@ -226,25 +226,26 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		// CreateOrUpdate does a full-row Save, so any field left unset here
 		// would be overwritten to NULL. Carry the claim forward so
 		// re-injecting an already-claimed application doesn't erase it, and
-		// the reviewer response so a re-inject doesn't destroy an
-		// already-issued reference ID (see generateRefID).
+		// the reviewer response so a re-inject keeps its reference ID.
 		appRecord.ClaimedBy = existing.ClaimedBy
 		appRecord.ClaimedAt = existing.ClaimedAt
 		appRecord.ReviewerResponse = existing.ReviewerResponse
-	}
-
-	// Only for a brand-new application — a re-inject keeps the ID it already
-	// has. Kept ahead of CreateConsignment so a generation failure leaves no
-	// consignment behind.
-	if existing == nil && config.RefID != nil {
-		reviewerResponse, err := generateRefID(ctx, s.refIDs, config.RefID, req.Data)
-		if err != nil {
-			return err
+	} else {
+		// A reference ID is minted once, for a brand-new application only.
+		// Ahead of CreateConsignment so a failure here leaves nothing behind.
+		if config.RefID != nil {
+			id, err := generateRefID(ctx, s.refIDs, config.RefID, req.Data)
+			if err != nil {
+				return err
+			}
+			appRecord.ReviewerResponse = JSONB{}
+			if !jsonpointer.Set(appRecord.ReviewerResponse, config.RefID.Path, id) {
+				// Unreachable — Validate already checked Path. Still an error:
+				// dropping an issued ID would be silent loss.
+				return fmt.Errorf("failed to write reference ID to %q", config.RefID.Path)
+			}
 		}
-		appRecord.ReviewerResponse = reviewerResponse
-	}
 
-	if existing == nil {
 		if err := s.consignmentService.CreateConsignment(ctx, req.ConsignmentID); err != nil {
 			// TODO: revert application creation when inject and consignment writes share a transaction.
 			slog.WarnContext(ctx, "failed to create consignment after application inject",
@@ -252,10 +253,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		}
 	}
 
-	if err := s.store.CreateOrUpdate(appRecord, pushedFields); err != nil {
-		return err
-	}
-	return nil
+	return s.store.CreateOrUpdate(appRecord, pushedFields)
 }
 
 // GetApplications returns a paginated list of applications. List items are
