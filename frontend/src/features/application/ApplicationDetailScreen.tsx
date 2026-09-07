@@ -158,16 +158,68 @@ export function ApplicationDetailScreen() {
               delete prop.enum
             }
           }
-          if (schema.properties) {
-            Object.values(schema.properties).forEach((prop) => {
+          const processProperties = (props: Record<string, unknown>) => {
+            Object.values(props).forEach((prop) => {
               capitalizeOptions(prop as SchemaProperty)
+              const items = (prop as { items?: { properties?: Record<string, unknown> } }).items
+              if (items?.properties) {
+                processProperties(items.properties)
+              }
             })
+          }
+          if (schema.properties) {
+            processProperties(schema.properties as Record<string, unknown>)
           }
           setAgencyFormConfig({ schema, uiSchema: data.agencyForm.uiSchema })
         } else {
           setAgencyFormConfig(null)
         }
-        setAgencyFormData(data.agencyActionData || {})
+
+        let initialActionData = { ...(data.agencyActionData || {}) }
+        if (
+          (!initialActionData.commodities ||
+            (Array.isArray(initialActionData.commodities) && initialActionData.commodities.length === 0)) &&
+          Array.isArray(data.data?.commodities) &&
+          data.data.commodities.length > 0
+        ) {
+          initialActionData = {
+            ...initialActionData,
+            commodities: (data.data.commodities as Array<Record<string, unknown>>).map((item, idx) => ({
+              id: (item.id as string) || `item-${idx + 1}`,
+              commodity_common_name: item.commodity_common_name || "",
+              commodity_botanical_name: item.commodity_botanical_name || "",
+              quantity_net_weight: item.quantity_net_weight ?? 0,
+              quantity_net_weight_unit: item.quantity_net_weight_unit || "KGM",
+              packages_count: item.packages_count ?? 1,
+              lab_required: (item.lab_required as boolean) ?? false,
+              lab_sample_method: (item.lab_sample_method as string) ?? "drop_off",
+              visual_required: (item.visual_required as boolean) ?? false,
+              visual_approach: (item.visual_approach as string) ?? "none",
+              treatment_required: (item.treatment_required as boolean) ?? false,
+              treatment_provider: (item.treatment_provider as string) ?? "npqs",
+              treatment_supervision: (item.treatment_supervision as string) ?? "without_supervision",
+            })),
+          }
+        }
+        // Generic counterpart to the commodities remap above, for review forms
+        // whose per-item array is a straight pass-through of what the workflow
+        // already partitioned (id/commodity_common_name plus whatever track-
+        // specific fields the node put there) rather than needing routing-flag
+        // defaults filled in. Only seeds a field the officer hasn't touched yet.
+        const passthroughArrayFields = ['items', 'treatment_items', 'certificate_items']
+        for (const field of passthroughArrayFields) {
+          const current = initialActionData[field]
+          const isEmpty = !current || (Array.isArray(current) && current.length === 0)
+          const source = (data.data as Record<string, unknown> | undefined)?.[field]
+          if (isEmpty && Array.isArray(source) && source.length > 0) {
+            initialActionData = { ...initialActionData, [field]: source }
+          }
+        }
+
+        if (!initialActionData.review_outcome) {
+          initialActionData.review_outcome = "approve"
+        }
+        setAgencyFormData(initialActionData)
         setShowErrors(false)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return
