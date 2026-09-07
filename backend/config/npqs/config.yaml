@@ -12,6 +12,7 @@ allowedOrigins: ["http://localhost:5174"]
 # don't, so this section is agency-specific, not part of the shared template.
 consignmentCustomDataSchemaPath: ./config/npqs/consignment-custom-data-schema.json
 dataScopeRulesPath: ./config/npqs/data-scope-rules.json
+userCustomDataSchemaPath: ./config/npqs/user-custom-data-schema.json
 
 db:
   driver: sqlite

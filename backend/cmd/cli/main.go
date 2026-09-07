@@ -222,21 +222,17 @@ JSON file format:
 
   customData is optional, agency-specific, and only applied when the user is
   first created (not re-applied on re-seeding an existing user). If
-  USER_CUSTOM_DATA_SCHEMA_PATH is set, it is validated against that JSON
-  Schema before the user is created; the whole import fails if any user's
-  customData doesn't match. Interactive "user add" (no --file) also prompts
-  for an optional custom data JSON object.
+  userCustomDataSchemaPath is set in config.yaml, it is validated against
+  that JSON Schema before the user is created; the whole import fails if any
+  user's customData doesn't match. Interactive "user add" (no --file) also
+  prompts for an optional custom data JSON object.
+
+Configuration is read from a YAML file (see backend/config.example.yaml for
+the full schema — this command only reads its db and
+userCustomDataSchemaPath fields):
 
 Environment variables:
-  DB_DRIVER                     sqlite or postgres (default: sqlite)
-  DB_PATH                       SQLite file path (default: ./agency_applications.db)
-  DB_HOST                       PostgreSQL host (default: localhost)
-  DB_PORT                       PostgreSQL port (default: 5432)
-  DB_USER                       PostgreSQL user (default: postgres)
-  DB_PASSWORD                   PostgreSQL password (required for postgres)
-  DB_NAME                       PostgreSQL database name (default: nsw_agency_db)
-  DB_SSLMODE                    PostgreSQL SSL mode (default: require)
-  USER_CUSTOM_DATA_SCHEMA_PATH  Path to a JSON Schema file validating "customData" (optional; unset skips validation)
+  CONFIG_PATH  Path to the config.yaml file (default: ./config.yaml)
 `)
 }
 

@@ -47,6 +47,12 @@ allowedOrigins: ["*"]
 # reads this file's db section too). Omit to use the default.
 # migrationDir: ./migrations
 
+# Optional: path to a JSON Schema file validating the "customData" object
+# passed to `nswac user add`. Only read by cmd/cli (which, like cmd/migrate,
+# reads this file's db section too, ignoring the rest). Omit to skip
+# validation entirely.
+# userCustomDataSchemaPath: ./config/npqs/user-custom-data-schema.json
+
 db:
   # driver: sqlite | postgres
   driver: sqlite

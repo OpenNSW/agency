@@ -32,8 +32,9 @@
 # change an agency's config; this script only picks which one to use
 # (CONFIG_PATH) and supplies secrets/DB/CLI settings that stay plain env vars.
 #
-# Env-var precedence for what IS still env-var driven (DB_DRIVER, DB_PATH,
-# NSW_CLIENT_SECRET, USER_CUSTOM_DATA_SCHEMA_PATH, CONFIG_PATH itself):
+# Env-var precedence for what IS still env-var driven (NSW_CLIENT_SECRET,
+# CONFIG_PATH itself, and --clean-run's own DB_DRIVER/DB_HOST/DB_PORT/DB_USER/
+# DB_PASSWORD/DB_NAME below):
 #   parent shell env > --env-file > backend/.env > script defaults
 #
 # Examples:
@@ -370,18 +371,14 @@ start_backend() {
     # point at a config.yaml other than this agency's checked-in one.
     export CONFIG_PATH="${CONFIG_PATH:-config/${agency}/config.yaml}"
 
-    # Still plain env vars: read directly by cmd/cli (seeding, below) — its
-    # own config, unlike cmd/server's and cmd/migrate's, wasn't part of this
-    # config.yaml migration. DB_PATH's default is derived from the same
-    # config.yaml cmd/server/cmd/migrate read, so seeding always targets the
-    # same database even if that file customizes db.sqlite.path.
-    export DB_DRIVER="${DB_DRIVER:-sqlite}"
-    export DB_PATH="${DB_PATH:-$(sqlite_path_from_config "$CONFIG_PATH" "./${agency}_applications.db")}"
-    if [[ -z "${USER_CUSTOM_DATA_SCHEMA_PATH:-}" && -f "config/${agency}/user-custom-data-schema.json" ]]; then
-      export USER_CUSTOM_DATA_SCHEMA_PATH="./config/${agency}/user-custom-data-schema.json"
-    fi
+    # cmd/cli now reads the same config.yaml (its db and
+    # userCustomDataSchemaPath fields) as cmd/server/cmd/migrate, so
+    # CONFIG_PATH above is all seeding (below) needs — resolved here only for
+    # the log line.
+    local db_path
+    db_path=$(sqlite_path_from_config "$CONFIG_PATH" "./${agency}_applications.db")
 
-    echo "[start-dev] Starting $agency backend  -> http://localhost:$BE_PORT (db: $DB_PATH, config: $CONFIG_PATH)"
+    echo "[start-dev] Starting $agency backend  -> http://localhost:$BE_PORT (db: $db_path, config: $CONFIG_PATH)"
 
     local seed_file="./data/seed/${agency}_users.json"
     if [[ -f "$seed_file" ]]; then

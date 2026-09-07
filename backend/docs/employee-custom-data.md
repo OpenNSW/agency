@@ -26,15 +26,17 @@ The Go side reuses the existing `dbtype.JSONB` type (`pkg/dbtype`, originally
 
 ## Configuring the schema
 
-Set `USER_CUSTOM_DATA_SCHEMA_PATH` to a JSON Schema file (see [`.env.example`](../.env.example)):
+Set `userCustomDataSchemaPath` in `config.yaml` to a JSON Schema file (see
+[`config.example.yaml`](../config.example.yaml)):
 
-```
-USER_CUSTOM_DATA_SCHEMA_PATH=./config/user-custom-data-schema.json
+```yaml
+userCustomDataSchemaPath: ./config/user-custom-data-schema.json
 ```
 
 Left unset, `customData` is stored as-is with no validation. The schema is read once at CLI
-startup — it's only wired into `nswac` (`cmd/cli`), since `cmd/server` has no code path that
-writes `CustomData` (see [Limitations](#limitations) below).
+startup — it's only wired into `nswac` (`cmd/cli`, which reads the same `config.yaml` as
+`cmd/server`/`cmd/migrate` via `CONFIG_PATH`), since `cmd/server` has no code path that writes
+`CustomData` (see [Limitations](#limitations) below).
 
 ### Example
 
@@ -80,12 +82,12 @@ applies.
 
 ## Evolving the schema
 
-The schema is deployment config, not versioned or migrated — changing it is a config change plus
-a service restart, not a database migration. Adding a field (e.g. `location`):
+The schema is deployment config, not versioned or migrated — changing it is a config change, not
+a database migration. Adding a field (e.g. `location`):
 
-1. Edit the schema file `USER_CUSTOM_DATA_SCHEMA_PATH` points to and restart the service —
-   `custom_data` is already a `jsonb` column, so no schema migration is needed for the new field
-   itself.
+1. Edit the schema file `userCustomDataSchemaPath` points to and rerun `nswac` — it's a stateless
+   CLI that loads the schema on each invocation, so there's no service to restart. `custom_data`
+   is already a `jsonb` column, so no schema migration is needed for the new field itself.
 2. Existing rows are **not** revalidated or backfilled. Employees seeded before the change keep
    whatever `customData` they already had, which may now be missing the new field.
 3. If you need every existing employee to have the field, backfill it yourself (e.g. a one-off
