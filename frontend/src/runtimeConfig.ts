@@ -2,9 +2,40 @@ type RuntimeConfigValue = string | undefined
 
 type RuntimeConfigMap = Record<string, RuntimeConfigValue>
 
+// Mirrors backend/internal/web/config.go's Branding/PartnerLogo — the shape
+// served as window.__APP_CONFIG__.branding (see getBranding below). Kept as
+// its own type rather than folded into RuntimeConfigMap since branding is a
+// nested object with an array field, not a flat string map.
+export interface BrandingPartnerLogo {
+  url: string
+  alt: string
+}
+
+export interface BrandingPayload {
+  systemName: string
+  appName: string
+  logoUrl?: string
+  systemLogoUrl?: string
+  favicon?: string
+  portalName?: string
+  description?: string
+  heroImageUrl?: string
+  partnerLogos?: BrandingPartnerLogo[]
+}
+
+// window.__APP_CONFIG__'s shape, mirroring backend/internal/web/config.go's
+// Config (Runtime/Branding, marshaled as-is — see Handler.ServeConfig): one
+// object nesting runtime config and branding under "runtime"/"branding",
+// matching config.yaml's own web.runtime/web.branding, rather than two
+// separate window globals.
+interface AppConfigPayload {
+  runtime?: RuntimeConfigMap
+  branding?: BrandingPayload
+}
+
 declare global {
   interface Window {
-    __APP_CONFIG__?: RuntimeConfigMap
+    __APP_CONFIG__?: AppConfigPayload
   }
 }
 
@@ -13,7 +44,19 @@ function resolveRuntimeConfig(): RuntimeConfigMap {
     return {}
   }
 
-  return window.__APP_CONFIG__ ?? {}
+  return window.__APP_CONFIG__?.runtime ?? {}
+}
+
+// Reads window.__APP_CONFIG__.branding, set by /config.js alongside runtime
+// config (see backend/internal/web/handler.go's ServeConfig). Returns
+// undefined if unset — config.ts falls back to its own hardcoded defaults in
+// that case, same as when a branding fetch used to fail.
+export function getBranding(): BrandingPayload | undefined {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+
+  return window.__APP_CONFIG__?.branding
 }
 
 export function getEnv(name: string, fallback?: string): string | undefined {

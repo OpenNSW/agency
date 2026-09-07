@@ -95,7 +95,6 @@ config:
   web:
     dir: web
     runtime:
-      brandingName: default
       apiBaseURL: https://agency.example.com
       idpBaseURL: https://idp.example.com
       idpClientID: "<SPA_AGENCY_PORTAL>"
@@ -103,6 +102,16 @@ config:
       appURL: https://agency.example.com
       idpScopes: openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write
       idpExtraQueryParams: resource=https://api.nsw-agency.local
+    branding:
+      systemName: NSW
+      appName: "National Plant Quarantine Service (NPQS)"
+      logoUrl: ""
+      systemLogoUrl: ""
+      favicon: ""
+      portalName: "NPQS Officer Portal"
+      description: "A unified digital platform enabling seamless regulatory workflows and approvals for government agencies and authorised officers."
+      heroImageUrl: ""
+      partnerLogos: []
 
   authn:
     jwksURL: https://idp.example.com/oauth2/jwks

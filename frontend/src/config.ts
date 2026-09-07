@@ -1,42 +1,55 @@
 import { z } from 'zod'
 
-import { getEnv } from './runtimeConfig'
+import { getBranding } from './runtimeConfig'
 
 export let appConfig: UIConfig
 
-export async function initAppConfig(): Promise<void> {
-  const brandingName = getEnv('VITE_BRANDING_NAME') || 'default'
-  const brandingPath = `/configs/${brandingName}.branding.json`
+// Emergency fallback branding, used both when window.__APP_CONFIG__.branding
+// is entirely missing/invalid, and (portalName/description only) to fill in
+// for a deployment whose web.branding sets just the required
+// systemName/appName — TopBar renders portalName and LoginScreen renders
+// description unconditionally, with no fallback of their own, so a valid but
+// partial payload must not reach them as blank.
+const DEFAULT_BRANDING = {
+  systemName: 'NSW',
+  appName: 'NSW Agency Officer Portal',
+  portalName: 'NSW Agency Portal',
+  description: 'A unified digital platform enabling regulatory consignments.',
+}
 
-  try {
-    const response = await fetch(brandingPath)
-    if (!response.ok) {
-      throw new Error(`Failed to fetch branding config from ${brandingPath}: ${response.statusText}`)
-    }
-    const data = (await response.json()) as unknown
-    appConfig = validateConfig(data, brandingName)
-  } catch (error) {
-    console.warn(`[Config] Failed to load dynamic branding from ${brandingPath}, falling back to default...`, error)
-    try {
-      const defaultResponse = await fetch('/configs/default.branding.json')
-      if (!defaultResponse.ok) {
-        throw new Error(`Failed to fetch default branding config: ${defaultResponse.statusText}`)
-      }
-      const defaultData = (await defaultResponse.json()) as unknown
-      appConfig = validateConfig(defaultData, 'default')
-    } catch (fallbackError) {
-      console.error('[Config] Critical error: Failed to load fallback default branding.', fallbackError)
-      // Provide a hardcoded emergency config as a final safety fallback to keep the app working
+// Branding used to be fetched from a separate, per-agency
+// /configs/<name>.branding.json static file; that mechanism never actually
+// reached production (see backend/internal/web/config.go's Branding doc
+// comment), so it now comes from window.__APP_CONFIG__.branding instead — the
+// same /config.js response that already carries the rest of runtime config,
+// loaded before the app bundle. That makes this synchronous now (no more
+// fetch to await); a missing/invalid payload still degrades to the same
+// hardcoded emergency fallback a failed fetch used to.
+export function initAppConfig(): void {
+  const branding = getBranding()
+  if (branding) {
+    const result = UIConfigSchema.safeParse({ branding })
+    if (result.success) {
       appConfig = {
+        ...result.data,
         branding: {
-          systemName: 'NSW',
-          appName: 'NSW Agency Officer Portal',
-          portalName: 'NSW Agency Portal',
-          description: 'A unified digital platform enabling regulatory consignments.',
+          ...result.data.branding,
+          portalName: result.data.branding.portalName || DEFAULT_BRANDING.portalName,
+          description: result.data.branding.description || DEFAULT_BRANDING.description,
         },
       }
+      return
     }
+    console.error(
+      '[Config] Invalid branding from window.__APP_CONFIG__.branding:',
+      result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('\n'),
+    )
+  } else {
+    console.warn('[Config] window.__APP_CONFIG__.branding is missing, falling back to hardcoded defaults...')
   }
+
+  // Provide a hardcoded emergency config as a final safety fallback to keep the app working
+  appConfig = { branding: DEFAULT_BRANDING }
 }
 
 const UIConfigSchema = z.object({
@@ -67,16 +80,3 @@ const UIConfigSchema = z.object({
 })
 
 export type UIConfig = z.infer<typeof UIConfigSchema>
-
-function validateConfig(parsed: unknown, instanceId: string): UIConfig {
-  const result = UIConfigSchema.safeParse(parsed)
-  if (!result.success) {
-    throw new Error(
-      'Invalid configuration for ' +
-        instanceId +
-        ':\n' +
-        result.error.issues.map((i) => '- ' + i.path.join('.') + ': ' + i.message).join('\n'),
-    )
-  }
-  return result.data
-}

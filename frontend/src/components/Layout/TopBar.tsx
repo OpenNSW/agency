@@ -15,11 +15,13 @@ export function TopBar() {
         {appConfig.branding.systemLogoUrl && (
           <img
             src={appConfig.branding.systemLogoUrl}
-            alt={appConfig.branding.portalName}
+            alt={appConfig.branding.portalName || appConfig.branding.appName}
             className="h-8 w-auto object-contain"
           />
         )}
-        <span className="text-xl font-bold text-gray-900">{appConfig.branding.portalName}</span>
+        <span className="text-xl font-bold text-gray-900">
+          {appConfig.branding.portalName || appConfig.branding.appName}
+        </span>
       </div>
 
       {/* Right Side Actions */}
