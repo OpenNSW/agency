@@ -55,7 +55,7 @@ type Summary struct {
 	TraderCompanyName string    `json:"traderCompanyName,omitempty"`
 	UpdatedAt         time.Time `json:"updatedAt"`
 	Status            string    `json:"status"`    // Status of the most recent application
-	TaskCount         int       `json:"taskCount"` // Total number of applications in this consignment
+	TaskCount         int       `json:"taskCount"` // Number of PENDING applications remaining for officer action
 }
 
 // Store handles database operations for consignments.
@@ -200,7 +200,7 @@ func (s *Store) List(ctx context.Context, search string, scope map[string]any, o
 	}
 
 	dataQ := s.db.WithContext(ctx).Model(&ConsignmentRecord{}).
-		Select("consignments.id AS consignment_id, consignments.status, consignments.updated_at, consignments.nsw_data, COUNT(applications.task_id) AS task_count").
+		Select("consignments.id AS consignment_id, consignments.status, consignments.updated_at, consignments.nsw_data, COUNT(CASE WHEN applications.status = 'PENDING' THEN applications.task_id END) AS task_count").
 		Joins("LEFT JOIN applications ON applications.consignment_id = consignments.id").
 		Group("consignments.id, consignments.status, consignments.updated_at, consignments.nsw_data").
 		Order("consignments.updated_at DESC").
