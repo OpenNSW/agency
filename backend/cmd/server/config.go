@@ -258,7 +258,11 @@ func LoadConfig() (Config, error) {
 
 // Validate enforces the settings that depend on more than one value (the
 // dev-only insecure-TLS escape hatches, and disabling Postgres SSL) and
-// delegates the rest to each sub-config's own Validate.
+// delegates the rest to each sub-config's own Validate. Web.Validate() runs
+// here too (not just from main.go before /config.js is registered) so that
+// LoadConfig() alone — the path every config_test.go case and any future
+// startup-config test exercises — catches an invalid web.runtime, e.g. a
+// config.example.yaml whose required fields were left blank.
 func (c Config) Validate() error {
 	if c.NSW.TokenInsecureSkipVerify && !isDevEnvironment(c.Environment) {
 		return fmt.Errorf("nsw.tokenInsecureSkipVerify: insecure TLS verification requested but environment is not \"development\" (unset or any other value is treated as production); refusing to start — provide a trusted certificate chain, or set environment: development for a non-production run")
@@ -281,6 +285,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.Authn.Validate(); err != nil {
 		return err
+	}
+	if err := c.Web.Validate(); err != nil {
+		return fmt.Errorf("web.runtime config is invalid: %w", err)
 	}
 
 	return nil

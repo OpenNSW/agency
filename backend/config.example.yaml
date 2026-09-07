@@ -128,7 +128,7 @@ web:
     apiBaseURL: http://localhost:8081 # REQUIRED
     idpBaseURL: https://localhost:8090 # REQUIRED
     idpClientID: "<SPA_AGENCY_PORTAL>" # REQUIRED
-    idpExpectedOU: "" # REQUIRED
+    idpExpectedOU: "<expected-ou-handle>" # REQUIRED
     appURL: http://localhost:8081 # used in OIDC redirects
     # Only scopes requested here are granted, regardless of what the role
     # permits. Keep in sync with frontend/.env.example.
@@ -148,7 +148,7 @@ authn:
   # Typically two clients: the SPA portal and the NSW->Agency m2m client.
   clientIDs: ["<SPA_AGENCY_PORTAL>", "NSW_TO_<AGENCY>"]
   # This agency's OU handle — must match the ouHandle claim in user JWTs.
-  expectedOU: ""
+  expectedOU: "<expected-ou-handle>" # REQUIRED
   # DEV-ONLY: skip TLS verification for the JWKS endpoint. Keep false in
   # production; only honored when environment: development.
   insecureSkipTLSVerify: false

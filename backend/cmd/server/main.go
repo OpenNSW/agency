@@ -237,10 +237,8 @@ func main() {
 	// (the frontend's Vite dev server proxies /config.js to this same backend
 	// instance rather than reimplementing config assembly — see
 	// frontend/vite.config.ts). So cfg.Web.Runtime must be valid in every
-	// deployment, including each agency's dev config.yaml.
-	if err := cfg.Web.Validate(); err != nil {
-		log.Fatalf("FATAL: web.runtime config is invalid: %v", err)
-	}
+	// deployment, including each agency's dev config.yaml — enforced above by
+	// LoadConfig() (Config.Validate() delegates to cfg.Web.Validate()).
 	spa, err := web.NewHandler(cfg.Web)
 	if err != nil {
 		log.Fatalf("FATAL: building web handler: %v", err)

@@ -36,11 +36,24 @@ const defaultAuthn = `authn:
   expectedOU: default
 `
 
+// defaultWeb satisfies RuntimeConfig.Validate's four required fields (see
+// backend/internal/web/config.go) so that buildConfig's fixtures pass
+// Config.Validate() — which now delegates to cfg.Web.Validate() — without
+// every test needing to know about web.runtime.
+const defaultWeb = `web:
+  runtime:
+    apiBaseURL: http://localhost:8081
+    idpBaseURL: https://localhost:8090
+    idpClientID: TEST_CLIENT
+    idpExpectedOU: default
+`
+
 // buildConfig assembles a config.yaml fixture from one block per top-level
 // section (db, nsw, authn) plus trailing top-level lines (extra, e.g.
 // "readHeaderTimeout: 1s"). Passing "" for db/nsw/authn uses the corresponding
 // default block above, so a test only has to spell out the section it's
-// actually overriding.
+// actually overriding. web.runtime always uses defaultWeb since no test
+// exercises it directly (see backend/internal/web/config_test.go for that).
 func buildConfig(t *testing.T, db, nsw, authn, extra string) string {
 	t.Helper()
 	if db == "" {
@@ -53,7 +66,7 @@ func buildConfig(t *testing.T, db, nsw, authn, extra string) string {
 		authn = defaultAuthn
 	}
 	artifactLoader := "artifactLoader:\n  type: local\n  local:\n    root: " + t.TempDir() + "\n"
-	return db + artifactLoader + nsw + authn + extra
+	return db + artifactLoader + nsw + authn + defaultWeb + extra
 }
 
 // writeConfig writes yamlContent to a temp file and points CONFIG_PATH at it,
@@ -486,6 +499,33 @@ func TestLoadConfig_PartialPlaceholderIsLiteral(t *testing.T) {
 	}
 	if cfg.NSW.ClientSecret != "prefix-{{env:SOME_VAR}}-suffix" {
 		t.Fatalf("expected literal passthrough, got %q", cfg.NSW.ClientSecret)
+	}
+}
+
+// Guards against config.example.yaml regressing into a REQUIRED field left
+// blank (e.g. idpExpectedOU/expectedOU: "") — which passed every other test
+// here (none of them load the example file) while failing the exact `cp
+// config.example.yaml config.yaml && go run ./cmd/server` startup path
+// README.md documents, since LoadConfig()'s Config.Validate() now delegates
+// to cfg.Web.Validate() (see cmd/server/config.go), matching what main.go
+// checks before serving /config.js.
+func TestLoadConfig_ExampleYAMLPassesStartupValidation(t *testing.T) {
+	raw, err := os.ReadFile("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("reading config.example.yaml: %v", err)
+	}
+
+	// Fill in the two placeholders LoadConfig can't resolve on its own: a
+	// real artifactLoader.local.root (any existing directory) and the
+	// {{env:...}}-sourced NSW m2m secret. Every other REQUIRED field in the
+	// example must already be a valid non-empty literal — that's what this
+	// test guards.
+	content := strings.Replace(string(raw), `root: ""`, "root: "+t.TempDir(), 1)
+	t.Setenv("NSW_CLIENT_SECRET", "test-secret")
+	writeConfig(t, content)
+
+	if _, err := LoadConfig(); err != nil {
+		t.Fatalf("config.example.yaml failed startup validation: %v", err)
 	}
 }
 
