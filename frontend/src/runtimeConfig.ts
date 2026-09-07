@@ -22,11 +22,6 @@ export function getEnv(name: string, fallback?: string): string | undefined {
     return runtimeValue
   }
 
-  const buildValue = (import.meta.env as Record<string, string | undefined>)[name]
-  if (buildValue && buildValue.trim() !== '') {
-    return buildValue
-  }
-
   return fallback
 }
 

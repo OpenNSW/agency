@@ -4,39 +4,48 @@
 
 This app uses Asgardeo/Thunder OIDC for sign-in.
 
-Required environment variables:
+The frontend no longer reads its own runtime config from env vars/`.env` —
+it fetches `/config.js` from the paired backend and reads
+`window.__APP_CONFIG__` (see [src/runtimeConfig.ts](src/runtimeConfig.ts)).
+Only `VITE_PORT` and `VITE_API_BASE_URL` remain as `.env` vars, and only for
+`vite.config.ts` itself (Node-side, never bundled into the app) — see
+[.env.example](.env.example). Everything below is instead configured per
+agency in the backend's `web.runtime` section (see
+[backend/config.example.yaml](../backend/config.example.yaml) for the full
+schema):
 
-- `VITE_BRANDING_NAME`: Name of Agency branding configuration (e.g. `npqs`, `fcau`, `cda`, `slpa`, or `default`)
-- `VITE_API_BASE_URL`: Agency backend API base URL (for example `http://localhost:8081`)
-- `VITE_IDP_BASE_URL`: IdP base URL (for example `https://localhost:8090`)
-- `VITE_IDP_CLIENT_ID`: NSW Agency-specific IdP application client id
-- `VITE_IDP_EXPECTED_OU_HANDLE`: Required organization/OU handle for access restriction (e.g., `npqs`, `fcau`, `cda`, `slpa`)
-- `VITE_APP_URL`: public URL of this Agency deployment
-- `VITE_IDP_SCOPES` (optional): comma-separated scopes (defaults to `openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write`)
-- `VITE_IDP_EXTRA_QUERY_PARAMS`: extra `/authorize` parameters, query-string encoded (for example `resource=https://api.nsw-agency.local`). ThunderID requires an RFC 8707 `resource` indicator naming the AGENCY_API resource server; without it the `agency:*` scopes are dropped from the issued token. Optional only for an IdP that binds tokens by scope alone.
+- `VITE_BRANDING_NAME` (`web.runtime.brandingName`): name of Agency branding configuration (e.g. `npqs`, `fcau`, `cda`, `slpa`, or `default`)
+- `VITE_API_BASE_URL` (`web.runtime.apiBaseURL`): Agency backend API base URL (for example `http://localhost:8081`)
+- `VITE_IDP_BASE_URL` (`web.runtime.idpBaseURL`): IdP base URL (for example `https://localhost:8090`)
+- `VITE_IDP_CLIENT_ID` (`web.runtime.idpClientID`): NSW Agency-specific IdP application client id
+- `VITE_IDP_EXPECTED_OU_HANDLE` (`web.runtime.idpExpectedOU`): Required organization/OU handle for access restriction (e.g., `npqs`, `fcau`, `cda`, `slpa`)
+- `VITE_APP_URL` (`web.runtime.appURL`): public URL of this Agency deployment
+- `VITE_IDP_SCOPES` (`web.runtime.idpScopes`, optional): comma-separated scopes (defaults to `openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write`)
+- `VITE_IDP_EXTRA_QUERY_PARAMS` (`web.runtime.idpExtraQueryParams`): extra `/authorize` parameters, query-string encoded (for example `resource=https://api.nsw-agency.local`). ThunderID requires an RFC 8707 `resource` indicator naming the AGENCY_API resource server; without it the `agency:*` scopes are dropped from the issued token. Optional only for an IdP that binds tokens by scope alone.
 
 ## Per-NSW Agency deployment model
 
-Each Agency deployment should use its own IdP application configuration.
+Each Agency deployment should use its own IdP application configuration, set
+in that agency's `backend/config/<agency>/config.yaml`.
 
 Example:
 
 - NPQS deployment
-  - `VITE_BRANDING_NAME=npqs`
-  - `VITE_IDP_CLIENT_ID=AGENCY_PORTAL_APP_NPQS`
-  - `VITE_IDP_EXPECTED_OU_HANDLE=npqs`
+  - `brandingName: npqs`
+  - `idpClientID: AGENCY_PORTAL_APP_NPQS`
+  - `idpExpectedOU: npqs`
 - FCAU deployment
-  - `VITE_BRANDING_NAME=fcau`
-  - `VITE_IDP_CLIENT_ID=AGENCY_PORTAL_APP_FCAU`
-  - `VITE_IDP_EXPECTED_OU_HANDLE=fcau`
+  - `brandingName: fcau`
+  - `idpClientID: AGENCY_PORTAL_APP_FCAU`
+  - `idpExpectedOU: fcau`
 - CDA deployment
-  - `VITE_BRANDING_NAME=cda`
-  - `VITE_IDP_CLIENT_ID=AGENCY_PORTAL_APP_CDA`
-  - `VITE_IDP_EXPECTED_OU_HANDLE=cda`
+  - `brandingName: cda`
+  - `idpClientID: AGENCY_PORTAL_APP_CDA`
+  - `idpExpectedOU: cda`
 - SLPA deployment
-  - `VITE_BRANDING_NAME=slpa`
-  - `VITE_IDP_CLIENT_ID=OGA_PORTAL_APP_SLPA`
-  - `VITE_IDP_EXPECTED_OU_HANDLE=slpa`
+  - `brandingName: slpa`
+  - `idpClientID: OGA_PORTAL_APP_SLPA`
+  - `idpExpectedOU: slpa`
 
 This allows IdP-level user access restriction per Agency app registration.
 
@@ -56,7 +65,7 @@ NSW Agency instance branding is defined via JSON configuration files loaded dyna
 
 1. Create a new JSON file under `public/configs/<name>.branding.json` (e.g., `public/configs/custom.branding.json`).
 2. Edit the `branding.systemName` and `branding.appName` fields (required).
-3. Update your environment configuration (or `start-dev.sh`) to set `VITE_BRANDING_NAME` to your custom name (e.g., `VITE_BRANDING_NAME=custom`).
+3. Set that agency's `backend/config/<agency>/config.yaml` `web.runtime.brandingName` to your custom name (e.g., `brandingName: custom`) — see [Authentication configuration](#authentication-configuration) above.
 
 ### Config schema
 

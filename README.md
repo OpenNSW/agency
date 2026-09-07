@@ -23,12 +23,15 @@ Then in this repo:
 ```bash
 # Backend
 cd backend
-cp .env.example .env       # tweak NSW_* to point at your NSW backend + IdP
+cp config.example.yaml config.yaml   # fill in the REQUIRED web.runtime/authn/nsw values
+cp .env.example .env                 # NSW_CLIENT_SECRET / CONFIG_PATH, see config.yaml's {{env:...}} placeholders
 go run ./cmd/server
 
 # Frontend (new terminal)
 cd frontend
-cp .env.example .env       # set VITE_IDP_CLIENT_ID, VITE_API_BASE_URL
+cp .env.example .env       # only VITE_PORT / VITE_API_BASE_URL — everything
+                            # else (branding, IdP client id, ...) now comes
+                            # from the backend's config.yaml via /config.js
 pnpm install
 pnpm dev
 ```
@@ -61,7 +64,7 @@ Every process runs in its own process group (`set -m`), so `Ctrl-C` cleanly stop
 
 The branding-config paths above are gitignored — copy them from [default.branding.json](frontend/public/configs/default.branding.json) (see below).
 
-The script sets `PORT`, `DB_PATH`, `NSW_CLIENT_ID` for the backend and `VITE_PORT`, `VITE_BRANDING_NAME`, `VITE_API_BASE_URL`, `VITE_IDP_CLIENT_ID`, `VITE_APP_URL` for the frontend. Any of these can be overridden by exporting them before invoking the script (other backend/frontend env vars — OAuth secrets, IdP base URL, etc. — still come from `backend/.env` and `frontend/.env`).
+The script sets `PORT`, `DB_PATH`, `NSW_CLIENT_ID` for the backend and `VITE_PORT`, `VITE_API_BASE_URL` for the frontend — branding, IdP client id, and the rest of the frontend's runtime config now come from that agency's `backend/config/<agency>/config.yaml` (`web.runtime`), served to the frontend via `/config.js`, not from env vars. Any of the above can still be overridden by exporting them before invoking the script (other backend env vars — OAuth secrets, IdP base URL, etc. — still come from `backend/.env`).
 
 Only [default.branding.json](frontend/public/configs/default.branding.json) is tracked in git — per-NSW Agency branding files (`npqs.branding.json`, `fcau.branding.json`, `cda.branding.json`, `slpa.branding.json`) are gitignored because branding is deployment-specific. To run a Agency locally, copy the default and edit it:
 
