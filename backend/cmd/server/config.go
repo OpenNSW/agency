@@ -15,6 +15,7 @@ import (
 	"github.com/OpenNSW/core/artifact/loaders/github"
 	"github.com/OpenNSW/core/artifact/loaders/local"
 	"github.com/OpenNSW/core/artifact/loaders/s3"
+	"github.com/OpenNSW/core/refid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -45,6 +46,11 @@ type Config struct {
 	// officer may see, based on their own users.custom_data. Empty means no
 	// rules are configured for this deployment, so scoping is a no-op.
 	DataScopeRulesPath string
+	// RefIDGen declares the reference ID formats this deployment can issue
+	// (see github.com/OpenNSW/core/refid, and internal/taskconfig's refid
+	// block for how a task opts in). Empty means no format is configured, so
+	// no task can generate one.
+	RefIDGen refid.Config
 	// Environment designates the deployment environment. It exists solely to
 	// gate the insecure-TLS/sslmode escape hatches (see isDevEnvironment) —
 	// unset or any value other than "development" is treated as production.
@@ -73,6 +79,7 @@ type yamlConfig struct {
 	NSW                             nswclient.Config         `yaml:"nsw"`
 	Authn                           authn.Config             `yaml:"authn"`
 	Web                             web.Config               `yaml:"web"`
+	RefIDGen                        refid.Config             `yaml:"refIDGen"`
 }
 
 // yamlArtifactLoaderConfig mirrors loaders.Config's shape (Type plus one
@@ -236,6 +243,7 @@ func LoadConfig() (Config, error) {
 		ConsignmentCustomDataSchemaPath: raw.ConsignmentCustomDataSchemaPath,
 		DataScopeRulesPath:              raw.DataScopeRulesPath,
 		Environment:                     raw.Environment,
+		RefIDGen:                        raw.RefIDGen,
 		DB:                              db,
 		ArtifactLoader:                  artifactLoader.toLoadersConfig(),
 		AllowedOrigins:                  allowedOrigins,

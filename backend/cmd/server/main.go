@@ -22,6 +22,7 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/logging"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/refidstore"
 	"github.com/OpenNSW/agency/backend/internal/scopes"
 	"github.com/OpenNSW/agency/backend/internal/storage"
 	"github.com/OpenNSW/agency/backend/internal/user"
@@ -29,7 +30,9 @@ import (
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/loaders"
 	"github.com/OpenNSW/core/authz"
+	"github.com/OpenNSW/core/refid"
 	"github.com/OpenNSW/core/trace"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -159,8 +162,13 @@ func main() {
 	consignmentService := consignment.NewService(consignmentStore, nswClient, dataScopeResolver)
 	consignmentHandler := consignment.NewHandler(consignmentService)
 
+	refIDs, err := initRefIDs(cfg.RefIDGen, store.DB())
+	if err != nil {
+		log.Fatalf("failed to initialize reference ID generation: %v", err)
+	}
+
 	// Initialize Agency service
-	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService, dataScopeResolver)
+	service := application.NewService(store, artifactRegistry, nswClient, roleService, consignmentService, dataScopeResolver, refIDs)
 	defer func() {
 		if err := service.Close(); err != nil {
 			slog.Error("failed to close service", "error", err)
@@ -324,4 +332,30 @@ func main() {
 	}
 
 	slog.Info("NSW Agency service stopped")
+}
+
+// initRefIDs builds the reference ID registry for this deployment.
+//
+// The feature is optional: with no refIDGen section there is nothing to build,
+// so the counter store and registry are skipped and a disabled registry stands
+// in — a task declaring refid then fails its inject rather than silently
+// generating nothing. NewRegistry validates every configured format up front,
+// so a malformed section fails the boot rather than the first inject.
+func initRefIDs(cfg refid.Config, db *gorm.DB) (refid.Registry, error) {
+	if len(cfg.Issuers) == 0 {
+		slog.Info("reference ID generation not configured; tasks declaring a refid block will fail at inject")
+		return refidstore.Disabled(), nil
+	}
+
+	sequences, err := refidstore.New(db)
+	if err != nil {
+		return nil, fmt.Errorf("creating refid sequence store: %w", err)
+	}
+	registry, err := refid.NewRegistry(cfg, sequences)
+	if err != nil {
+		return nil, fmt.Errorf("invalid refIDGen config: %w", err)
+	}
+
+	slog.Info("reference ID generation configured", "issuers", len(cfg.Issuers))
+	return registry, nil
 }

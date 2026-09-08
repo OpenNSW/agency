@@ -19,12 +19,15 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/datascope"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
+	"github.com/OpenNSW/agency/backend/internal/refidstore"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig/taskconfigart"
 	"github.com/OpenNSW/agency/backend/internal/user"
 	"github.com/OpenNSW/agency/backend/pkg/httpclient"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
 	"github.com/OpenNSW/core/artifact/loaders/local"
+	"github.com/OpenNSW/core/refid"
+	"gorm.io/gorm"
 )
 
 // writeTaskConfigFile writes content to <root>/task-configs/<name>.
@@ -174,6 +177,13 @@ func newTestRegistry(t *testing.T, root string) *artifact.Registry {
 // <root>/task-configs/ and <root>/forms/ as needed.
 func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness {
 	t.Helper()
+	return newServiceHarnessWithRefIDs(t, unconfiguredRefIDs(), writeFn)
+}
+
+// newServiceHarnessWithRefIDs is newServiceHarness with an explicit reference
+// ID registry, for tests exercising generation at inject.
+func newServiceHarnessWithRefIDs(t *testing.T, refIDs refid.Registry, writeFn func(root string)) *serviceHarness {
+	t.Helper()
 
 	root := t.TempDir()
 	for _, sub := range []string{"task-configs", "forms"} {
@@ -194,8 +204,7 @@ func newServiceHarness(t *testing.T, writeFn func(root string)) *serviceHarness 
 	// stub server is what routes callbacks there.
 	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
 
-	roleService := rbac.NewRoleService(store.db)
-	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), roleService)
+	svc := newWiredServiceWithRefIDs(t, store, reg, nswclient.NewWithClient(hc), refIDs)
 
 	return &serviceHarness{
 		t:          t,
@@ -215,7 +224,7 @@ func newWiredService(t *testing.T, store *ApplicationStore, reg *artifact.Regist
 	if roleService == nil {
 		roleService = rbac.NewRoleService(store.db)
 	}
-	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, unrestrictedResolver()), unrestrictedResolver())
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, unrestrictedResolver()), unrestrictedResolver(), unconfiguredRefIDs())
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc
 }
@@ -225,6 +234,52 @@ func newWiredService(t *testing.T, store *ApplicationStore, reg *artifact.Regist
 // UserAttributes implementation.
 func unrestrictedResolver() *datascope.Resolver {
 	return datascope.NewResolver(nil, nil)
+}
+
+// stubRefIDRegistry is a refid.Registry returning a canned ID, so inject tests
+// assert on what gets persisted rather than re-testing refid's own generation
+// (covered against the real driver in internal/refidstore).
+type stubRefIDRegistry struct {
+	id    string
+	err   error
+	calls []stubRefIDCall
+}
+
+type stubRefIDCall struct {
+	issuer string
+	idType string
+	params map[string]string
+}
+
+func (s *stubRefIDRegistry) Generate(_ context.Context, issuer, idType string, params map[string]string) (string, error) {
+	s.calls = append(s.calls, stubRefIDCall{issuer: issuer, idType: idType, params: params})
+	if s.err != nil {
+		return "", s.err
+	}
+	return s.id, nil
+}
+
+// unconfiguredRefIDs mirrors a deployment with no refIDGen section. It uses
+// the same disabled registry main() wires up in that case, rather than a stub,
+// so these tests exercise the real thing. Most helpers pass it, since no task
+// config in these tests declares a refid block.
+func unconfiguredRefIDs() refid.Registry {
+	return refidstore.Disabled()
+}
+
+// newWiredServiceWithRefIDs is newWiredService with an explicit reference ID
+// registry, for tests exercising generation at inject.
+func newWiredServiceWithRefIDs(t *testing.T, store *ApplicationStore, reg *artifact.Registry, nsw NSWClient, refIDs refid.Registry) Service {
+	t.Helper()
+	cNSW, ok := nsw.(consignment.NSWClient)
+	if !ok {
+		t.Fatal("nsw client must implement consignment.NSWClient")
+	}
+	svc := NewService(store, reg, nsw, rbac.NewRoleService(store.db),
+		consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, unrestrictedResolver()),
+		unrestrictedResolver(), refIDs)
+	t.Cleanup(func() { _ = svc.Close() })
+	return svc
 }
 
 // newWiredServiceWithScope is newWiredService with an explicit data-scope
@@ -238,7 +293,7 @@ func newWiredServiceWithScope(t *testing.T, store *ApplicationStore, reg *artifa
 	if roleService == nil {
 		roleService = rbac.NewRoleService(store.db)
 	}
-	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, resolver), resolver)
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, resolver), resolver, unconfiguredRefIDs())
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc
 }
@@ -1896,5 +1951,373 @@ func TestCreateApplication_ConsignmentFieldsPushedOnResubmission(t *testing.T) {
 	got := getConsignmentCustomData(t, h, "wf-resub")
 	if got["district"] != "Gampaha" {
 		t.Errorf("custom_data[district] = %v, want Gampaha (resubmission must re-push updated fields)", got["district"])
+	}
+}
+
+// refIDTaskConfig is a task config declaring a refid block, used by the
+// generation tests below. No view form, so injected data isn't schema-checked
+// and each test can pass just the fields its params need.
+const refIDTaskConfig = `{
+	"schemaVersion": 1,
+	"meta": {"title": "RefID Task"},
+	"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+	"forms": {"review": "refid_review"},
+	"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
+	"refid": {
+		"issuer": "NPQS",
+		"idType": "application_id",
+		"path": "/reference_number",
+		"params": {"officeCode": "/nppo_office_location"}
+	}
+}`
+
+func TestCreateApplication_RefID_GeneratedAndPersisted(t *testing.T) {
+	stub := &stubRefIDRegistry{id: "NPQS/NPQS-KAT/000042"}
+	h := newServiceHarnessWithRefIDs(t, stub, func(root string) {
+		writeTaskConfigFile(t, root, "refid_task.json", refIDTaskConfig)
+	})
+
+	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-refid-1",
+		TaskCode:      "refid_task",
+		ConsignmentID: "c-refid-1",
+		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
+	}); err != nil {
+		t.Fatalf("CreateApplication: %v", err)
+	}
+
+	rec, err := h.store.GetByTaskID("t-refid-1")
+	if err != nil {
+		t.Fatalf("GetByTaskID: %v", err)
+	}
+	if got := rec.ReviewerResponse["reference_number"]; got != "NPQS/NPQS-KAT/000042" {
+		t.Fatalf("reviewer_response reference_number = %v, want the generated ID", got)
+	}
+
+	// The format's params must come from the injected data, not be dropped.
+	if len(stub.calls) != 1 {
+		t.Fatalf("Generate called %d times, want 1", len(stub.calls))
+	}
+	call := stub.calls[0]
+	if call.issuer != "NPQS" || call.idType != "application_id" {
+		t.Errorf("Generate called with (%q, %q), want (\"NPQS\", \"application_id\")", call.issuer, call.idType)
+	}
+	if call.params["officeCode"] != "NPQS-KAT" {
+		t.Errorf("officeCode param = %q, want \"NPQS-KAT\"", call.params["officeCode"])
+	}
+}
+
+func TestCreateApplication_RefID_ReinjectKeepsOriginalID(t *testing.T) {
+	stub := &stubRefIDRegistry{id: "NPQS/NPQS-KAT/000001"}
+	h := newServiceHarnessWithRefIDs(t, stub, func(root string) {
+		writeTaskConfigFile(t, root, "refid_task.json", refIDTaskConfig)
+	})
+
+	req := &InjectRequest{
+		TaskID:        "t-refid-2",
+		TaskCode:      "refid_task",
+		ConsignmentID: "c-refid-2",
+		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
+	}
+	if err := h.service.CreateApplication(context.Background(), req); err != nil {
+		t.Fatalf("first inject: %v", err)
+	}
+
+	// A second inject must neither mint a new number nor NULL out the column
+	// via CreateOrUpdate's full-row Save.
+	stub.id = "NPQS/NPQS-KAT/999999"
+	if err := h.service.CreateApplication(context.Background(), req); err != nil {
+		t.Fatalf("re-inject: %v", err)
+	}
+
+	rec, err := h.store.GetByTaskID("t-refid-2")
+	if err != nil {
+		t.Fatalf("GetByTaskID: %v", err)
+	}
+	if got := rec.ReviewerResponse["reference_number"]; got != "NPQS/NPQS-KAT/000001" {
+		t.Fatalf("reference_number = %v after re-inject, want the original ID", got)
+	}
+	if len(stub.calls) != 1 {
+		t.Fatalf("Generate called %d times across two injects, want 1", len(stub.calls))
+	}
+}
+
+// TestCreateApplication_RefID_UnconfiguredDeployment_FailsInject covers the
+// fail-closed guarantee: an inject that can't mint its reference ID leaves
+// nothing behind — no application, and no consignment either, which is what
+// keeping generation ahead of CreateConsignment buys.
+//
+// It needs a mock NSW client whose consignment fetch succeeds:
+// CreateConsignment fetches NSW extras before inserting, so with the default
+// stub server (whose fetch fails) no consignment is created regardless of
+// ordering, making that assertion vacuous.
+func TestCreateApplication_RefID_UnconfiguredDeployment_FailsInject(t *testing.T) {
+	store := newTestStore(t)
+	root := t.TempDir()
+	mustMkdirTaskConfigsAndForms(t, root)
+	writeTaskConfigFile(t, root, "refid_task.json", refIDTaskConfig)
+
+	nswMock := &mockNSWClient{consignment: &nswclient.ConsignmentAgency{
+		ConsignmentID:     "c-refid-3",
+		TraderCompanyName: "CEYLON EXPORTS",
+	}}
+	// unconfiguredRefIDs is the registry main() wires up with no refIDGen
+	// section, so every Generate fails.
+	svc := newWiredServiceWithRefIDs(t, store, newTestRegistry(t, root), nswMock, unconfiguredRefIDs())
+
+	err := svc.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-refid-3",
+		TaskCode:      "refid_task",
+		ConsignmentID: "c-refid-3",
+		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
+	})
+	if err == nil {
+		t.Fatal("expected inject to fail when the deployment configures no matching format")
+	}
+	// A deployment fault, not a bad request — must not be a 400.
+	if errors.Is(err, ErrInvalidInjectRequest) {
+		t.Errorf("error wraps ErrInvalidInjectRequest (400), want an unwrapped 500: %v", err)
+	}
+	if _, err := store.GetByTaskID("t-refid-3"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Errorf("application row exists after a failed generation, want none (got %v)", err)
+	}
+
+	var consignments int64
+	if err := store.db.Model(&consignment.ConsignmentRecord{}).
+		Where("id = ?", "c-refid-3").Count(&consignments).Error; err != nil {
+		t.Fatalf("counting consignments: %v", err)
+	}
+	if consignments != 0 {
+		t.Error("a failed generation left an orphan consignment; generation must run before CreateConsignment")
+	}
+	if nswMock.fetchCount != 0 {
+		t.Errorf("NSW consignment fetch ran %d times despite generation failing, want 0", nswMock.fetchCount)
+	}
+}
+
+func TestCreateApplication_NoRefIDBlock_LeavesReviewerResponseEmpty(t *testing.T) {
+	h := newServiceHarnessWithRefIDs(t, unconfiguredRefIDs(), func(root string) {
+		writeTaskConfigFile(t, root, "plain.json", `{
+			"schemaVersion": 1,
+			"meta": {"title": "Plain"},
+			"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+			"forms": {"review": "plain_review"},
+			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
+		}`)
+	})
+
+	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-plain",
+		TaskCode:      "plain",
+		ConsignmentID: "c-plain",
+		Data:          map[string]any{"anything": "goes"},
+	}); err != nil {
+		t.Fatalf("CreateApplication: %v", err)
+	}
+
+	rec, err := h.store.GetByTaskID("t-plain")
+	if err != nil {
+		t.Fatalf("GetByTaskID: %v", err)
+	}
+	if len(rec.ReviewerResponse) != 0 {
+		t.Fatalf("reviewer_response = %v, want empty for a task with no refid block", rec.ReviewerResponse)
+	}
+}
+
+// TestCreateApplication_RefID_RealRegistry_EndToEnd wires the real refid
+// registry, counter table and store together, so the whole path is exercised
+// at once: task config -> params resolved from injected data -> a list segment
+// validating the office code -> the durable counter -> the ID written at the
+// configured pointer. The other RefID tests stub the registry to isolate
+// persistence; this one is the integration seam between them.
+func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
+	store := newTestStore(t)
+	mustCreateRefIDSequences(t, store)
+
+	seq, err := refidstore.New(store.db)
+	if err != nil {
+		t.Fatalf("refidstore.New: %v", err)
+	}
+	reg, err := refid.NewRegistry(refid.Config{
+		Issuers: []refid.IssuerConfig{{
+			Issuer: "NPQS",
+			Formats: []refid.FormatConfig{{
+				IDType: "application_id",
+				Segments: []refid.SegmentConfig{
+					{Type: "literal", Value: "NPQS/"},
+					{Type: "list", List: "office_location", Param: "officeCode"},
+					{Type: "literal", Value: "/"},
+					{Type: "sequence", ScopeKey: "{issuer}:{idType}:{officeCode}:{yyyy}", Padding: 6},
+				},
+			}},
+		}},
+		Lists: map[string][]string{"office_location": {"NPQS-KAT", "SEA-CMB"}},
+	}, seq)
+	if err != nil {
+		t.Fatalf("refid.NewRegistry: %v", err)
+	}
+
+	root := t.TempDir()
+	mustMkdirTaskConfigsAndForms(t, root)
+	writeTaskConfigFile(t, root, "refid_task.json", refIDTaskConfig)
+	srv, _ := newCallbackServer(t)
+	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
+	svc := newWiredServiceWithRefIDs(t, store, newTestRegistry(t, root), nswclient.NewWithClient(hc), reg)
+
+	inject := func(taskID, office string) error {
+		return svc.CreateApplication(context.Background(), &InjectRequest{
+			TaskID:        taskID,
+			TaskCode:      "refid_task",
+			ConsignmentID: "c-" + taskID,
+			Data:          map[string]any{"nppo_office_location": office},
+		})
+	}
+	refIDOf := func(taskID string) any {
+		t.Helper()
+		rec, err := store.GetByTaskID(taskID)
+		if err != nil {
+			t.Fatalf("GetByTaskID(%s): %v", taskID, err)
+		}
+		return rec.ReviewerResponse["reference_number"]
+	}
+
+	// Two applications at the same office share a counter and advance it.
+	for i, want := range []string{"NPQS/NPQS-KAT/000001", "NPQS/NPQS-KAT/000002"} {
+		taskID := fmt.Sprintf("t-e2e-kat-%d", i)
+		if err := inject(taskID, "NPQS-KAT"); err != nil {
+			t.Fatalf("inject %s: %v", taskID, err)
+		}
+		if got := refIDOf(taskID); got != want {
+			t.Fatalf("reference_number = %v, want %q", got, want)
+		}
+	}
+
+	// A different office is a different scope key, so it starts at 1.
+	if err := inject("t-e2e-cmb", "SEA-CMB"); err != nil {
+		t.Fatalf("inject t-e2e-cmb: %v", err)
+	}
+	if got, want := refIDOf("t-e2e-cmb"), "NPQS/SEA-CMB/000001"; got != want {
+		t.Fatalf("reference_number = %v, want %q", got, want)
+	}
+
+	// An office code outside the configured list fails the inject as a bad
+	// request, and must not create the application.
+	err = inject("t-e2e-bad", "NOT-AN-OFFICE")
+	if !errors.Is(err, ErrInvalidInjectRequest) {
+		t.Fatalf("inject with an unlisted office returned %v, want ErrInvalidInjectRequest", err)
+	}
+	if _, err := store.GetByTaskID("t-e2e-bad"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Errorf("application row exists after a rejected office code, want none (got %v)", err)
+	}
+
+	// Likewise when the param is absent entirely. generateRefID passes no
+	// officeCode rather than an empty one, and refid — not us — is what
+	// rejects it, which is the contract the skip-unresolved behaviour relies on.
+	err = svc.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-e2e-missing",
+		TaskCode:      "refid_task",
+		ConsignmentID: "c-t-e2e-missing",
+		Data:          map[string]any{"something_else": "x"},
+	})
+	if !errors.Is(err, ErrInvalidInjectRequest) {
+		t.Fatalf("inject with no officeCode returned %v, want ErrInvalidInjectRequest", err)
+	}
+	if _, err := store.GetByTaskID("t-e2e-missing"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Errorf("application row exists after a missing required param, want none (got %v)", err)
+	}
+}
+
+// mustCreateRefIDSequences creates the counter table refid's store expects,
+// picking DDL for the store's dialect — newTestStore runs against PostgreSQL
+// when AGENCY_DB_DRIVER=postgres, which has no datetime('now'). Mirrors the
+// counter-table migration; keep the two in step.
+func mustCreateRefIDSequences(t *testing.T, store *ApplicationStore) {
+	t.Helper()
+
+	var ddl string
+	switch name := store.db.Name(); name {
+	case "postgres":
+		ddl = `
+			CREATE TABLE IF NOT EXISTS refid_sequences (
+				scope_key  TEXT        NOT NULL PRIMARY KEY,
+				counter    BIGINT      NOT NULL DEFAULT 0,
+				updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+			)`
+	case "sqlite":
+		ddl = `
+			CREATE TABLE IF NOT EXISTS refid_sequences (
+				scope_key  TEXT    NOT NULL PRIMARY KEY,
+				counter    INTEGER NOT NULL DEFAULT 0,
+				updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+			)`
+	default:
+		t.Fatalf("no refid_sequences DDL for driver %q", name)
+	}
+
+	if err := store.db.Exec(ddl).Error; err != nil {
+		t.Fatalf("failed to create refid_sequences: %v", err)
+	}
+	// Persistent backends keep the table between tests, so counters would
+	// carry over and break the per-office assertions below.
+	if store.db.Name() != "sqlite" {
+		if err := store.db.Exec("TRUNCATE TABLE refid_sequences").Error; err != nil {
+			t.Fatalf("failed to truncate refid_sequences: %v", err)
+		}
+	}
+}
+
+// refIDTaskConfigExtraParam declares a param no configured format consumes,
+// which refid ignores — so an absent pointer for it must not fail the inject.
+const refIDTaskConfigExtraParam = `{
+	"schemaVersion": 1,
+	"meta": {"title": "RefID Task"},
+	"permissions": [{"role": "officer", "actions": ["VIEW", "REVIEW"]}],
+	"forms": {"review": "refid_review"},
+	"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}},
+	"refid": {
+		"issuer": "NPQS",
+		"idType": "application_id",
+		"path": "/reference_number",
+		"params": {
+			"officeCode": "/nppo_office_location",
+			"unusedByFormat": "/not_in_this_payload"
+		}
+	}
+}`
+
+func TestCreateApplication_RefID_UnusedParamNotResolved_StillGenerates(t *testing.T) {
+	stub := &stubRefIDRegistry{id: "NPQS/NPQS-KAT/000007"}
+	h := newServiceHarnessWithRefIDs(t, stub, func(root string) {
+		writeTaskConfigFile(t, root, "refid_task.json", refIDTaskConfigExtraParam)
+	})
+
+	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-refid-extra",
+		TaskCode:      "refid_task",
+		ConsignmentID: "c-refid-extra",
+		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
+	}); err != nil {
+		t.Fatalf("a declared-but-unused param with no value must not fail the inject: %v", err)
+	}
+
+	rec, err := h.store.GetByTaskID("t-refid-extra")
+	if err != nil {
+		t.Fatalf("GetByTaskID: %v", err)
+	}
+	if got := rec.ReviewerResponse["reference_number"]; got != "NPQS/NPQS-KAT/000007" {
+		t.Fatalf("reference_number = %v, want the generated ID", got)
+	}
+
+	// The unresolved param is omitted rather than passed as an empty string,
+	// which refid would treat as a present-but-invalid value.
+	if len(stub.calls) != 1 {
+		t.Fatalf("Generate called %d times, want 1", len(stub.calls))
+	}
+	if _, present := stub.calls[0].params["unusedByFormat"]; present {
+		t.Errorf("unresolved param was passed to Generate as %q, want it omitted",
+			stub.calls[0].params["unusedByFormat"])
+	}
+	if stub.calls[0].params["officeCode"] != "NPQS-KAT" {
+		t.Errorf("officeCode = %q, want \"NPQS-KAT\"", stub.calls[0].params["officeCode"])
 	}
 }

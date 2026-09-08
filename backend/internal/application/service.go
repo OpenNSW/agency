@@ -19,6 +19,7 @@ import (
 	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
 	"github.com/OpenNSW/core/artifact"
 	"github.com/OpenNSW/core/artifact/adapter/generictemplate"
+	"github.com/OpenNSW/core/refid"
 	"gorm.io/gorm"
 )
 
@@ -101,7 +102,7 @@ type Application struct {
 	TaskCode         string         `json:"taskCode"`
 	ConsignmentID    string         `json:"consignmentId"`
 	Data             map[string]any `json:"data,omitempty"`             // Data from NSW service to be rendered in the UI
-	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
+	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // The reviewer response document: values pre-filled at inject (see refid.go), then the payload sent back to the NSW after review
 	AllowedActions   []string       `json:"allowedActions,omitempty"`
 
 	// Task metadata from config
@@ -154,11 +155,17 @@ type service struct {
 	roleService        *rbac.RoleService
 	consignmentService ConsignmentService
 	dataScope          *datascope.Resolver
+	refIDs             refid.Registry
 }
 
 // NewService creates a new Agency service instance with database storage
-func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver) Service {
-	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil {
+// refIDs must be non-nil even where no deployment format is configured: pass
+// a registry built from an empty refid.Config, whose Generate returns
+// ErrUnknownIssuer. A task declaring refid against an unconfigured deployment
+// then fails its inject loudly, instead of a nil check quietly making the
+// feature a no-op.
+func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver, refIDs refid.Registry) Service {
+	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil || refIDs == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
@@ -168,6 +175,7 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 		roleService:        roleService,
 		consignmentService: consignmentService,
 		dataScope:          dataScope,
+		refIDs:             refIDs,
 	}
 }
 
@@ -217,12 +225,27 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 	if existing != nil {
 		// CreateOrUpdate does a full-row Save, so any field left unset here
 		// would be overwritten to NULL. Carry the claim forward so
-		// re-injecting an already-claimed application doesn't erase it.
+		// re-injecting an already-claimed application doesn't erase it, and
+		// the reviewer response so a re-inject keeps its reference ID.
 		appRecord.ClaimedBy = existing.ClaimedBy
 		appRecord.ClaimedAt = existing.ClaimedAt
-	}
+		appRecord.ReviewerResponse = existing.ReviewerResponse
+	} else {
+		// A reference ID is minted once, for a brand-new application only.
+		// Ahead of CreateConsignment so a failure here leaves nothing behind.
+		if config.RefID != nil {
+			id, err := generateRefID(ctx, s.refIDs, config.RefID, req.Data)
+			if err != nil {
+				return err
+			}
+			appRecord.ReviewerResponse = JSONB{}
+			if !jsonpointer.Set(appRecord.ReviewerResponse, config.RefID.Path, id) {
+				// Unreachable — Validate already checked Path. Still an error:
+				// dropping an issued ID would be silent loss.
+				return fmt.Errorf("failed to write reference ID to %q", config.RefID.Path)
+			}
+		}
 
-	if existing == nil {
 		if err := s.consignmentService.CreateConsignment(ctx, req.ConsignmentID); err != nil {
 			// TODO: revert application creation when inject and consignment writes share a transaction.
 			slog.WarnContext(ctx, "failed to create consignment after application inject",
@@ -230,10 +253,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		}
 	}
 
-	if err := s.store.CreateOrUpdate(appRecord, pushedFields); err != nil {
-		return err
-	}
-	return nil
+	return s.store.CreateOrUpdate(appRecord, pushedFields)
 }
 
 // GetApplications returns a paginated list of applications. List items are
