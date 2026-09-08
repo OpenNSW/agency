@@ -18,8 +18,9 @@ import (
 // matters is refid's call — it returns ErrInvalidParam for a param a segment
 // requires, and for an unresolved scope-key placeholder.
 //
-// ErrInvalidParam maps to a 400; every other failure stays unwrapped and
-// surfaces as a 500.
+// refid.ErrInvalidParam is wrapped in ErrInvalidInjectRequest, since it means
+// the injected data couldn't supply what the format needs. Every other failure
+// is returned as-is.
 func generateRefID(ctx context.Context, reg refid.Registry, cfg *taskconfig.TaskRefID, data map[string]any) (string, error) {
 	params := make(map[string]string, len(cfg.Params))
 	for param, pointer := range cfg.Params {
