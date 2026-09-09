@@ -22,7 +22,7 @@ db:
 artifactLoader:
   type: local
   local:
-    root: ../../one-trade-artifacts/npqs
+    root: ../../one-trade-artifacts/npqs_v2
 
 # Native dev serves the frontend via its own Vite dev server (start_frontend in
 # start-dev.sh), so the backend stays API-only — dir points at a path that

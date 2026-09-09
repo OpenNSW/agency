@@ -27,8 +27,6 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/storage"
 	"github.com/OpenNSW/agency/backend/internal/user"
 	"github.com/OpenNSW/agency/backend/internal/web"
-	"github.com/OpenNSW/core/artifact"
-	"github.com/OpenNSW/core/artifact/loaders"
 	"github.com/OpenNSW/core/authz"
 	"github.com/OpenNSW/core/refid"
 	"github.com/OpenNSW/core/trace"
@@ -137,19 +135,9 @@ func main() {
 	initCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	artifactLoader, err := loaders.New(initCtx, cfg.ArtifactLoader)
+	artifactRegistry, err := newArtifactRegistry(initCtx, cfg)
 	if err != nil {
-		log.Fatalf("failed to initialize artifact loader: %v", err)
-	}
-
-	artifactRegistry := artifact.NewRegistry(artifactLoader)
-
-	manifestCfg, err := artifact.LoadManifest(initCtx, artifactLoader)
-	if err != nil {
-		log.Fatalf("failed to load artifact manifest: %v", err)
-	}
-	if err := artifact.RegisterFromConfig(artifactRegistry, manifestCfg); err != nil {
-		log.Fatalf("failed to register artifacts from manifest: %v", err)
+		log.Fatalf("%v", err)
 	}
 
 	// Initialize RBAC Service and Middleware
