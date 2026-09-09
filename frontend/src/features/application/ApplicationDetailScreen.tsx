@@ -18,7 +18,7 @@ import { JsonForms } from '@jsonforms/react'
 import { radixRenderers } from '@opennsw/jsonforms-renderers'
 import { createAjv, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
 import { fetchApplicationDetail, submitReview, claimApplication, releaseApplication } from './service'
-import { type SchemaProperty } from './types'
+import { capitalizeSchemaOptions } from './schemaUtils'
 import { useCertificateGenerator } from '@/features/certificate/hooks/useCertificateGenerator'
 import { CertificatePreviewDialog } from '@/features/certificate/CertificatePreviewDialog'
 
@@ -137,38 +137,8 @@ export function ApplicationDetailScreen() {
         setApplication(data)
         if (data.agencyForm) {
           const schema = structuredClone(data.agencyForm.schema)
-          const capitalizeOptions = (prop: SchemaProperty) => {
-            if (prop.oneOf) {
-              prop.oneOf = prop.oneOf.map((opt) => {
-                const titleVal = opt.title || String(opt.const)
-                const formattedTitle = titleVal
-                  .split(/[_\s]+/)
-                  .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                  .join(' ')
-                return { ...opt, title: formattedTitle }
-              })
-            } else if (prop.enum) {
-              prop.oneOf = prop.enum.map((val: string) => {
-                const title = val
-                  .split(/[_\s]+/)
-                  .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                  .join(' ')
-                return { const: val, title }
-              })
-              delete prop.enum
-            }
-          }
-          const processProperties = (props: Record<string, unknown>) => {
-            Object.values(props).forEach((prop) => {
-              capitalizeOptions(prop as SchemaProperty)
-              const items = (prop as { items?: { properties?: Record<string, unknown> } }).items
-              if (items?.properties) {
-                processProperties(items.properties)
-              }
-            })
-          }
           if (schema.properties) {
-            processProperties(schema.properties)
+            capitalizeSchemaOptions(schema.properties)
           }
           setAgencyFormConfig({ schema, uiSchema: data.agencyForm.uiSchema })
         } else {
