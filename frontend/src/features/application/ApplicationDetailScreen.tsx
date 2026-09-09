@@ -156,18 +156,18 @@ export function ApplicationDetailScreen() {
             ...initialActionData,
             commodities: (data.data.commodities as Array<Record<string, unknown>>).map((item, idx) => ({
               id: (item.id as string) || `item-${idx + 1}`,
-              commodity_common_name: item.commodity_common_name || "",
-              commodity_botanical_name: item.commodity_botanical_name || "",
+              commodity_common_name: item.commodity_common_name || '',
+              commodity_botanical_name: item.commodity_botanical_name || '',
               quantity_net_weight: item.quantity_net_weight ?? 0,
-              quantity_net_weight_unit: item.quantity_net_weight_unit || "KGM",
+              quantity_net_weight_unit: item.quantity_net_weight_unit || 'KGM',
               packages_count: item.packages_count ?? 1,
               lab_required: (item.lab_required as boolean) ?? false,
-              lab_sample_method: (item.lab_sample_method as string) ?? "drop_off",
+              lab_sample_method: (item.lab_sample_method as string) ?? 'drop_off',
               visual_required: (item.visual_required as boolean) ?? false,
-              visual_approach: (item.visual_approach as string) ?? "none",
+              visual_approach: (item.visual_approach as string) ?? 'none',
               treatment_required: (item.treatment_required as boolean) ?? false,
-              treatment_provider: (item.treatment_provider as string) ?? "npqs",
-              treatment_supervision: (item.treatment_supervision as string) ?? "without_supervision",
+              treatment_provider: (item.treatment_provider as string) ?? 'npqs',
+              treatment_supervision: (item.treatment_supervision as string) ?? 'without_supervision',
             })),
           }
         }
@@ -187,7 +187,7 @@ export function ApplicationDetailScreen() {
         }
 
         if (!initialActionData.review_outcome) {
-          initialActionData.review_outcome = "approve"
+          initialActionData.review_outcome = 'approve'
         }
         setAgencyFormData(initialActionData)
         setShowErrors(false)
