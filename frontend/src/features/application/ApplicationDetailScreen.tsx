@@ -168,7 +168,7 @@ export function ApplicationDetailScreen() {
             })
           }
           if (schema.properties) {
-            processProperties(schema.properties as Record<string, unknown>)
+            processProperties(schema.properties)
           }
           setAgencyFormConfig({ schema, uiSchema: data.agencyForm.uiSchema })
         } else {
@@ -210,7 +210,7 @@ export function ApplicationDetailScreen() {
         for (const field of passthroughArrayFields) {
           const current = initialActionData[field]
           const isEmpty = !current || (Array.isArray(current) && current.length === 0)
-          const source = (data.data as Record<string, unknown> | undefined)?.[field]
+          const source = data.data?.[field]
           if (isEmpty && Array.isArray(source) && source.length > 0) {
             initialActionData = { ...initialActionData, [field]: source }
           }
