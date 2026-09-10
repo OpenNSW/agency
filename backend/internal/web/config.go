@@ -1,6 +1,9 @@
 package web
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+)
 
 // Config holds everything needed to serve the officer-portal SPA: where the
 // built assets live plus the public runtime config exposed to the browser.
@@ -96,6 +99,15 @@ type FooterLink struct {
 	URL string `json:"url" yaml:"url"`
 }
 
+// validFooterLinkKeys are the only FooterLink.Key values the frontend has a
+// translated label for (see Footer.tsx's footerLinkLabel); any other key
+// would render nothing, silently, so Validate rejects it instead.
+var validFooterLinkKeys = map[string]bool{
+	"policy":        true,
+	"accessibility": true,
+	"support":       true,
+}
+
 // Branding is the public SPA branding the browser reads from
 // window.__APP_CONFIG__.branding (see frontend/src/runtimeConfig.ts and
 // frontend/src/config.ts, which validates this shape with a Zod schema).
@@ -140,8 +152,15 @@ func (b Branding) Validate() error {
 		if link.Key == "" {
 			return fmt.Errorf("web.branding.footerLinks[%d].key is required", i)
 		}
+		if !validFooterLinkKeys[link.Key] {
+			return fmt.Errorf("web.branding.footerLinks[%d].key %q is not a supported footer link", i, link.Key)
+		}
 		if link.URL == "" {
 			return fmt.Errorf("web.branding.footerLinks[%d].url is required", i)
+		}
+		parsed, err := url.Parse(link.URL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("web.branding.footerLinks[%d].url %q must be an absolute http(s) URL", i, link.URL)
 		}
 	}
 	return nil

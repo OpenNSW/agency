@@ -26,7 +26,7 @@ export function Layout() {
         <Sidebar isExpanded={isSidebarExpanded} onToggle={handleToggleSidebar} />
         <main
           style={{ marginLeft: `${sidebarWidth}px`, width: `calc(100% - ${sidebarWidth}px)` }}
-          className="flex min-h-[calc(100vh-64px)] flex-col transition-all duration-300 mt-16 p-8 pb-8"
+          className="flex min-h-[calc(100vh-64px)] flex-col transition-all duration-300 mt-16 p-8 pb-16 sm:pb-8"
         >
           {/* Plain block wrapper: flex items with mx-auto stop stretching, which
               would shrink pages using max-w-* mx-auto to fit-content width. */}

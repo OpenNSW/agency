@@ -185,6 +185,21 @@ func TestBrandingValidateRequiresSystemAndAppName(t *testing.T) {
 			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "policy"}}},
 			true,
 		},
+		{
+			"footer link unsupported key",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "bogus", URL: "https://example.gov.lk/x"}}},
+			true,
+		},
+		{
+			"footer link relative url",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "policy", URL: "/policy"}}},
+			true,
+		},
+		{
+			"footer link malformed url",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "policy", URL: "not a url"}}},
+			true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
