@@ -19,9 +19,6 @@ const si = {
     nav: {
       consignments: 'භාණ්ඩ තොග',
     },
-    version: {
-      label: 'NSW',
-    },
     toggle: {
       collapse: 'හකුලන්න',
       expand: 'දිගහරින්න',
@@ -30,9 +27,15 @@ const si = {
     },
   },
 
-  // Layout.tsx, LoginScreen.tsx
+  // Footer.tsx
+  // links.* labels are placeholders pending confirmed footer wording.
   footer: {
     poweredBy: 'OpenNSW මගින් බලගැන්වේ',
+    links: {
+      policy: 'ප්‍රතිපත්තිය',
+      accessibility: 'ප්‍රවේශ්‍යතාව',
+      support: 'සහාය',
+    },
   },
 
   // TopBar.tsx

@@ -183,7 +183,7 @@ export function Sidebar({ isExpanded, onToggle }: SidebarProps) {
     <aside
       className={`${
         showExpanded ? 'w-64' : 'w-20'
-      } h-[calc(100vh-64px)] bg-linear-to-b from-primary-900 to-primary-950 text-white flex flex-col fixed left-0 top-16 border-r border-primary-800/30 shadow-xl transition-all duration-300 z-20`}
+      } h-[calc(100vh-128px)] sm:h-[calc(100vh-96px)] bg-linear-to-b from-primary-900 to-primary-950 text-white flex flex-col fixed left-0 top-16 border-r border-primary-800/30 shadow-xl transition-all duration-300 z-20`}
       onMouseEnter={() => !isExpanded && setIsHovered(true)}
       onMouseLeave={() => !isExpanded && setIsHovered(false)}
     >
@@ -197,19 +197,7 @@ export function Sidebar({ isExpanded, onToggle }: SidebarProps) {
       </nav>
 
       <div className="border-t border-primary-800/30">
-        {showExpanded && (
-          <div className="p-4">
-            <div className="flex items-center gap-3 px-4 py-3 rounded-md bg-primary-800/30 text-primary-100">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{t('sidebar.version.label')}</p>
-                <p className="text-xs text-primary-200 truncate">{import.meta.env.VITE_APP_VERSION || 'dev'}</p>
-              </div>
-            </div>
-          </div>
-        )}
-        {!showExpanded && <div className="p-4 flex justify-center"></div>}
-
-        <div className="px-4 pb-4">
+        <div className="p-4">
           <button
             onClick={onToggle}
             className={`${

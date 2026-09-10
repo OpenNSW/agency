@@ -63,6 +63,21 @@ const UIConfigSchema = z.object({
     description: z.string().optional(),
     heroImageUrl: z.string().optional(),
     partnerLogos: z.array(z.object({ url: z.string(), alt: z.string() })).optional(),
+    // key mirrors backend/internal/web/config.go's validFooterLinkKeys — only
+    // these have a translated label (see Footer.tsx); url must be an
+    // absolute http(s) URL, matching the backend's own Validate.
+    footerLinks: z
+      .array(
+        z.object({
+          key: z.enum(['policy', 'accessibility', 'support']),
+          url: z
+            .string()
+            .url()
+            .refine((value) => /^https?:\/\//.test(value), 'must be an absolute http(s) URL'),
+        }),
+      )
+      .optional(),
+    copyrightNotice: z.string().optional(),
   }),
   theme: z
     .object({

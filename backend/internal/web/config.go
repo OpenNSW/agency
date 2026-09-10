@@ -1,6 +1,9 @@
 package web
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+)
 
 // Config holds everything needed to serve the officer-portal SPA: where the
 // built assets live plus the public runtime config exposed to the browser.
@@ -85,6 +88,26 @@ type PartnerLogo struct {
 	Alt string `json:"alt" yaml:"alt"`
 }
 
+// FooterLink is one entry in Branding.FooterLinks — a link shown in the
+// footer. Key selects a known page (e.g. "policy", "accessibility",
+// "support"); its visible label is resolved from the frontend's own i18n
+// bundles by that key, not carried in config, so it renders correctly in
+// every supported language. URL is an absolute URL to where that content is
+// hosted externally — this app has no pages of its own for these.
+type FooterLink struct {
+	Key string `json:"key" yaml:"key"`
+	URL string `json:"url" yaml:"url"`
+}
+
+// validFooterLinkKeys are the only FooterLink.Key values the frontend has a
+// translated label for (see Footer.tsx's footerLinkLabel); any other key
+// would render nothing, silently, so Validate rejects it instead.
+var validFooterLinkKeys = map[string]bool{
+	"policy":        true,
+	"accessibility": true,
+	"support":       true,
+}
+
 // Branding is the public SPA branding the browser reads from
 // window.__APP_CONFIG__.branding (see frontend/src/runtimeConfig.ts and
 // frontend/src/config.ts, which validates this shape with a Zod schema).
@@ -112,6 +135,13 @@ type Branding struct {
 	Description   string        `json:"description,omitempty" yaml:"description"`
 	HeroImageURL  string        `json:"heroImageUrl,omitempty" yaml:"heroImageUrl"`
 	PartnerLogos  []PartnerLogo `json:"partnerLogos,omitempty" yaml:"partnerLogos"`
+	FooterLinks   []FooterLink  `json:"footerLinks,omitempty" yaml:"footerLinks"`
+	// CopyrightNotice is an optional statement shown centered in the footer
+	// (bottom-most element when the footer stacks on narrow screens — see
+	// frontend/src/components/Layout/Footer.tsx). Free text: this app is not
+	// specific to any one country or legal entity, so the exact wording is a
+	// per-deployment choice, not something this app can derive on its own.
+	CopyrightNotice string `json:"copyrightNotice,omitempty" yaml:"copyrightNotice"`
 }
 
 // Validate enforces the fields frontend/src/config.ts's Zod schema also
@@ -123,6 +153,21 @@ func (b Branding) Validate() error {
 	}
 	if b.AppName == "" {
 		return fmt.Errorf("web.branding.appName is required")
+	}
+	for i, link := range b.FooterLinks {
+		if link.Key == "" {
+			return fmt.Errorf("web.branding.footerLinks[%d].key is required", i)
+		}
+		if !validFooterLinkKeys[link.Key] {
+			return fmt.Errorf("web.branding.footerLinks[%d].key %q is not a supported footer link", i, link.Key)
+		}
+		if link.URL == "" {
+			return fmt.Errorf("web.branding.footerLinks[%d].url is required", i)
+		}
+		parsed, err := url.Parse(link.URL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("web.branding.footerLinks[%d].url %q must be an absolute http(s) URL", i, link.URL)
+		}
 	}
 	return nil
 }

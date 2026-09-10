@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useAuth } from 'react-oidc-context'
 import { appConfig } from '@/config'
+import { Footer } from '@/components/Layout/Footer'
 
 export function LoginScreen() {
   const { t } = useTranslation()
@@ -49,21 +50,11 @@ export function LoginScreen() {
               </button>
             </div>
           </div>
-          <p className="hidden lg:block absolute bottom-4 right-6 text-xs text-white/60">
-            <a
-              href="https://github.com/OpenNSW"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-white/90 hover:underline"
-            >
-              {t('footer.poweredBy')}
-            </a>
-          </p>
         </div>
       </div>
 
       {/* Identity & Branding */}
-      <div className="lg:order-first w-full lg:w-[40%] flex flex-col justify-center px-8 lg:pl-36 lg:pr-6 py-12 lg:py-0 relative z-10 bg-white lg:min-h-screen">
+      <div className="lg:order-first w-full lg:w-[40%] flex flex-col justify-center px-8 lg:pl-36 lg:pr-6 pt-12 pb-16 sm:pb-12 lg:py-0 relative z-10 bg-white lg:min-h-screen">
         <div className="max-w-md mx-auto lg:mx-0 flex flex-col justify-center items-center lg:justify-start lg:items-start">
           {logoUrl && <img src={logoUrl} alt={appName} className="hidden lg:block h-32 mb-5 object-contain" />}
 
@@ -86,20 +77,9 @@ export function LoginScreen() {
             </div>
           )}
         </div>
-        <p className="absolute bottom-4 left-8 lg:left-36 text-xs text-gray-400">
-          {import.meta.env.VITE_APP_VERSION || 'dev'}
-        </p>
-        <p className="lg:hidden absolute bottom-4 right-8 text-xs text-gray-400">
-          <a
-            href="https://github.com/OpenNSW"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-gray-600 hover:underline"
-          >
-            {t('footer.poweredBy')}
-          </a>
-        </p>
       </div>
+
+      <Footer />
     </div>
   )
 }

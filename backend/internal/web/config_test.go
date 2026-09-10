@@ -82,6 +82,10 @@ func TestBrandingMarshalsFrontendKeys(t *testing.T) {
 		PartnerLogos: []PartnerLogo{
 			{URL: "https://example.com/logo.png", Alt: "Partner"},
 		},
+		FooterLinks: []FooterLink{
+			{Key: "policy", URL: "https://example.gov.lk/policy"},
+		},
+		CopyrightNotice: "© 2026 FCAU. All rights reserved.",
 	}
 
 	raw, err := json.Marshal(cfg)
@@ -94,7 +98,7 @@ func TestBrandingMarshalsFrontendKeys(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	for _, key := range []string{"systemName", "appName", "portalName", "description", "partnerLogos"} {
+	for _, key := range []string{"systemName", "appName", "portalName", "description", "partnerLogos", "footerLinks", "copyrightNotice"} {
 		if _, ok := got[key]; !ok {
 			t.Errorf("%s missing from /config.js branding payload", key)
 		}
@@ -110,7 +114,7 @@ func TestBrandingOmitsUnsetOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, key := range []string{"logoUrl", "systemLogoUrl", "favicon", "portalName", "description", "heroImageUrl", "partnerLogos"} {
+	for _, key := range []string{"logoUrl", "systemLogoUrl", "favicon", "portalName", "description", "heroImageUrl", "partnerLogos", "footerLinks", "copyrightNotice"} {
 		if strings.Contains(string(raw), key) {
 			t.Errorf("unset %s should be omitted, got %s", key, raw)
 		}
@@ -167,6 +171,36 @@ func TestBrandingValidateRequiresSystemAndAppName(t *testing.T) {
 		{"missing systemName", Branding{AppName: "Portal"}, true},
 		{"missing appName", Branding{SystemName: "NSW"}, true},
 		{"both missing", Branding{}, true},
+		{
+			"valid footer link",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "policy", URL: "https://example.gov.lk/policy"}}},
+			false,
+		},
+		{
+			"footer link missing key",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{URL: "https://example.gov.lk/policy"}}},
+			true,
+		},
+		{
+			"footer link missing url",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "policy"}}},
+			true,
+		},
+		{
+			"footer link unsupported key",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "bogus", URL: "https://example.gov.lk/x"}}},
+			true,
+		},
+		{
+			"footer link relative url",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "policy", URL: "/policy"}}},
+			true,
+		},
+		{
+			"footer link malformed url",
+			Branding{SystemName: "NSW", AppName: "Portal", FooterLinks: []FooterLink{{Key: "policy", URL: "not a url"}}},
+			true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
