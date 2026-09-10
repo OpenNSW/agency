@@ -85,6 +85,17 @@ type PartnerLogo struct {
 	Alt string `json:"alt" yaml:"alt"`
 }
 
+// FooterLink is one entry in Branding.FooterLinks — a link shown in the
+// footer. Key selects a known page (e.g. "policy", "accessibility",
+// "support"); its visible label is resolved from the frontend's own i18n
+// bundles by that key, not carried in config, so it renders correctly in
+// every supported language. URL is an absolute URL to where that content is
+// hosted externally — this app has no pages of its own for these.
+type FooterLink struct {
+	Key string `json:"key" yaml:"key"`
+	URL string `json:"url" yaml:"url"`
+}
+
 // Branding is the public SPA branding the browser reads from
 // window.__APP_CONFIG__.branding (see frontend/src/runtimeConfig.ts and
 // frontend/src/config.ts, which validates this shape with a Zod schema).
@@ -112,6 +123,7 @@ type Branding struct {
 	Description   string        `json:"description,omitempty" yaml:"description"`
 	HeroImageURL  string        `json:"heroImageUrl,omitempty" yaml:"heroImageUrl"`
 	PartnerLogos  []PartnerLogo `json:"partnerLogos,omitempty" yaml:"partnerLogos"`
+	FooterLinks   []FooterLink  `json:"footerLinks,omitempty" yaml:"footerLinks"`
 }
 
 // Validate enforces the fields frontend/src/config.ts's Zod schema also
@@ -123,6 +135,14 @@ func (b Branding) Validate() error {
 	}
 	if b.AppName == "" {
 		return fmt.Errorf("web.branding.appName is required")
+	}
+	for i, link := range b.FooterLinks {
+		if link.Key == "" {
+			return fmt.Errorf("web.branding.footerLinks[%d].key is required", i)
+		}
+		if link.URL == "" {
+			return fmt.Errorf("web.branding.footerLinks[%d].url is required", i)
+		}
 	}
 	return nil
 }

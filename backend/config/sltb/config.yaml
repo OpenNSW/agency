@@ -43,6 +43,17 @@ web:
     appName: "Sri Lanka Tea Board (SLTB)"
     portalName: "SLTB Officer Portal"
     description: "A unified digital platform enabling seamless regulatory workflows and approvals for government agencies and authorised officers."
+    # Footer links (see backend/config.example.yaml for the field meaning) —
+    # key resolves to a translated label in the frontend, url is an absolute
+    # URL to where that content is hosted externally.
+    # TODO: replace with the real, confirmed URLs.
+    footerLinks:
+      - key: policy
+        url: "https://example.gov.lk/policy"
+      - key: accessibility
+        url: "https://example.gov.lk/accessibility"
+      - key: support
+        url: "https://example.gov.lk/support"
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks

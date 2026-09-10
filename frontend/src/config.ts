@@ -63,6 +63,7 @@ const UIConfigSchema = z.object({
     description: z.string().optional(),
     heroImageUrl: z.string().optional(),
     partnerLogos: z.array(z.object({ url: z.string(), alt: z.string() })).optional(),
+    footerLinks: z.array(z.object({ key: z.string(), url: z.string() })).optional(),
   }),
   theme: z
     .object({

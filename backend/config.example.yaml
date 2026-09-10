@@ -151,6 +151,19 @@ web:
     partnerLogos:
       - url: ""
         alt: ""
+    # Links shown in the app's footer. Key selects a known page — the visible
+    # label is translated in the frontend's own i18n bundles by key, not set
+    # here — and url is an absolute URL to where that content is hosted
+    # externally (this app has no pages of its own for these). These three
+    # are expected for every agency portal; add or drop entries per
+    # deployment as needed. TODO: replace with the real, confirmed URLs.
+    footerLinks:
+      - key: policy
+        url: "https://example.gov.lk/policy" # TODO: confirmed URL
+      - key: accessibility
+        url: "https://example.gov.lk/accessibility" # TODO: confirmed URL
+      - key: support
+        url: "https://example.gov.lk/support" # TODO: confirmed URL
 
 # ---------------------------------------------------------------------------
 # Inbound Auth — tokens the Agency backend accepts from the SPA / m2m clients

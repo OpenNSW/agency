@@ -20,9 +20,6 @@ const en = {
     nav: {
       consignments: 'Consignments',
     },
-    version: {
-      label: 'NSW',
-    },
     toggle: {
       collapse: 'Collapse',
       expand: 'Expand',
@@ -31,9 +28,15 @@ const en = {
     },
   },
 
-  // Layout.tsx, LoginScreen.tsx
+  // Footer.tsx
+  // links.* labels are placeholders pending confirmed footer wording.
   footer: {
     poweredBy: 'Powered by OpenNSW',
+    links: {
+      policy: 'Policy',
+      accessibility: 'Accessibility',
+      support: 'Support',
+    },
   },
 
   // TopBar.tsx

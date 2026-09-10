@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { SignedIn } from './Auth'
 import { Button } from '@radix-ui/themes'
 import { useSignOutHandler } from './hooks/useSignOutHandler'
+import { Footer } from '@/components/Layout/Footer'
 
 export function UnauthorizedScreen() {
   const { t } = useTranslation()
@@ -22,9 +23,7 @@ export function UnauthorizedScreen() {
           </div>
         </div>
       </main>
-      <p className="absolute bottom-4 left-0 right-0 text-center text-xs text-gray-400">
-        {import.meta.env.VITE_APP_VERSION || 'dev'}
-      </p>
+      <Footer />
     </div>
   )
 }

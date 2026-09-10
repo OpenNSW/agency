@@ -11,6 +11,13 @@ export interface BrandingPartnerLogo {
   alt: string
 }
 
+// One footer link — key resolves to a translated label (see
+// frontend/src/components/Layout/Footer.tsx), url is where it routes.
+export interface BrandingFooterLink {
+  key: string
+  url: string
+}
+
 export interface BrandingPayload {
   systemName: string
   appName: string
@@ -21,6 +28,7 @@ export interface BrandingPayload {
   description?: string
   heroImageUrl?: string
   partnerLogos?: BrandingPartnerLogo[]
+  footerLinks?: BrandingFooterLink[]
 }
 
 // window.__APP_CONFIG__'s shape, mirroring backend/internal/web/config.go's
