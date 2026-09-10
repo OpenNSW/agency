@@ -3,6 +3,7 @@ import { BellIcon, MagnifyingGlassIcon } from '@radix-ui/react-icons'
 import { SignedIn, SignedOut, SignInButton, UserDropdown } from '@/features/user/Auth'
 import { useSignOutHandler } from '@/features/user/hooks/useSignOutHandler'
 import { appConfig } from '@/config'
+import { LanguageSwitcher } from './LanguageSwitcher'
 
 export function TopBar() {
   const { t } = useTranslation()
@@ -41,6 +42,9 @@ export function TopBar() {
           <BellIcon className="w-5 h-5" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
         </button>
+
+        {/* Language */}
+        <LanguageSwitcher />
 
         {/* User */}
         <div className="flex items-center gap-3 pl-3 border-l border-gray-200">
