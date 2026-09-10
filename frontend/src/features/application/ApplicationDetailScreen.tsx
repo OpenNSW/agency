@@ -135,8 +135,8 @@ export function ApplicationDetailScreen() {
       try {
         const data = await fetchApplicationDetail(taskId, controller.signal)
         setApplication(data)
-        if (data.agencyForm) {
-          const schema = structuredClone(data.agencyForm.schema)
+        const schema = data.agencyForm ? structuredClone(data.agencyForm.schema) : null
+        if (data.agencyForm && schema) {
           if (schema.properties) {
             capitalizeSchemaOptions(schema.properties)
           }
@@ -146,43 +146,27 @@ export function ApplicationDetailScreen() {
         }
 
         let initialActionData = { ...(data.agencyActionData || {}) }
-        if (
-          (!initialActionData.commodities ||
-            (Array.isArray(initialActionData.commodities) && initialActionData.commodities.length === 0)) &&
-          Array.isArray(data.data?.commodities) &&
-          data.data.commodities.length > 0
-        ) {
-          initialActionData = {
-            ...initialActionData,
-            commodities: (data.data.commodities as Array<Record<string, unknown>>).map((item, idx) => ({
-              id: (item.id as string) || `item-${idx + 1}`,
-              commodity_common_name: item.commodity_common_name || '',
-              commodity_botanical_name: item.commodity_botanical_name || '',
-              quantity_net_weight: item.quantity_net_weight ?? 0,
-              quantity_net_weight_unit: item.quantity_net_weight_unit || 'KGM',
-              packages_count: item.packages_count ?? 1,
-              lab_required: (item.lab_required as boolean) ?? false,
-              lab_sample_method: (item.lab_sample_method as string) ?? 'drop_off',
-              visual_required: (item.visual_required as boolean) ?? false,
-              visual_approach: (item.visual_approach as string) ?? 'none',
-              treatment_required: (item.treatment_required as boolean) ?? false,
-              treatment_provider: (item.treatment_provider as string) ?? 'npqs',
-              treatment_supervision: (item.treatment_supervision as string) ?? 'without_supervision',
-            })),
-          }
-        }
-        // Generic counterpart to the commodities remap above, for review forms
-        // whose per-item array is a straight pass-through of what the workflow
-        // already partitioned (id/commodity_common_name plus whatever track-
-        // specific fields the node put there) rather than needing routing-flag
-        // defaults filled in. Only seeds a field the officer hasn't touched yet.
-        const passthroughArrayFields = ['items', 'treatment_items', 'certificate_items']
-        for (const field of passthroughArrayFields) {
-          const current = initialActionData[field]
-          const isEmpty = !current || (Array.isArray(current) && current.length === 0)
-          const source = data.data?.[field]
-          if (isEmpty && Array.isArray(source) && source.length > 0) {
-            initialActionData = { ...initialActionData, [field]: source }
+        // Prefill array-typed fields the review form's schema declares
+        // (commodities, items, treatment_items, certificate_items, etc.,
+        // depending on the agency's task template) from the workflow-
+        // injected data, when the officer's own review data doesn't have
+        // that field yet. Per-item defaults (routing flags, etc.) come
+        // from the same schema's `default`s, applied by JsonForms' ajv
+        // instance (useDefaults: true) once the data renders.
+        const schemaArrayFields = schema?.properties
+          ? Object.entries(schema.properties)
+              .filter(([, prop]) => (prop as JsonSchema)?.type === 'array')
+              .map(([field]) => field)
+          : []
+        if (data.data) {
+          for (const field of schemaArrayFields) {
+            const source = data.data[field]
+            if (!Array.isArray(source) || source.length === 0) continue
+            const current = initialActionData[field]
+            const isEmpty = !current || (Array.isArray(current) && current.length === 0)
+            if (isEmpty) {
+              initialActionData = { ...initialActionData, [field]: source }
+            }
           }
         }
 
