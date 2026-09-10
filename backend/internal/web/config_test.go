@@ -214,3 +214,72 @@ func TestBrandingValidateRequiresSystemAndAppName(t *testing.T) {
 		})
 	}
 }
+
+// window.__APP_CONFIG__.i18n is the SPA's only channel for these values, so a
+// key the frontend reads but I18nConfig does not carry is invisible in a
+// deployed run, same risk TestBrandingMarshalsFrontendKeys guards.
+func TestI18nConfigMarshalsFrontendKeys(t *testing.T) {
+	cfg := I18nConfig{
+		SupportedLanguages: []string{"en", "si"},
+		DefaultLanguage:    "si",
+	}
+
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	for _, key := range []string{"supportedLanguages", "defaultLanguage"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("%s missing from /config.js i18n payload", key)
+		}
+	}
+}
+
+// Unset optional fields are omitted rather than emitted empty, so the
+// frontend's own default (fall back to every bundled language, "en") kicks
+// in for them — see frontend/src/i18n/index.ts.
+func TestI18nConfigOmitsUnsetOptionalFields(t *testing.T) {
+	raw, err := json.Marshal(I18nConfig{})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, key := range []string{"supportedLanguages", "defaultLanguage"} {
+		if strings.Contains(string(raw), key) {
+			t.Errorf("unset %s should be omitted, got %s", key, raw)
+		}
+	}
+}
+
+func TestI18nConfigValidate(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     I18nConfig
+		wantErr bool
+	}{
+		{"unset", I18nConfig{}, false},
+		{"valid supported and default", I18nConfig{SupportedLanguages: []string{"en", "si"}, DefaultLanguage: "si"}, false},
+		{"supported only", I18nConfig{SupportedLanguages: []string{"si"}}, false},
+		{"default only", I18nConfig{DefaultLanguage: "si"}, false},
+		{"unsupported language code", I18nConfig{SupportedLanguages: []string{"en", "fr"}}, true},
+		{"duplicate supported language code", I18nConfig{SupportedLanguages: []string{"en", "si", "en"}}, true},
+		{"default not a known language", I18nConfig{DefaultLanguage: "fr"}, true},
+		{"default not in supported list", I18nConfig{SupportedLanguages: []string{"en"}, DefaultLanguage: "si"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.cfg.Validate()
+			if tc.wantErr && err == nil {
+				t.Error("expected an error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("expected no error, got %v", err)
+			}
+		})
+	}
+}
