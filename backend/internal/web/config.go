@@ -136,6 +136,12 @@ type Branding struct {
 	HeroImageURL  string        `json:"heroImageUrl,omitempty" yaml:"heroImageUrl"`
 	PartnerLogos  []PartnerLogo `json:"partnerLogos,omitempty" yaml:"partnerLogos"`
 	FooterLinks   []FooterLink  `json:"footerLinks,omitempty" yaml:"footerLinks"`
+	// CopyrightNotice is an optional statement shown centered in the footer
+	// (bottom-most element when the footer stacks on narrow screens — see
+	// frontend/src/components/Layout/Footer.tsx). Free text: this app is not
+	// specific to any one country or legal entity, so the exact wording is a
+	// per-deployment choice, not something this app can derive on its own.
+	CopyrightNotice string `json:"copyrightNotice,omitempty" yaml:"copyrightNotice"`
 }
 
 // Validate enforces the fields frontend/src/config.ts's Zod schema also

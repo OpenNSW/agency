@@ -164,6 +164,11 @@ web:
         url: "https://example.gov.lk/accessibility" # TODO: confirmed URL
       - key: support
         url: "https://example.gov.lk/support" # TODO: confirmed URL
+    # Optional. Shown centered in the footer (bottom-most on narrow screens).
+    # Free text — this app doesn't assume a country or legal entity, so the
+    # exact wording (year, entity name, "All rights reserved" or not) is a
+    # per-deployment choice. Omit to show no copyright statement at all.
+    copyrightNotice: ""
 
 # ---------------------------------------------------------------------------
 # Inbound Auth — tokens the Agency backend accepts from the SPA / m2m clients

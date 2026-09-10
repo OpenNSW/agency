@@ -61,6 +61,7 @@ web:
         url: "https://example.gov.lk/accessibility"
       - key: support
         url: "https://example.gov.lk/support"
+    copyrightNotice: "© 2026 National Plant Quarantine Service (NPQS). All rights reserved." # TODO: confirm exact wording
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks

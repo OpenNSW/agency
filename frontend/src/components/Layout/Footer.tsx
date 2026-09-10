@@ -9,6 +9,7 @@ export function Footer() {
   const { t } = useTranslation()
   const footerLinks = appConfig.branding.footerLinks ?? []
   const version = import.meta.env.VITE_APP_VERSION || 'dev'
+  const copyrightNotice = appConfig.branding.copyrightNotice
 
   // Only a footerLinks entry whose key matches one of this fixed, known set
   // is rendered, with its label translated here rather than carried in
@@ -58,6 +59,13 @@ export function Footer() {
         </a>
         <span>{version}</span>
       </div>
+      {/* Last in DOM order so it's bottom-most when the footer stacks on narrow screens; at sm+
+          it's taken out of the row's flow and centered independently of the two groups above. */}
+      {copyrightNotice && (
+        <span className="text-gray-500 sm:absolute sm:left-1/2 sm:top-1/2 sm:max-w-[40%] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:truncate">
+          {copyrightNotice}
+        </span>
+      )}
     </footer>
   )
 }

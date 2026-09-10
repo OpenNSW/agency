@@ -54,6 +54,7 @@ web:
         url: "https://example.gov.lk/accessibility"
       - key: support
         url: "https://example.gov.lk/support"
+    copyrightNotice: "© 2026 Food Control Administration Unit (FCAU). All rights reserved." # TODO: confirm exact wording
 
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks

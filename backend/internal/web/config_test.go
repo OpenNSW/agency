@@ -85,6 +85,7 @@ func TestBrandingMarshalsFrontendKeys(t *testing.T) {
 		FooterLinks: []FooterLink{
 			{Key: "policy", URL: "https://example.gov.lk/policy"},
 		},
+		CopyrightNotice: "© 2026 FCAU. All rights reserved.",
 	}
 
 	raw, err := json.Marshal(cfg)
@@ -97,7 +98,7 @@ func TestBrandingMarshalsFrontendKeys(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	for _, key := range []string{"systemName", "appName", "portalName", "description", "partnerLogos", "footerLinks"} {
+	for _, key := range []string{"systemName", "appName", "portalName", "description", "partnerLogos", "footerLinks", "copyrightNotice"} {
 		if _, ok := got[key]; !ok {
 			t.Errorf("%s missing from /config.js branding payload", key)
 		}
@@ -113,7 +114,7 @@ func TestBrandingOmitsUnsetOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	for _, key := range []string{"logoUrl", "systemLogoUrl", "favicon", "portalName", "description", "heroImageUrl", "partnerLogos", "footerLinks"} {
+	for _, key := range []string{"logoUrl", "systemLogoUrl", "favicon", "portalName", "description", "heroImageUrl", "partnerLogos", "footerLinks", "copyrightNotice"} {
 		if strings.Contains(string(raw), key) {
 			t.Errorf("unset %s should be omitted, got %s", key, raw)
 		}

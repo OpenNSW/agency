@@ -29,6 +29,7 @@ export interface BrandingPayload {
   heroImageUrl?: string
   partnerLogos?: BrandingPartnerLogo[]
   footerLinks?: BrandingFooterLink[]
+  copyrightNotice?: string
 }
 
 // window.__APP_CONFIG__'s shape, mirroring backend/internal/web/config.go's

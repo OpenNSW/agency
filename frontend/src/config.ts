@@ -77,6 +77,7 @@ const UIConfigSchema = z.object({
         }),
       )
       .optional(),
+    copyrightNotice: z.string().optional(),
   }),
   theme: z
     .object({
