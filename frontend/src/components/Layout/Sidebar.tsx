@@ -183,7 +183,7 @@ export function Sidebar({ isExpanded, onToggle }: SidebarProps) {
     <aside
       className={`${
         showExpanded ? 'w-64' : 'w-20'
-      } h-[calc(100vh-104px)] bg-linear-to-b from-primary-900 to-primary-950 text-white flex flex-col fixed left-0 top-16 border-r border-primary-800/30 shadow-xl transition-all duration-300 z-20`}
+      } h-[calc(100vh-96px)] bg-linear-to-b from-primary-900 to-primary-950 text-white flex flex-col fixed left-0 top-16 border-r border-primary-800/30 shadow-xl transition-all duration-300 z-20`}
       onMouseEnter={() => !isExpanded && setIsHovered(true)}
       onMouseLeave={() => !isExpanded && setIsHovered(false)}
     >
