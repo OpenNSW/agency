@@ -170,9 +170,6 @@ export function ApplicationDetailScreen() {
           }
         }
 
-        if (!initialActionData.review_outcome) {
-          initialActionData.review_outcome = 'approve'
-        }
         setAgencyFormData(initialActionData)
         setShowErrors(false)
       } catch (err) {
