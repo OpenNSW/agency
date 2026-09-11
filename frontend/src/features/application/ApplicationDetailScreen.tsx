@@ -18,7 +18,7 @@ import { JsonForms } from '@jsonforms/react'
 import { radixRenderers } from '@opennsw/jsonforms-renderers'
 import { createAjv, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
 import { fetchApplicationDetail, submitReview, claimApplication, releaseApplication } from './service'
-import { type SchemaProperty } from './types'
+import { capitalizeSchemaOptions } from './schemaUtils'
 import { useCertificateGenerator } from '@/features/certificate/hooks/useCertificateGenerator'
 import { CertificatePreviewDialog } from '@/features/certificate/CertificatePreviewDialog'
 
@@ -135,39 +135,42 @@ export function ApplicationDetailScreen() {
       try {
         const data = await fetchApplicationDetail(taskId, controller.signal)
         setApplication(data)
-        if (data.agencyForm) {
-          const schema = structuredClone(data.agencyForm.schema)
-          const capitalizeOptions = (prop: SchemaProperty) => {
-            if (prop.oneOf) {
-              prop.oneOf = prop.oneOf.map((opt) => {
-                const titleVal = opt.title || String(opt.const)
-                const formattedTitle = titleVal
-                  .split(/[_\s]+/)
-                  .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                  .join(' ')
-                return { ...opt, title: formattedTitle }
-              })
-            } else if (prop.enum) {
-              prop.oneOf = prop.enum.map((val: string) => {
-                const title = val
-                  .split(/[_\s]+/)
-                  .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                  .join(' ')
-                return { const: val, title }
-              })
-              delete prop.enum
-            }
-          }
+        const schema = data.agencyForm ? structuredClone(data.agencyForm.schema) : null
+        if (data.agencyForm && schema) {
           if (schema.properties) {
-            Object.values(schema.properties).forEach((prop) => {
-              capitalizeOptions(prop as SchemaProperty)
-            })
+            capitalizeSchemaOptions(schema.properties)
           }
           setAgencyFormConfig({ schema, uiSchema: data.agencyForm.uiSchema })
         } else {
           setAgencyFormConfig(null)
         }
-        setAgencyFormData(data.agencyActionData || {})
+
+        let initialActionData = { ...(data.agencyActionData || {}) }
+        // Prefill array-typed fields the review form's schema declares
+        // (commodities, items, treatment_items, certificate_items, etc.,
+        // depending on the agency's task template) from the workflow-
+        // injected data, when the officer's own review data doesn't have
+        // that field yet. Per-item defaults (routing flags, etc.) come
+        // from the same schema's `default`s, applied by JsonForms' ajv
+        // instance (useDefaults: true) once the data renders.
+        const schemaArrayFields = schema?.properties
+          ? Object.entries(schema.properties)
+              .filter(([, prop]) => (prop as JsonSchema)?.type === 'array')
+              .map(([field]) => field)
+          : []
+        if (data.data) {
+          for (const field of schemaArrayFields) {
+            const source = data.data[field]
+            if (!Array.isArray(source) || source.length === 0) continue
+            const current = initialActionData[field]
+            const isEmpty = !current || (Array.isArray(current) && current.length === 0)
+            if (isEmpty) {
+              initialActionData = { ...initialActionData, [field]: source }
+            }
+          }
+        }
+
+        setAgencyFormData(initialActionData)
         setShowErrors(false)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return

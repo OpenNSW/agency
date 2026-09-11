@@ -381,7 +381,7 @@ start_frontend() {
     # backend's config.yaml web.runtime/web.branding, not from env vars here.
     VITE_PORT="${VITE_PORT:-$FE_PORT}" \
     VITE_API_BASE_URL="${VITE_API_BASE_URL:-http://localhost:$BE_PORT}" \
-    exec pnpm run dev
+    exec pnpm run dev < /dev/null
   ) &
   PIDS+=("$!")
 }
