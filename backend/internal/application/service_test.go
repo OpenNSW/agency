@@ -2147,12 +2147,15 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 					{Type: "literal", Value: "NPQS/"},
 					{Type: "list", List: "office_location", Param: "officeCode"},
 					{Type: "literal", Value: "/"},
-					{Type: "sequence", ScopeKey: "{issuer}:{idType}:{officeCode}:{yyyy}", Padding: 6},
+					{Type: "sequence", Sequence: &refid.SequenceSegmentConfig{
+						ScopeKey: "{issuer}:{idType}:{officeCode}:{yyyy}",
+						Padding:  6,
+					}},
 				},
 			}},
 		}},
 		Lists: map[string][]string{"office_location": {"NPQS-KAT", "SEA-CMB"}},
-	}, seq)
+	}, refid.WithSequenceStore(seq))
 	if err != nil {
 		t.Fatalf("refid.NewRegistry: %v", err)
 	}

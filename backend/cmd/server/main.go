@@ -351,7 +351,7 @@ func initRefIDs(cfg refid.Config, db *gorm.DB) (refid.Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating refid sequence store: %w", err)
 	}
-	registry, err := refid.NewRegistry(cfg, sequences)
+	registry, err := refid.NewRegistry(cfg, refid.WithSequenceStore(sequences))
 	if err != nil {
 		return nil, fmt.Errorf("invalid refIDGen config: %w", err)
 	}

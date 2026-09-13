@@ -226,7 +226,7 @@ nsw:
 #   literal   fixed text
 #   list      a caller-supplied value, validated against a named list below
 #   date      the current UTC time, using a Go reference-date layout
-#   sequence  a durable zero-padded counter
+#   sequence  a durable zero-padded counter; settings nest under `sequence:`
 #
 # A sequence's scopeKey decides both what the counter is scoped to and how
 # often it resets. Placeholders: {issuer}, {idType}, {yyyy}, {yyyyMM},
@@ -254,8 +254,9 @@ nsw:
 #            - type: literal
 #              value: "/"
 #            - type: sequence
-#              scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}"
-#              padding: 6 # 000001 … 999999, then generation fails
+#              sequence:
+#                scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}"
+#                padding: 6 # 000001 … 999999, then generation fails
 #  lists:
 #    # A list segment rejects any value not in its set, which fails the
 #    # inject — keep these in step with whatever the injected data actually
