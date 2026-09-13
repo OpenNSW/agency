@@ -140,8 +140,9 @@ config:
   # store the result at — see backend/docs/task-config-reference.md, and
   # backend/config.example.yaml for the full segment schema.
   #
-  # Counters live in the refid_sequences table, so the migration Job below
-  # must have run before a server with this configured starts.
+  # Counters and issued random values live in the refid_sequences and
+  # refid_random tables, so the migration Job below must have run before a
+  # server with this configured starts.
   #
   # Substitute your own issuer, segments and lists — the values below are
   # illustrative, not any particular agency's.
@@ -161,6 +162,18 @@ config:
   #              sequence:
   #                scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}"
   #                padding: 6
+  #
+  #        # Produces <AGENCY>-VCH-7K2QQXAB — random rather than counted, so it
+  #        # gives away neither volume nor ordering. A format may use at most
+  #        # one sequence or random segment, never both.
+  #        - idType: voucher_id
+  #          segments:
+  #            - { type: literal, value: "<AGENCY>-VCH-" }
+  #            - type: random
+  #              random:
+  #                scopeKey: "{issuer}:{idType}"
+  #                charset: alphanumeric # numeric | alpha | alphanumeric
+  #                length: 8
   #  lists:
   #    # A list segment rejects any value not in this set, failing the inject —
   #    # keep in step with what the injected data actually sends.

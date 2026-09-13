@@ -630,6 +630,9 @@ func TestLoadConfig_RefIDGen_Decoded(t *testing.T) {
             - {type: literal, value: "NPQS/"}
             - {type: list, list: office_location, param: officeCode}
             - {type: sequence, sequence: {scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}", padding: 6}}
+        - idType: voucher_id
+          segments:
+            - {type: random, random: {scopeKey: "{issuer}:{idType}", charset: alphanumeric, length: 8}}
   lists:
     office_location: [NPQS-KAT, SEA-CMB]
 `))
@@ -646,8 +649,8 @@ func TestLoadConfig_RefIDGen_Decoded(t *testing.T) {
 	if issuer.Issuer != "NPQS" {
 		t.Errorf("issuer = %q, want \"NPQS\"", issuer.Issuer)
 	}
-	if len(issuer.Formats) != 1 || issuer.Formats[0].IDType != "application_id" {
-		t.Fatalf("formats = %+v, want one application_id format", issuer.Formats)
+	if len(issuer.Formats) != 2 || issuer.Formats[0].IDType != "application_id" || issuer.Formats[1].IDType != "voucher_id" {
+		t.Fatalf("formats = %+v, want an application_id and a voucher_id format", issuer.Formats)
 	}
 	segments := issuer.Formats[0].Segments
 	if len(segments) != 3 {
@@ -655,7 +658,7 @@ func TestLoadConfig_RefIDGen_Decoded(t *testing.T) {
 	}
 	// The camelCase yaml tags are the reason refid.Config can be inlined
 	// rather than needing a mirror struct — check the ones that would break,
-	// including the nested sequence block.
+	// including the nested sequence/random blocks a deployment picks between.
 	if segments[2].Sequence == nil {
 		t.Fatalf("sequence segment decoded with a nil sequence block: %+v", segments[2])
 	}
@@ -664,6 +667,17 @@ func TestLoadConfig_RefIDGen_Decoded(t *testing.T) {
 	}
 	if segments[2].Sequence.Padding != 6 {
 		t.Errorf("padding = %d, want 6", segments[2].Sequence.Padding)
+	}
+
+	random := issuer.Formats[1].Segments
+	if len(random) != 1 {
+		t.Fatalf("voucher_id segments = %d, want 1", len(random))
+	}
+	if random[0].Random == nil {
+		t.Fatalf("random segment decoded with a nil random block: %+v", random[0])
+	}
+	if random[0].Random.Charset != "alphanumeric" || random[0].Random.Length != 8 {
+		t.Errorf("random = %+v, want charset alphanumeric and length 8", random[0].Random)
 	}
 	if got := cfg.RefIDGen.Lists["office_location"]; len(got) != 2 || got[0] != "NPQS-KAT" {
 		t.Errorf("lists[office_location] = %v, want [NPQS-KAT SEA-CMB]", got)

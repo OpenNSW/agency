@@ -1,4 +1,4 @@
-// Package refidstore selects the refid.SequenceStore backend matching a GORM
+// Package refidstore selects the refid store backends matching a GORM
 // connection's dialect, so callers wire reference ID generation without
 // branching on the driver themselves.
 package refidstore
@@ -13,29 +13,50 @@ import (
 	"gorm.io/gorm"
 )
 
-// New returns a refid.SequenceStore that shares db's existing connection pool.
-// Reusing the pool matters for SQLite: a second sql.Open on ":memory:" is a
-// different database entirely, and on a file it is a second writer competing
-// for the same lock.
+// Stores holds one backend per stateful segment type. Both are always built:
+// which of them a deployment uses is its refIDGen config's decision, not the
+// binary's, and an unused one costs a struct and a query string — no
+// connection, no round trip.
+type Stores struct {
+	Sequence refid.SequenceStore
+	Random   refid.RandomStore
+}
+
+// New returns stores that share db's existing connection pool. Reusing the
+// pool matters for SQLite: a second sql.Open on ":memory:" is a different
+// database entirely, and on a file it is a second writer competing for the
+// same lock.
 //
-// The refid_sequences table it reads and writes is created by this repo's own
-// migrations, not by refid's Migrate helpers.
-func New(db *gorm.DB) (refid.SequenceStore, error) {
+// The refid_sequences and refid_random tables they read and write are created
+// by this repo's own migrations, not by refid's Migrate helpers.
+func New(db *gorm.DB) (Stores, error) {
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("refidstore: failed to get sql.DB from gorm: %w", err)
+		return Stores{}, fmt.Errorf("refidstore: failed to get sql.DB from gorm: %w", err)
 	}
+
+	var s Stores
 
 	// db.Name() is the dialector name, "postgres" or "sqlite" — the same
 	// values pkg/jsonquery switches on.
 	switch name := db.Name(); name {
 	case "postgres":
-		return refidpg.NewSequence(sqlDB)
+		s.Sequence, err = refidpg.NewSequence(sqlDB)
+		if err == nil {
+			s.Random, err = refidpg.NewRandom(sqlDB)
+		}
 	case "sqlite":
-		return refidsqlite.NewSequence(sqlDB)
+		s.Sequence, err = refidsqlite.NewSequence(sqlDB)
+		if err == nil {
+			s.Random, err = refidsqlite.NewRandom(sqlDB)
+		}
 	default:
-		return nil, fmt.Errorf("refidstore: unsupported driver %q", name)
+		return Stores{}, fmt.Errorf("refidstore: unsupported driver %q", name)
 	}
+	if err != nil {
+		return Stores{}, fmt.Errorf("refidstore: %w", err)
+	}
+	return s, nil
 }
 
 // Disabled returns a Registry for a deployment with no refIDGen section, where
