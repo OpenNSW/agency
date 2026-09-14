@@ -80,3 +80,47 @@ func TestInitRefIDs_MalformedConfig(t *testing.T) {
 		t.Fatal("initRefIDs accepted a sequence segment with no scopeKey, want an error")
 	}
 }
+
+// TestInitRefIDs_WiresBothStores pins that a deployment picks sequence or
+// random formats purely in its config.yaml. Neither segment compiles without
+// its store, so dropping either option from initRefIDs fails this — no table
+// needed, since NewRegistry rejects a nil store before any SQL runs.
+func TestInitRefIDs_WiresBothStores(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "t.db")), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+
+	if _, err := initRefIDs(refid.Config{
+		Issuers: []refid.IssuerConfig{{
+			Issuer: "NPQS",
+			Formats: []refid.FormatConfig{
+				{
+					IDType: "application_id",
+					Segments: []refid.SegmentConfig{{
+						Type: "sequence",
+						Sequence: &refid.SequenceSegmentConfig{
+							ScopeKey: "{issuer}:{idType}",
+							Padding:  6,
+						},
+					}},
+				},
+				{
+					IDType: "voucher_id",
+					Segments: []refid.SegmentConfig{{
+						Type: "random",
+						Random: &refid.RandomSegmentConfig{
+							ScopeKey: "{issuer}:{idType}",
+							Charset:  "alphanumeric",
+							Length:   8,
+						},
+					}},
+				},
+			},
+		}},
+	}, db); err != nil {
+		t.Fatalf("initRefIDs with a sequence and a random format: %v", err)
+	}
+}

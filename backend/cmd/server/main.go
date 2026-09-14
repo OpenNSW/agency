@@ -337,21 +337,27 @@ func main() {
 // initRefIDs builds the reference ID registry for this deployment.
 //
 // The feature is optional: with no refIDGen section there is nothing to build,
-// so the counter store and registry are skipped and a disabled registry stands
-// in — a task declaring refid then fails its inject rather than silently
-// generating nothing. NewRegistry validates every configured format up front,
-// so a malformed section fails the boot rather than the first inject.
+// so the stores and registry are skipped and a disabled registry stands in — a
+// task declaring refid then fails its inject rather than silently generating
+// nothing. NewRegistry validates every configured format up front, so a
+// malformed section fails the boot rather than the first inject.
+//
+// Both stores are offered whatever the config uses, so a deployment picks
+// sequence or random formats purely in its own config.yaml.
 func initRefIDs(cfg refid.Config, db *gorm.DB) (refid.Registry, error) {
 	if len(cfg.Issuers) == 0 {
 		slog.Info("reference ID generation not configured; tasks declaring a refid block will fail at inject")
 		return refidstore.Disabled(), nil
 	}
 
-	sequences, err := refidstore.New(db)
+	stores, err := refidstore.New(db)
 	if err != nil {
-		return nil, fmt.Errorf("creating refid sequence store: %w", err)
+		return nil, fmt.Errorf("creating refid stores: %w", err)
 	}
-	registry, err := refid.NewRegistry(cfg, refid.WithSequenceStore(sequences))
+	registry, err := refid.NewRegistry(cfg,
+		refid.WithSequenceStore(stores.Sequence),
+		refid.WithRandomStore(stores.Random),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("invalid refIDGen config: %w", err)
 	}
