@@ -31,10 +31,22 @@ const configuredI18n = getI18nConfig()
 const configuredSupported = (configuredI18n?.supportedLanguages ?? []).filter((lang) => bundledLanguages.includes(lang))
 export const supportedLanguages = configuredSupported.length > 0 ? configuredSupported : bundledLanguages
 
+// The fallback must itself be one of supportedLngs below, or i18next
+// rejects it ("rejecting language code not found in supportedLngs") and is
+// left with no usable language at all — so never fall back to "en" unless
+// it's actually offered.
 const fallbackLng =
   configuredI18n?.defaultLanguage && supportedLanguages.includes(configuredI18n.defaultLanguage)
     ? configuredI18n.defaultLanguage
-    : 'en'
+    : supportedLanguages[0]
+
+// Keeps <html lang> in sync with the active UI language for assistive tech.
+// Registered before init() so it also catches the languageChanged event
+// init fires while resolving the initial language, not just later changes
+// from LanguageSwitcher or browser detection.
+i18n.on('languageChanged', (lng) => {
+  document.documentElement.lang = lng
+})
 
 void i18n
   .use(LanguageDetector)

@@ -264,7 +264,8 @@ func TestI18nConfigValidate(t *testing.T) {
 	}{
 		{"unset", I18nConfig{}, false},
 		{"valid supported and default", I18nConfig{SupportedLanguages: []string{"en", "si"}, DefaultLanguage: "si"}, false},
-		{"supported only", I18nConfig{SupportedLanguages: []string{"si"}}, false},
+		{"supported only, implicit default reachable", I18nConfig{SupportedLanguages: []string{"en", "si"}}, false},
+		{"supported only, implicit default unreachable", I18nConfig{SupportedLanguages: []string{"si"}}, true},
 		{"default only", I18nConfig{DefaultLanguage: "si"}, false},
 		{"unsupported language code", I18nConfig{SupportedLanguages: []string{"en", "fr"}}, true},
 		{"duplicate supported language code", I18nConfig{SupportedLanguages: []string{"en", "si", "en"}}, true},

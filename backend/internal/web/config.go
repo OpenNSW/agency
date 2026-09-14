@@ -219,13 +219,18 @@ func (c I18nConfig) Validate() error {
 		}
 		seen[lang] = true
 	}
-	if c.DefaultLanguage != "" {
-		if !validLanguageCodes[c.DefaultLanguage] {
-			return fmt.Errorf("web.i18n.defaultLanguage %q is not a language this app ships a translation for", c.DefaultLanguage)
-		}
-		if len(c.SupportedLanguages) > 0 && !slices.Contains(c.SupportedLanguages, c.DefaultLanguage) {
-			return fmt.Errorf("web.i18n.defaultLanguage %q must be one of web.i18n.supportedLanguages", c.DefaultLanguage)
-		}
+	if c.DefaultLanguage != "" && !validLanguageCodes[c.DefaultLanguage] {
+		return fmt.Errorf("web.i18n.defaultLanguage %q is not a language this app ships a translation for", c.DefaultLanguage)
+	}
+	// An unset DefaultLanguage falls back to "en" (see the field comment
+	// above and frontend/src/i18n/index.ts), so that effective default must
+	// also be reachable whenever SupportedLanguages is restricted.
+	effectiveDefault := c.DefaultLanguage
+	if effectiveDefault == "" {
+		effectiveDefault = "en"
+	}
+	if len(c.SupportedLanguages) > 0 && !slices.Contains(c.SupportedLanguages, effectiveDefault) {
+		return fmt.Errorf("web.i18n.defaultLanguage %q must be one of web.i18n.supportedLanguages", effectiveDefault)
 	}
 	return nil
 }
