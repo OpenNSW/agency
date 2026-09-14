@@ -445,6 +445,11 @@ no config per office. `refid` ignores params a format doesn't consume, so they
 can be declared generously; a param the format *does* require but which cannot
 be resolved from the injected data fails the inject as a `400`.
 
+Nothing here depends on how the deployment builds the number. A format may be
+sequence-based (a counter) or random-based (an unguessable code), and a format
+that needs no inputs at all — most random ones — is declared with `params`
+omitted entirely.
+
 **Generated exactly once, on first inject.** Re-injecting an existing
 application keeps the number it already has, and a trader resubmitting after a
 feedback request keeps it too.

@@ -227,14 +227,22 @@ nsw:
 #   list      a caller-supplied value, validated against a named list below
 #   date      the current UTC time, using a Go reference-date layout
 #   sequence  a durable zero-padded counter; settings nest under `sequence:`
+#   random    a fixed-length random string, unique within its scope; settings
+#             nest under `random:`
 #
-# A sequence's scopeKey decides both what the counter is scoped to and how
-# often it resets. Placeholders: {issuer}, {idType}, {yyyy}, {yyyyMM},
-# {yyyyMMdd}, and any param name the task config supplies. Including
-# {yyyyMMdd} resets daily; omitting every date placeholder never resets.
+# A format may use at most ONE sequence or random segment, since the two are
+# the only kinds that write to the database. The rest are pure, so an ID is
+# either counted or random, never both.
 #
-# Counters live in the refid_sequences table — run `migrate up` before
-# starting a server with this configured.
+# Both kinds take a scopeKey, which decides what the value must be unique
+# within and — for a sequence — how often the counter resets. Placeholders:
+# {issuer}, {idType}, {yyyy}, {yyyyMM}, {yyyyMMdd}, and any param name the task
+# config supplies. Including {yyyyMMdd} resets daily; omitting every date
+# placeholder never resets.
+#
+# Counters and issued random values live in the refid_sequences and
+# refid_random tables — run `migrate up` before starting a server with this
+# configured.
 #refIDGen:
 #  issuers:
 #    - issuer: "<AGENCY>"
@@ -257,6 +265,24 @@ nsw:
 #              sequence:
 #                scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}"
 #                padding: 6 # 000001 … 999999, then generation fails
+#
+#        # Produces <AGENCY>-VCH-7K2QQXAB — an unguessable code rather than a
+#        # countable one, so it gives away neither volume nor ordering. Needs
+#        # no params, so the task config declaring it can omit `params`.
+#        - idType: voucher_id
+#          segments:
+#            - type: literal
+#              value: "<AGENCY>-VCH-"
+#            - type: random
+#              random:
+#                scopeKey: "{issuer}:{idType}"
+#                charset: alphanumeric # numeric | alpha | alphanumeric
+#                length: 8
+#                # Retries this many times if a draw is already taken, then
+#                # fails rather than issuing a duplicate. Optional; 10 is the
+#                # default. Widen charset/length or narrow scopeKey if a scope
+#                # ever gets full enough to hit it.
+#                maxAttempts: 10
 #  lists:
 #    # A list segment rejects any value not in its set, which fails the
 #    # inject — keep these in step with whatever the injected data actually
