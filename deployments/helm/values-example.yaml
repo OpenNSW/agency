@@ -157,8 +157,10 @@ config:
   #            - { type: literal, value: "/" }
   #            - { type: date, layout: "20060102" }
   #            - { type: literal, value: "/" }
-  #            - { type: sequence, padding: 6,
-  #                scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}" }
+  #            - type: sequence
+  #              sequence:
+  #                scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}"
+  #                padding: 6
   #  lists:
   #    # A list segment rejects any value not in this set, failing the inject —
   #    # keep in step with what the injected data actually sends.

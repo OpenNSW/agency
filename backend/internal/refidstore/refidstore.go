@@ -30,9 +30,9 @@ func New(db *gorm.DB) (refid.SequenceStore, error) {
 	// values pkg/jsonquery switches on.
 	switch name := db.Name(); name {
 	case "postgres":
-		return refidpg.New(sqlDB)
+		return refidpg.NewSequence(sqlDB)
 	case "sqlite":
-		return refidsqlite.New(sqlDB)
+		return refidsqlite.NewSequence(sqlDB)
 	default:
 		return nil, fmt.Errorf("refidstore: unsupported driver %q", name)
 	}

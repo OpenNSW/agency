@@ -69,8 +69,11 @@ func TestInitRefIDs_MalformedConfig(t *testing.T) {
 		Issuers: []refid.IssuerConfig{{
 			Issuer: "NPQS",
 			Formats: []refid.FormatConfig{{
-				IDType:   "application_id",
-				Segments: []refid.SegmentConfig{{Type: "sequence", Padding: 6}},
+				IDType: "application_id",
+				Segments: []refid.SegmentConfig{{
+					Type:     "sequence",
+					Sequence: &refid.SequenceSegmentConfig{Padding: 6},
+				}},
 			}},
 		}},
 	}, db); err == nil {

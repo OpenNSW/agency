@@ -629,7 +629,7 @@ func TestLoadConfig_RefIDGen_Decoded(t *testing.T) {
           segments:
             - {type: literal, value: "NPQS/"}
             - {type: list, list: office_location, param: officeCode}
-            - {type: sequence, scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}", padding: 6}
+            - {type: sequence, sequence: {scopeKey: "{issuer}:{idType}:{officeCode}:{yyyyMMdd}", padding: 6}}
   lists:
     office_location: [NPQS-KAT, SEA-CMB]
 `))
@@ -654,12 +654,16 @@ func TestLoadConfig_RefIDGen_Decoded(t *testing.T) {
 		t.Fatalf("segments = %d, want 3", len(segments))
 	}
 	// The camelCase yaml tags are the reason refid.Config can be inlined
-	// rather than needing a mirror struct — check the ones that would break.
-	if segments[2].ScopeKey != "{issuer}:{idType}:{officeCode}:{yyyyMMdd}" {
-		t.Errorf("scopeKey = %q, want the configured template", segments[2].ScopeKey)
+	// rather than needing a mirror struct — check the ones that would break,
+	// including the nested sequence block.
+	if segments[2].Sequence == nil {
+		t.Fatalf("sequence segment decoded with a nil sequence block: %+v", segments[2])
 	}
-	if segments[2].Padding != 6 {
-		t.Errorf("padding = %d, want 6", segments[2].Padding)
+	if segments[2].Sequence.ScopeKey != "{issuer}:{idType}:{officeCode}:{yyyyMMdd}" {
+		t.Errorf("scopeKey = %q, want the configured template", segments[2].Sequence.ScopeKey)
+	}
+	if segments[2].Sequence.Padding != 6 {
+		t.Errorf("padding = %d, want 6", segments[2].Sequence.Padding)
 	}
 	if got := cfg.RefIDGen.Lists["office_location"]; len(got) != 2 || got[0] != "NPQS-KAT" {
 		t.Errorf("lists[office_location] = %v, want [NPQS-KAT SEA-CMB]", got)
