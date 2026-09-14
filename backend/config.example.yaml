@@ -170,6 +170,16 @@ web:
     # per-deployment choice. Omit to show no copyright statement at all.
     copyrightNotice: ""
 
+  # This app isn't specific to any one country, so which languages a
+  # deployment offers — and which one it starts in — is a deployment choice.
+  # Both are optional: unset supportedLanguages offers every language the
+  # frontend ships a translation for (see frontend/src/i18n/locales), and
+  # unset defaultLanguage falls back to "en". Values must be languages the
+  # frontend actually has a translation bundle for.
+  i18n:
+    supportedLanguages: ["en", "si"]
+    defaultLanguage: "en"
+
 # ---------------------------------------------------------------------------
 # Inbound Auth — tokens the Agency backend accepts from the SPA / m2m clients
 # ---------------------------------------------------------------------------

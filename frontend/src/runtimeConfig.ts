@@ -32,14 +32,22 @@ export interface BrandingPayload {
   copyrightNotice?: string
 }
 
+// Mirrors backend/internal/web/config.go's I18nConfig — the shape served as
+// window.__APP_CONFIG__.i18n (see getI18nConfig below).
+export interface I18nPayload {
+  supportedLanguages?: string[]
+  defaultLanguage?: string
+}
+
 // window.__APP_CONFIG__'s shape, mirroring backend/internal/web/config.go's
-// Config (Runtime/Branding, marshaled as-is — see Handler.ServeConfig): one
-// object nesting runtime config and branding under "runtime"/"branding",
-// matching config.yaml's own web.runtime/web.branding, rather than two
-// separate window globals.
+// Config (Runtime/Branding/I18n, marshaled as-is — see Handler.ServeConfig):
+// one object nesting runtime config, branding, and i18n under
+// "runtime"/"branding"/"i18n", matching config.yaml's own
+// web.runtime/web.branding/web.i18n, rather than separate window globals.
 interface AppConfigPayload {
   runtime?: RuntimeConfigMap
   branding?: BrandingPayload
+  i18n?: I18nPayload
 }
 
 declare global {
@@ -66,6 +74,19 @@ export function getBranding(): BrandingPayload | undefined {
   }
 
   return window.__APP_CONFIG__?.branding
+}
+
+// Reads window.__APP_CONFIG__.i18n, set by /config.js alongside runtime
+// config and branding. Read directly (not through config.ts's appConfig)
+// because src/i18n/index.ts must configure i18next before initAppConfig()
+// runs — see main.tsx's import order. Returns undefined if unset, in which
+// case src/i18n/index.ts falls back to every bundled language.
+export function getI18nConfig(): I18nPayload | undefined {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+
+  return window.__APP_CONFIG__?.i18n
 }
 
 export function getEnv(name: string, fallback?: string): string | undefined {
