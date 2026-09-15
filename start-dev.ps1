@@ -141,9 +141,9 @@ $BACKEND_DIR  = Join-Path $ROOT_DIR 'backend'
 $FRONTEND_DIR = Join-Path $ROOT_DIR 'frontend'
 
 # Cross-platform process execution helpers (Windows cmd.exe vs POSIX sh).
-$isWindows = ($env:OS -like '*Windows*') -or ($PSVersionTable.Platform -eq 'Win32NT') -or ($IsWindows)
-$shellCmd  = if ($isWindows) { 'cmd.exe' } else { '/bin/sh' }
-$shellArg  = if ($isWindows) { '/c' }      else { '-c' }
+$onWindows = ($env:OS -like '*Windows*') -or ($PSVersionTable.Platform -eq 'Win32NT') -or ($IsWindows)
+$shellCmd  = if ($onWindows) { 'cmd.exe' } else { '/bin/sh' }
+$shellArg  = if ($onWindows) { '/c' }      else { '-c' }
 
 $jobs = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 
@@ -154,7 +154,7 @@ function Stop-AllJobs {
     foreach ($p in $jobs) {
         if (-not $p.HasExited) {
             try {
-                if ($isWindows) {
+                if ($onWindows) {
                     Start-Process taskkill.exe -ArgumentList '/F', '/T', '/PID', $p.Id -NoNewWindow -Wait | Out-Null
                 } elseif ($PSVersionTable.PSVersion.Major -ge 7) {
                     $p.Kill($true)
@@ -270,7 +270,7 @@ function Clean-Databases {
             }
         }
     } elseif ($dbDriver -eq 'postgres') {
-        $psqlCmd = if ($isWindows) { 'psql.exe' } else { 'psql' }
+        $psqlCmd = if ($onWindows) { 'psql.exe' } else { 'psql' }
         if (-not (Get-Command $psqlCmd -ErrorAction SilentlyContinue)) {
             Write-Host "[start-dev] Error: psql required for Postgres DB cleaning but not found in PATH." -ForegroundColor Red
             exit 1
