@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -2134,7 +2135,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	store := newTestStore(t)
 	mustCreateRefIDSequences(t, store)
 
-	seq, err := refidstore.New(store.db)
+	stores, err := refidstore.New(store.db)
 	if err != nil {
 		t.Fatalf("refidstore.New: %v", err)
 	}
@@ -2155,7 +2156,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 			}},
 		}},
 		Lists: map[string][]string{"office_location": {"NPQS-KAT", "SEA-CMB"}},
-	}, refid.WithSequenceStore(seq))
+	}, refid.WithSequenceStore(stores.Sequence))
 	if err != nil {
 		t.Fatalf("refid.NewRegistry: %v", err)
 	}
@@ -2227,6 +2228,124 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	}
 	if _, err := store.GetByTaskID("t-e2e-missing"); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Errorf("application row exists after a missing required param, want none (got %v)", err)
+	}
+}
+
+// TestCreateApplication_RefID_RandomFormat_EndToEnd is the random counterpart
+// to the sequence end-to-end above: an ID drawn rather than counted, reserved
+// through the store the random-table migration creates. It reuses
+// refIDTaskConfig, whose officeCode param this format has no segment for —
+// refid ignores params a format doesn't consume, so one task config can serve
+// either kind of format.
+func TestCreateApplication_RefID_RandomFormat_EndToEnd(t *testing.T) {
+	store := newTestStore(t)
+	mustCreateRefIDRandom(t, store)
+
+	stores, err := refidstore.New(store.db)
+	if err != nil {
+		t.Fatalf("refidstore.New: %v", err)
+	}
+	reg, err := refid.NewRegistry(refid.Config{
+		Issuers: []refid.IssuerConfig{{
+			Issuer: "NPQS",
+			Formats: []refid.FormatConfig{{
+				IDType: "application_id",
+				Segments: []refid.SegmentConfig{
+					{Type: "literal", Value: "NPQS-"},
+					{Type: "random", Random: &refid.RandomSegmentConfig{
+						ScopeKey: "{issuer}:{idType}",
+						Charset:  "alphanumeric",
+						Length:   8,
+					}},
+				},
+			}},
+		}},
+	}, refid.WithRandomStore(stores.Random))
+	if err != nil {
+		t.Fatalf("refid.NewRegistry: %v", err)
+	}
+
+	root := t.TempDir()
+	mustMkdirTaskConfigsAndForms(t, root)
+	writeTaskConfigFile(t, root, "refid_task.json", refIDTaskConfig)
+	srv, _ := newCallbackServer(t)
+	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
+	svc := newWiredServiceWithRefIDs(t, store, newTestRegistry(t, root), nswclient.NewWithClient(hc), reg)
+
+	shape := regexp.MustCompile(`^NPQS-[A-Z0-9]{8}$`)
+	seen := make(map[string]bool, 2)
+	for i := range 2 {
+		taskID := fmt.Sprintf("t-rand-%d", i)
+		if err := svc.CreateApplication(context.Background(), &InjectRequest{
+			TaskID:        taskID,
+			TaskCode:      "refid_task",
+			ConsignmentID: "c-" + taskID,
+			Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
+		}); err != nil {
+			t.Fatalf("inject %s: %v", taskID, err)
+		}
+		rec, err := store.GetByTaskID(taskID)
+		if err != nil {
+			t.Fatalf("GetByTaskID(%s): %v", taskID, err)
+		}
+		got, _ := rec.ReviewerResponse["reference_number"].(string)
+		if !shape.MatchString(got) {
+			t.Fatalf("reference_number = %q, want NPQS- followed by 8 alphanumerics", got)
+		}
+		if seen[got] {
+			t.Fatalf("reference_number %q was issued twice", got)
+		}
+		seen[got] = true
+	}
+
+	// Every issued value is reserved, which is what lets a later draw detect
+	// the collision instead of reissuing it.
+	var reserved int64
+	if err := store.db.Raw("SELECT COUNT(*) FROM refid_random").Scan(&reserved).Error; err != nil {
+		t.Fatalf("counting refid_random: %v", err)
+	}
+	if reserved != 2 {
+		t.Errorf("refid_random holds %d rows, want 2", reserved)
+	}
+}
+
+// mustCreateRefIDRandom creates the issued-value table a random segment
+// reserves into, picking DDL for the store's dialect. Mirrors the
+// random-table migration; keep the two in step.
+func mustCreateRefIDRandom(t *testing.T, store *ApplicationStore) {
+	t.Helper()
+
+	var ddl string
+	switch name := store.db.Name(); name {
+	case "postgres":
+		ddl = `
+			CREATE TABLE IF NOT EXISTS refid_random (
+				scope_key  TEXT        NOT NULL,
+				value      TEXT        NOT NULL,
+				issued_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+				PRIMARY KEY (scope_key, value)
+			)`
+	case "sqlite":
+		ddl = `
+			CREATE TABLE IF NOT EXISTS refid_random (
+				scope_key  TEXT NOT NULL,
+				value      TEXT NOT NULL,
+				issued_at  TEXT NOT NULL DEFAULT (datetime('now')),
+				PRIMARY KEY (scope_key, value)
+			)`
+	default:
+		t.Fatalf("no refid_random DDL for driver %q", name)
+	}
+
+	if err := store.db.Exec(ddl).Error; err != nil {
+		t.Fatalf("failed to create refid_random: %v", err)
+	}
+	// Persistent backends keep the table between tests, so reservations would
+	// carry over and break the row count above.
+	if store.db.Name() != "sqlite" {
+		if err := store.db.Exec("TRUNCATE TABLE refid_random").Error; err != nil {
+			t.Fatalf("failed to truncate refid_random: %v", err)
+		}
 	}
 }
 
