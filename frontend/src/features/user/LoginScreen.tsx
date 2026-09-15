@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { useAuth } from 'react-oidc-context'
 import { appConfig } from '@/config'
+import { LanguageSwitcher } from '@/components/Layout/LanguageSwitcher'
+import { supportedLanguages } from '@/i18n'
 import { Footer } from '@/components/Layout/Footer'
 
 export function LoginScreen() {
@@ -10,6 +12,15 @@ export function LoginScreen() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-white lg:overflow-hidden overflow-y-auto">
+      {/* Frosted so it's legible over both the white identity panel and the dark hero image behind it.
+          Only rendered when there's an actual choice — LanguageSwitcher itself returns null otherwise,
+          which would leave this an empty floating box. */}
+      {supportedLanguages.length > 1 && (
+        <div className="fixed top-4 right-4 z-40 rounded-lg bg-white/90 shadow-sm backdrop-blur-sm">
+          <LanguageSwitcher />
+        </div>
+      )}
+
       {/* Mobile logo strip — full-width box at the very top, hidden on desktop */}
       {logoUrl && (
         <div className="lg:hidden w-full bg-white px-6 py-4 flex items-center justify-center border-b border-gray-100 shadow-sm">

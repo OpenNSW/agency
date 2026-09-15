@@ -56,6 +56,10 @@ web:
         url: "https://example.gov.lk/support"
     copyrightNotice: "© 2026 Sri Lanka Tea Board (SLTB). All rights reserved." # TODO: confirm exact wording
 
+  i18n:
+    supportedLanguages: ["en", "si"]
+    defaultLanguage: "en"
+
 authn:
   jwksURL: https://localhost:8090/oauth2/jwks
   issuer: https://localhost:8090
