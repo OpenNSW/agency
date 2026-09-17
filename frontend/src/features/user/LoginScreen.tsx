@@ -3,7 +3,6 @@ import { useAuth } from 'react-oidc-context'
 import { appConfig } from '@/config'
 import { LanguageSwitcher } from '@/components/Layout/LanguageSwitcher'
 import { supportedLanguages } from '@/i18n'
-import { Footer } from '@/components/Layout/Footer'
 
 export function LoginScreen() {
   const { t } = useTranslation()
@@ -89,8 +88,6 @@ export function LoginScreen() {
           )}
         </div>
       </div>
-
-      <Footer />
     </div>
   )
 }
