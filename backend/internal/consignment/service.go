@@ -10,7 +10,7 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/datascope"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/pkg/httputil"
-	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
+	"github.com/OpenNSW/core/json/jsonpointer"
 )
 
 // NSWClient fetches consignment display metadata from NSW Core.

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/OpenNSW/agency/backend/pkg/dbtype"
-	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
 	"github.com/OpenNSW/agency/backend/pkg/jsonquery"
 	"github.com/OpenNSW/agency/backend/pkg/jsonschemautil"
+	"github.com/OpenNSW/core/json/jsonpointer"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

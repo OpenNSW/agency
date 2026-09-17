@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
-	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
+	"github.com/OpenNSW/core/json/jsonpointer"
 )
 
 // UserAttributes resolves an officer's own agency-specific custom data,

@@ -1,6 +1,6 @@
 // Package jsonquery builds dialect-appropriate SQL predicates for testing
 // equality against a value nested inside a JSON/JSONB column, given an RFC
-// 6901 JSON Pointer (see pkg/jsonpointer) into that column.
+// 6901 JSON Pointer (see github.com/OpenNSW/core/json/jsonpointer) into that column.
 package jsonquery
 
 import (
@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
+	"github.com/OpenNSW/core/json/jsonpointer"
 )
 
 // segmentPattern restricts pointer segments beyond what jsonpointer.Valid

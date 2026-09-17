@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
+	"github.com/OpenNSW/core/json/jsonpointer"
 )
 
 // CurrentSchemaVersion is the only TaskConfig shape this build understands.
