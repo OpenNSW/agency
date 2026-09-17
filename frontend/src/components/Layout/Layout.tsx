@@ -1,7 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
-import { Footer } from './Footer'
 import { useState } from 'react'
 
 export function Layout() {
@@ -35,7 +34,6 @@ export function Layout() {
           </div>
         </main>
       </div>
-      <Footer />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
+import { Footer } from '@/components/Layout/Footer'
 import { ConsignmentListScreen } from '@/features/consignment/ConsignmentListScreen'
 import { ApplicationListScreen } from '@/features/application/ApplicationListScreen'
 import { ApplicationDetailScreen } from '@/features/application/ApplicationDetailScreen'
@@ -48,25 +49,28 @@ function App() {
   }, [])
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={
-          <SignedOut fallback={<Navigate to="/" replace />}>
-            <LoginScreen />
-          </SignedOut>
-        }
-      />
+    <>
+      <Routes>
+        <Route
+          path="/login"
+          element={
+            <SignedOut fallback={<Navigate to="/" replace />}>
+              <LoginScreen />
+            </SignedOut>
+          }
+        />
 
-      <Route element={<ProtectedLayout />}>
-        <Route path="/" element={<Navigate to="/consignments" replace />} />
-        <Route path="/consignments" element={<ConsignmentListScreen />} />
-        <Route path="/consignments/:consignmentId/tasks" element={<ApplicationListScreen />} />
-        <Route path="/consignments/:consignmentId" element={<ApplicationDetailScreen />} />
-      </Route>
+        <Route element={<ProtectedLayout />}>
+          <Route path="/" element={<Navigate to="/consignments" replace />} />
+          <Route path="/consignments" element={<ConsignmentListScreen />} />
+          <Route path="/consignments/:consignmentId/tasks" element={<ApplicationListScreen />} />
+          <Route path="/consignments/:consignmentId" element={<ApplicationDetailScreen />} />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+      <Footer />
+    </>
   )
 }
 
