@@ -8,8 +8,11 @@ info:
   version: 1.0.0
 
 servers:
-  - url: /
-    description: Local development server
+  - url: "{baseUrl}"
+    description: url for the agency portal backend server.
+    variables:
+      baseUrl:
+        default: ""
 
 tags:
   - name: Health
@@ -22,6 +25,8 @@ tags:
     description: File upload and download URL management
   - name: Users
     description: Authenticated user profile
+  - name: Certificates
+    description: Certificate generation from templates
 
 paths:
   /health:
@@ -48,6 +53,7 @@ paths:
       summary: Inject application data
       security:
         - BearerAuth: []
+        - OAuth2ClientCredentials: [agency:application:inject]
       description: |
         Called by the NSW workflow engine to submit an application for agency review.
         If the application already exists and is in `FEEDBACK_REQUESTED` status, the
@@ -214,9 +220,23 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          description: Application not claimed by the calling officer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: You must claim this application before reviewing it
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Application already reviewed or claim changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "This application was already reviewed or your claim has changed; please refresh and try again"
         "413":
           $ref: "#/components/responses/RequestTooLarge"
         "500":
@@ -258,6 +278,137 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/RequestTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/applications/{taskId}/claim:
+    post:
+      operationId: claimApplication
+      summary: Claim application
+      security:
+        - BearerAuth: []
+      description: |
+        Marks the application as claimed by the calling officer. An application
+        must be claimed before a review can be submitted. Only one officer can
+        hold a claim at a time; attempting to claim an already-claimed
+        application returns 409.
+      tags:
+        - Applications
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Application claimed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Application already claimed by another officer or already reviewed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Application already claimed by another officer
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/applications/{taskId}/release:
+    post:
+      operationId: releaseApplication
+      summary: Release application claim
+      security:
+        - BearerAuth: []
+      description: |
+        Releases the calling officer's claim on the application, making it
+        available for other officers to claim. Returns 403 if the application
+        is not claimed by the caller, and 409 if the application has already
+        been reviewed.
+      tags:
+        - Applications
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Application claim released successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Application is not claimed by the calling officer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Application is not claimed by you
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Application has already been reviewed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Application has already been reviewed and its claim can no longer be released
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/applications/{taskId}/certificate:
+    post:
+      operationId: generateCertificate
+      summary: Generate certificate
+      security:
+        - BearerAuth: []
+      description: |
+        Populates the certificate template configured for the task identified
+        by `{taskId}` with the supplied data and returns the resulting HTML.
+        The template, its data schema, and the consignment used to auto-fill
+        fields are all resolved server-side from the task — only `data` comes
+        from the request body. The data is validated against the task's
+        `certificateDataSchema` before rendering.
+      tags:
+        - Certificates
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CertificateGenerateRequest"
+            example:
+              data:
+                certificate_id: "PC-2026-00142"
+      responses:
+        "200":
+          description: Rendered certificate HTML
+          content:
+            text/html:
+              schema:
+                type: string
+                description: The fully rendered certificate as an HTML document
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -421,6 +572,32 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: |
+        A JWT issued by the agency's IdP (see `authn.jwksURL` / `authn.issuer`
+        in config.yaml), obtained however the caller normally would — the SPA
+        via its interactive login, or the NSW-to-agency M2M client via the
+        OAuth2 client-credentials grant. Paste the resulting token here to
+        call any endpoint manually.
+    OAuth2ClientCredentials:
+      type: oauth2
+      description: |
+        For the M2M caller only (the NSW workflow engine invoking
+        POST /api/v1/inject). tokenUrl below is a placeholder — point it at
+        this deployment's actual IdP token endpoint (`<authn.issuer>/oauth2/token`)
+        before using "Authorize" to fetch a token interactively; you'll also
+        need the whitelisted M2M client's id/secret from that IdP.
+      flows:
+        clientCredentials:
+          tokenUrl: https://idp.example.com/oauth2/token
+          scopes:
+            agency:application:inject: Submit/update an application (POST /api/v1/inject)
+            agency:application:read: Read applications and their details
+            agency:application:review: Review, claim, release, and generate certificates for applications
+            agency:application:feedback: Send feedback to a trader
+            agency:consignment:read: Read consignment summaries
+            agency:storage:read: Get file download URLs
+            agency:storage:write: Create file upload URLs
+            agency:profile:read: Read the caller's own profile
 
   parameters:
     TaskId:
@@ -670,6 +847,20 @@ components:
           format: date-time
           description: Timestamp of the review decision
           nullable: true
+        claimedByName:
+          type: string
+          description: Display name of the officer who claimed this application
+          nullable: true
+        claimedByEmail:
+          type: string
+          format: email
+          description: Email of the officer who claimed this application
+          nullable: true
+        claimedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the application was claimed
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -735,7 +926,7 @@ components:
           description: Status of the consignment (reflects the most recent application status)
         taskCount:
           type: integer
-          description: Total number of applications in this consignment
+          description: Number of PENDING applications remaining for officer action in this consignment
           example: 3
 
     ConsignmentListResponse:
@@ -848,3 +1039,17 @@ components:
           type: integer
           format: int64
           description: Unix timestamp (seconds) when the URL expires
+
+    CertificateGenerateRequest:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+          description: |
+            Key-value data to populate the certificate template. Validated
+            against the task's `certificateDataSchema` before rendering.
+          example:
+            certificate_id: "PC-2026-00142"
