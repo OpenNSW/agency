@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/OpenNSW/agency/backend/internal/taskconfig"
-	"github.com/OpenNSW/agency/backend/pkg/jsonpointer"
+	"github.com/OpenNSW/core/json/jsonpointer"
 	"github.com/OpenNSW/core/refid"
 )
 
