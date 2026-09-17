@@ -110,7 +110,8 @@ have actually run against it, not just when it was created.
 
 - **No array support in `source`/`target`.** The resolver only walks `map[string]any`; the moment
   it meets an array anywhere in the path, that rule just doesn't resolve. This is deliberate, not
-  a gap to close casually — see the design note in [`pkg/jsonpointer`](../pkg/jsonpointer). JSON
+  a gap to close casually — see the design note in
+  [`core/json/jsonpointer`](https://github.com/OpenNSW/core/tree/main/json/jsonpointer). JSON
   Pointer syntax already supports array indices, so this can be extended later without a task
   config format change, if a genuine need for it shows up.
 - **No GIN index yet** on `consignments.custom_data` — see [Storage](#storage).
