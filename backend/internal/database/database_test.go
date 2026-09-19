@@ -133,7 +133,7 @@ func TestPostgresDSN(t *testing.T) {
 // TestStoreDecoupling verifies that store.go does not import any GORM driver
 // packages directly, ensuring the store remains driver-agnostic.
 func TestStoreDecoupling(t *testing.T) {
-	content, err := os.ReadFile("../application/store.go")
+	content, err := os.ReadFile("../engine/store.go")
 	if err != nil {
 		t.Fatalf("failed to read store.go: %v", err)
 	}
