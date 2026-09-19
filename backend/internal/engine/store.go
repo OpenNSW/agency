@@ -1,4 +1,4 @@
-package application
+package engine
 
 import (
 	"context"
@@ -87,8 +87,8 @@ func NewApplicationStore(cfg database.Config, consignmentCustomDataSchema json.R
 // consignment. pushedFields (from resolvePushedFields) is merged onto the
 // consignment's own custom_data in the same transaction; pass nil/empty
 // when the task has nothing to push.
-func (s *ApplicationStore) CreateOrUpdate(app *ApplicationRecord, pushedFields map[string]any) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+func (s *ApplicationStore) CreateOrUpdate(ctx context.Context, app *ApplicationRecord, pushedFields map[string]any) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Upsert the consignment first so the FK reference exists.
 		if err := s.consignmentStore.Upsert(tx, app.ConsignmentID, app.Status); err != nil {
 			return fmt.Errorf("failed to upsert consignment: %w", err)
@@ -103,9 +103,9 @@ func (s *ApplicationStore) CreateOrUpdate(app *ApplicationRecord, pushedFields m
 // GetByTaskID retrieves an application by task ID. The parent Consignment is
 // preloaded so callers (e.g. application.buildApplication) can check its
 // custom_data against a datascope resolution without a second query.
-func (s *ApplicationStore) GetByTaskID(taskID string) (*ApplicationRecord, error) {
+func (s *ApplicationStore) GetByTaskID(ctx context.Context, taskID string) (*ApplicationRecord, error) {
 	var app ApplicationRecord
-	if err := s.db.Preload("Consignment").First(&app, "task_id = ?", taskID).Error; err != nil {
+	if err := s.db.WithContext(ctx).Preload("Consignment").First(&app, "task_id = ?", taskID).Error; err != nil {
 		return nil, err
 	}
 	if err := s.hydrateClaimant(&app); err != nil {
@@ -117,9 +117,9 @@ func (s *ApplicationStore) GetByTaskID(taskID string) (*ApplicationRecord, error
 // GetByConsignmentAndTaskCode retrieves the application within a consignment
 // whose TaskCode matches taskCode, assuming at most one such application per
 // consignment. The parent Consignment is preloaded — see GetByTaskID.
-func (s *ApplicationStore) GetByConsignmentAndTaskCode(consignmentID, taskCode string) (*ApplicationRecord, error) {
+func (s *ApplicationStore) GetByConsignmentAndTaskCode(ctx context.Context, consignmentID, taskCode string) (*ApplicationRecord, error) {
 	var app ApplicationRecord
-	if err := s.db.Preload("Consignment").First(&app, "consignment_id = ? AND task_code = ?", consignmentID, taskCode).Error; err != nil {
+	if err := s.db.WithContext(ctx).Preload("Consignment").First(&app, "consignment_id = ? AND task_code = ?", consignmentID, taskCode).Error; err != nil {
 		return nil, err
 	}
 	if err := s.hydrateClaimant(&app); err != nil {
@@ -257,7 +257,7 @@ func (s *ApplicationStore) UpdateStatus(taskID string, status string, reviewerRe
 // concurrent review already completed, or the claim changed hands), so the
 // caller never overwrites another officer's outcome or double-records its
 // own.
-func (s *ApplicationStore) FinalizeReview(taskID, userID string, status string, reviewerResponse map[string]any) error {
+func (s *ApplicationStore) FinalizeReview(ctx context.Context, taskID, userID string, status string, reviewerResponse map[string]any) error {
 	now := time.Now()
 
 	jsonResponse, err := json.Marshal(reviewerResponse)
@@ -265,7 +265,7 @@ func (s *ApplicationStore) FinalizeReview(taskID, userID string, status string, 
 		return fmt.Errorf("failed to marshal reviewer response: %w", err)
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&ApplicationRecord{}).
 			Where("task_id = ? AND claimed_by = ? AND status = ?", taskID, userID, "PENDING").
 			Updates(map[string]any{
@@ -292,8 +292,8 @@ func (s *ApplicationStore) FinalizeReview(taskID, userID string, status string, 
 
 // AppendFeedback appends a feedback entry to the application's history and sets
 // the status to FEEDBACK_REQUESTED.
-func (s *ApplicationStore) AppendFeedback(taskID string, entry feedback.Entry) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+func (s *ApplicationStore) AppendFeedback(ctx context.Context, taskID string, entry feedback.Entry) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var app ApplicationRecord
 		if err := tx.First(&app, "task_id = ?", taskID).Error; err != nil {
 			return err
@@ -325,13 +325,13 @@ func (s *ApplicationStore) AppendFeedback(taskID string, entry feedback.Entry) e
 // pushedFields is merged onto the consignment's custom_data in the same
 // transaction, same as CreateOrUpdate — the resubmitted data may carry new
 // values for previously-pushed fields.
-func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[string]any, pushedFields map[string]any) error {
+func (s *ApplicationStore) UpdateDataAndResetStatus(ctx context.Context, taskID string, data map[string]any, pushedFields map[string]any) error {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var app ApplicationRecord
 		if err := tx.Select("consignment_id").Where("task_id = ?", taskID).First(&app).Error; err != nil {
 			return err
@@ -362,10 +362,10 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 // PENDING (i.e. it has already been reviewed). If the application is already
 // claimed by userID, this is a no-op: it succeeds without touching the row
 // or refreshing claimed_at.
-func (s *ApplicationStore) ClaimApplication(taskID, userID string) error {
+func (s *ApplicationStore) ClaimApplication(ctx context.Context, taskID, userID string) error {
 	now := time.Now()
 
-	result := s.db.Model(&ApplicationRecord{}).
+	result := s.db.WithContext(ctx).Model(&ApplicationRecord{}).
 		Where("task_id = ? AND claimed_by IS NULL AND status = ?", taskID, "PENDING").
 		Updates(map[string]any{
 			"claimed_by": userID,
@@ -381,7 +381,7 @@ func (s *ApplicationStore) ClaimApplication(taskID, userID string) error {
 	// No rows updated: disambiguate why - not found, no longer PENDING,
 	// already claimed by this same officer (no-op success), or claimed by
 	// someone else.
-	record, err := s.GetByTaskID(taskID)
+	record, err := s.GetByTaskID(ctx, taskID)
 	if err != nil {
 		return err
 	}
@@ -397,8 +397,8 @@ func (s *ApplicationStore) ClaimApplication(taskID, userID string) error {
 // ReleaseApplication releases the given officer's claim on an application.
 // Fails if the application is not currently claimed by userID, or if it is
 // no longer PENDING (i.e. it has already been reviewed).
-func (s *ApplicationStore) ReleaseApplication(taskID, userID string) error {
-	result := s.db.Model(&ApplicationRecord{}).
+func (s *ApplicationStore) ReleaseApplication(ctx context.Context, taskID, userID string) error {
+	result := s.db.WithContext(ctx).Model(&ApplicationRecord{}).
 		Where("task_id = ? AND claimed_by = ? AND status = ?", taskID, userID, "PENDING").
 		Updates(map[string]any{
 			"claimed_by": nil,
@@ -412,7 +412,7 @@ func (s *ApplicationStore) ReleaseApplication(taskID, userID string) error {
 	}
 
 	// No rows updated: disambiguate why.
-	record, err := s.GetByTaskID(taskID)
+	record, err := s.GetByTaskID(ctx, taskID)
 	if err != nil {
 		return err
 	}
