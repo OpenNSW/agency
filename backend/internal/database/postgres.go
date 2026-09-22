@@ -2,6 +2,8 @@ package database
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -27,8 +29,13 @@ func getEnvAsInt(key string, fallback int) int {
 
 // Open establishes a connection to the PostgreSQL database with connection pooling.
 func (c *PostgresConnector) Open() (*gorm.DB, error) {
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		c.Host, c.Port, c.User, c.Password, c.Name, c.SSLMode)
+	dsn := (&url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(c.User, c.Password),
+		Host:     net.JoinHostPort(c.Host, c.Port),
+		Path:     "/" + c.Name,
+		RawQuery: "sslmode=" + url.QueryEscape(c.SSLMode),
+	}).String()
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
