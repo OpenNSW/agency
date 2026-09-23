@@ -30,13 +30,12 @@ import (
 // "#/definitions/<name>" pointer (a nested-path or remote ref) are not
 // followed.
 func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[string]any, error) {
-	if len(rawSchema) == 0 {
-		return instance, nil
-	}
 	if instance == nil {
 		instance = map[string]any{}
 	}
-
+    if len(rawSchema) == 0 {
+		return instance, nil
+	}
 	var sch jsonschema.Schema
 	if err := json.Unmarshal(rawSchema, &sch); err != nil {
 		return nil, fmt.Errorf("%w: parse schema: %w", ErrSchemaLoad, err)
@@ -57,15 +56,22 @@ func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
 		return
 	}
 	for name, value := range obj {
-		propSchema := resolveRef(root, propertySchema(sch, name))
-		if propSchema == nil {
-			continue
-		}
-		if propSchema.ReadOnly {
+		propSchema := propertySchema(sch, name)
+		// readOnly is checked before resolving $ref: JSON Schema to address the cases like(e.g. {"$ref": "#/$defs/X", "readOnly": true}),
+		// otherwise the readOnly property will be ignored if the $ref is resolved to a schema without readOnly.
+		if propSchema != nil && propSchema.ReadOnly {
 			delete(obj, name)
 			continue
 		}
-		stripValue(root, propSchema, value)
+		resolved := resolveRef(root, propSchema)
+		if resolved == nil {
+			continue
+		}
+		if resolved.ReadOnly {
+			delete(obj, name)
+			continue
+		}
+		stripValue(root, resolved, value)
 	}
 }
 

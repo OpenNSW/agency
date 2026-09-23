@@ -172,6 +172,37 @@ func TestStripReadOnly_RefDefs(t *testing.T) {
 	}
 }
 
+// When there are keywords alongside "$ref"; a readOnly sitting
+// next to a $ref must still be honored even though the $ref's target itself
+// is editable.
+func TestStripReadOnly_ReadOnlySiblingOfRef(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"$defs": {
+			"Inspection": {
+				"type": "object",
+				"properties": {
+					"notes": {"type": "string"}
+				}
+			}
+		},
+		"properties": {
+			"inspection": {"$ref": "#/$defs/Inspection", "readOnly": true}
+		}
+	}`)
+	instance := map[string]any{
+		"inspection": map[string]any{"notes": "spoofed"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	if _, ok := got["inspection"]; ok {
+		t.Errorf("StripReadOnly() kept field marked readOnly alongside $ref, got %v", got)
+	}
+}
+
 // for old JSON Schema drafts that use "definitions" instead of "$defs"
 func TestStripReadOnly_RefDefinitions(t *testing.T) {
 	schema := []byte(`{
