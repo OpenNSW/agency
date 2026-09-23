@@ -115,6 +115,124 @@ func TestStripReadOnly_ArrayItems(t *testing.T) {
 	}
 }
 
+func TestStripReadOnly_RefDefs(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"$defs": {
+			"Inspection": {
+				"type": "object",
+				"properties": {
+					"officerId": {"type": "string", "readOnly": true},
+					"notes": {"type": "string"}
+				}
+			}
+		},
+		"properties": {
+			"inspection": {"$ref": "#/$defs/Inspection"}
+		}
+	}`)
+	instance := map[string]any{
+		"inspection": map[string]any{"officerId": "spoofed", "notes": "ok"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	inspection := got["inspection"].(map[string]any)
+	if _, ok := inspection["officerId"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field behind $defs $ref, got %v", inspection)
+	}
+	if inspection["notes"] != "ok" {
+		t.Errorf("StripReadOnly() dropped editable field behind $defs $ref, got %v", inspection)
+	}
+}
+
+func TestStripReadOnly_RefDefinitions(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"definitions": {
+			"Inspection": {
+				"type": "object",
+				"properties": {
+					"officerId": {"type": "string", "readOnly": true}
+				}
+			}
+		},
+		"properties": {
+			"inspection": {"$ref": "#/definitions/Inspection"}
+		}
+	}`)
+	instance := map[string]any{
+		"inspection": map[string]any{"officerId": "spoofed"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	inspection := got["inspection"].(map[string]any)
+	if _, ok := inspection["officerId"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field behind definitions $ref, got %v", inspection)
+	}
+}
+
+func TestStripReadOnly_RefArrayItems(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"$defs": {
+			"Line": {
+				"type": "object",
+				"properties": {
+					"lockedTotal": {"type": "number", "readOnly": true},
+					"description": {"type": "string"}
+				}
+			}
+		},
+		"properties": {
+			"lines": {"type": "array", "items": {"$ref": "#/$defs/Line"}}
+		}
+	}`)
+	instance := map[string]any{
+		"lines": []any{
+			map[string]any{"lockedTotal": float64(999), "description": "a"},
+		},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	line := got["lines"].([]any)[0].(map[string]any)
+	if _, ok := line["lockedTotal"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field behind array-item $ref, got %v", line)
+	}
+	if line["description"] != "a" {
+		t.Errorf("StripReadOnly() dropped editable field behind array-item $ref, got %v", line)
+	}
+}
+
+func TestStripReadOnly_UnsupportedRefIsSkipped(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"inspection": {"$ref": "https://example.com/schema.json#/Inspection"}
+		}
+	}`)
+	instance := map[string]any{
+		"inspection": map[string]any{"officerId": "unchanged"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	inspection := got["inspection"].(map[string]any)
+	if inspection["officerId"] != "unchanged" {
+		t.Errorf("StripReadOnly() should leave unresolvable $ref subtree untouched, got %v", inspection)
+	}
+}
+
 func TestStripReadOnly_MutatesInputInPlace(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",

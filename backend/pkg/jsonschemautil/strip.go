@@ -3,23 +3,26 @@ package jsonschemautil
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
 // StripReadOnly parses rawSchema as a JSON Schema and deletes every field
 // marked "readOnly": true from instance, in place, recursively through
-// nested objects (via "properties") and array items (via "items"). It
-// returns instance itself for convenience; callers that need the
-// pre-stripped data for something else (logging, comparison) must copy it
-// before calling.
+// nested objects (via "properties"), array items (via "items"), and local
+// "$ref" pointers into "$defs"/"definitions". It returns instance itself for
+// convenience; callers that need the pre-stripped data for something else
+// (logging, comparison) must copy it before calling.
 //
 // A nil/empty rawSchema means no schema is configured, so instance is
 // returned unchanged (following the pattern of ValidateInstance). A nil instance
 // returns nil.
 //
-// This is a pure data transform.
-// (composition keywords like $ref/allOf/anyOf/oneOf are not followed).
+// This is a pure data transform. Other composition keywords (allOf/anyOf/
+// oneOf) and any "$ref" that isn't a direct "#/$defs/<name>" or
+// "#/definitions/<name>" pointer (a nested-path or remote ref) are not
+// followed.
 func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[string]any, error) {
 	if len(rawSchema) == 0 || instance == nil {
 		return instance, nil
@@ -30,13 +33,13 @@ func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[stri
 		return nil, fmt.Errorf("%w: parse schema: %w", ErrSchemaLoad, err)
 	}
 
-	stripObject(&sch, instance)
+	stripValue(&sch, &sch, instance)
 	return instance, nil
 }
 
 // stripObject deletes from obj every key whose matching property schema is
 // marked readOnly, then recurses into the surviving values.
-func stripObject(sch *jsonschema.Schema, obj map[string]any) {
+func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
 	if sch == nil || obj == nil {
 		return
 	}
@@ -45,30 +48,56 @@ func stripObject(sch *jsonschema.Schema, obj map[string]any) {
 		if !ok {
 			continue
 		}
+		propSchema = resolveRef(root, propSchema)
 		if propSchema != nil && propSchema.ReadOnly {
 			delete(obj, name)
 			continue
 		}
-		stripValue(propSchema, value)
+		stripValue(root, propSchema, value)
 	}
 }
 
 // stripValue recurses into value if it's a JSON object or array and sch
 // describes its shape; anything else (scalars, or no schema to recurse
 // with) is left as-is.
-func stripValue(sch *jsonschema.Schema, value any) {
+func stripValue(root, sch *jsonschema.Schema, value any) {
+	sch = resolveRef(root, sch)
 	if sch == nil {
 		return
 	}
 	switch v := value.(type) {
 	case map[string]any:
-		stripObject(sch, v)
+		stripObject(root, sch, v)
 	case []any:
 		if sch.Items == nil {
 			return
 		}
 		for _, item := range v {
-			stripValue(sch.Items, item)
+			stripValue(root, sch.Items, item)
 		}
 	}
+}
+
+// resolveRef follows a direct "#/$defs/<name>" or "#/definitions/<name>"
+// $ref against root, one level. Anything else (a nested-path or remote ref)
+// is left unresolved, returning nil so the caller treats it like a schema
+// with no properties/items.
+func resolveRef(root, sch *jsonschema.Schema) *jsonschema.Schema {
+	if sch == nil || sch.Ref == "" {
+		return sch
+	}
+	name, ok := strings.CutPrefix(sch.Ref, "#/$defs/")
+	if ok {
+		return root.Defs[unescapeJSONPointerToken(name)]
+	}
+	if name, ok := strings.CutPrefix(sch.Ref, "#/definitions/"); ok {
+		return root.Definitions[unescapeJSONPointerToken(name)]
+	}
+	return nil
+}
+
+// unescapeJSONPointerToken reverses the "~1"/"~0" escaping RFC 6901 requires
+// for "/" and "~" within a single JSON Pointer token.
+func unescapeJSONPointerToken(tok string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(tok, "~1", "/"), "~0", "~")
 }
