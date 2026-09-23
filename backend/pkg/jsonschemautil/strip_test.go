@@ -318,6 +318,101 @@ func TestStripReadOnly_PropertiesTakesPrecedenceOverAdditionalProperties(t *test
 	}
 }
 
+func TestStripReadOnly_PrefixItems(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"tuple": {
+				"type": "array",
+				"prefixItems": [
+					{"type": "object", "properties": {"lockedTotal": {"type": "number", "readOnly": true}, "description": {"type": "string"}}},
+					{"type": "object", "properties": {"note": {"type": "string"}}}
+				],
+				"items": {"type": "object", "properties": {"overflowLocked": {"type": "string", "readOnly": true}, "extra": {"type": "string"}}}
+			}
+		}
+	}`)
+	instance := map[string]any{
+		"tuple": []any{
+			map[string]any{"lockedTotal": float64(999), "description": "a"},
+			map[string]any{"note": "b"},
+			map[string]any{"overflowLocked": "tampered", "extra": "c"},
+		},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	tuple := got["tuple"].([]any)
+	first := tuple[0].(map[string]any)
+	if _, ok := first["lockedTotal"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field in prefixItems[0], got %v", first)
+	}
+	if first["description"] != "a" {
+		t.Errorf("StripReadOnly() dropped editable field in prefixItems[0], got %v", first)
+	}
+	second := tuple[1].(map[string]any)
+	if second["note"] != "b" {
+		t.Errorf("StripReadOnly() dropped editable field in prefixItems[1], got %v", second)
+	}
+	third := tuple[2].(map[string]any)
+	if _, ok := third["overflowLocked"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field in overflow item, got %v", third)
+	}
+	if third["extra"] != "c" {
+		t.Errorf("StripReadOnly() dropped editable field in overflow item, got %v", third)
+	}
+}
+
+// for old JSON Schema drafts that use "items" as a tuple instead of "prefixItems"
+func TestStripReadOnly_LegacyItemsArray(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"tuple": {
+				"type": "array",
+				"items": [
+					{"type": "object", "properties": {"lockedTotal": {"type": "number", "readOnly": true}, "description": {"type": "string"}}},
+					{"type": "object", "properties": {"note": {"type": "string"}}}
+				],
+				"additionalItems": {"type": "object", "properties": {"overflowLocked": {"type": "string", "readOnly": true}, "extra": {"type": "string"}}}
+			}
+		}
+	}`)
+	instance := map[string]any{
+		"tuple": []any{
+			map[string]any{"lockedTotal": float64(999), "description": "a"},
+			map[string]any{"note": "b"},
+			map[string]any{"overflowLocked": "tampered", "extra": "c"},
+		},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	tuple := got["tuple"].([]any)
+	first := tuple[0].(map[string]any)
+	if _, ok := first["lockedTotal"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field in legacy items[0], got %v", first)
+	}
+	if first["description"] != "a" {
+		t.Errorf("StripReadOnly() dropped editable field in legacy items[0], got %v", first)
+	}
+	second := tuple[1].(map[string]any)
+	if second["note"] != "b" {
+		t.Errorf("StripReadOnly() dropped editable field in legacy items[1], got %v", second)
+	}
+	third := tuple[2].(map[string]any)
+	if _, ok := third["overflowLocked"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field in additionalItems overflow, got %v", third)
+	}
+	if third["extra"] != "c" {
+		t.Errorf("StripReadOnly() dropped editable field in additionalItems overflow, got %v", third)
+	}
+}
+
 func TestStripReadOnly_MutatesInputInPlace(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",

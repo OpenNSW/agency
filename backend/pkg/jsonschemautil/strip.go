@@ -12,10 +12,11 @@ import (
 // StripReadOnly parses rawSchema as a JSON Schema and deletes every field
 // marked "readOnly": true from instance, in place, recursively through
 // nested objects (via "properties", "patternProperties", and
-// "additionalProperties"), array items (via "items"), and local "$ref"
-// pointers into "$defs"/"definitions". It returns instance itself for
-// convenience; callers that need the pre-stripped data for something else
-// (logging, comparison) must copy it before calling.
+// "additionalProperties"), array items (via "items", "prefixItems", and the
+// legacy tuple form of "items"), and local "$ref" pointers into
+// "$defs"/"definitions". It returns instance itself for convenience;
+// callers that need the pre-stripped data for something else (logging,
+// comparison) must copy it before calling.
 //
 // A nil/empty rawSchema means no schema is configured, so instance is
 // returned unchanged (following the pattern of ValidateInstance). A nil instance
@@ -94,13 +95,37 @@ func stripValue(root, sch *jsonschema.Schema, value any) {
 	case map[string]any:
 		stripObject(root, sch, v)
 	case []any:
-		if sch.Items == nil {
-			return
-		}
-		for _, item := range v {
-			stripValue(root, sch.Items, item)
+		for i, item := range v {
+			itemSch := itemSchema(sch, i)
+			if itemSch == nil {
+				continue
+			}
+			stripValue(root, itemSch, item)
 		}
 	}
+}
+
+// itemSchema returns the schema that applies to the array item at index,
+// per JSON Schema's positional-array precedence: "prefixItems" (2020-12
+// tuple form) takes priority for its covered indices, falling back to
+// "items" as the overflow schema past the prefix; the legacy tuple form
+// ("items" itself given as an array of schemas, parsed into ItemsArray)
+// falls back to "additionalItems" past the tuple; otherwise "items" applies
+// uniformly to every index (nil if none of those are present).
+func itemSchema(sch *jsonschema.Schema, index int) *jsonschema.Schema {
+	if len(sch.PrefixItems) > 0 {
+		if index < len(sch.PrefixItems) {
+			return sch.PrefixItems[index]
+		}
+		return sch.Items
+	}
+	if len(sch.ItemsArray) > 0 {
+		if index < len(sch.ItemsArray) {
+			return sch.ItemsArray[index]
+		}
+		return sch.AdditionalItems
+	}
+	return sch.Items
 }
 
 // resolveRef follows a direct "#/$defs/<name>" or "#/definitions/<name>"
