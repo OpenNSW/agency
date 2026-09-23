@@ -3,6 +3,7 @@ package jsonschemautil
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -10,8 +11,9 @@ import (
 
 // StripReadOnly parses rawSchema as a JSON Schema and deletes every field
 // marked "readOnly": true from instance, in place, recursively through
-// nested objects (via "properties"), array items (via "items"), and local
-// "$ref" pointers into "$defs"/"definitions". It returns instance itself for
+// nested objects (via "properties", "patternProperties", and
+// "additionalProperties"), array items (via "items"), and local "$ref"
+// pointers into "$defs"/"definitions". It returns instance itself for
 // convenience; callers that need the pre-stripped data for something else
 // (logging, comparison) must copy it before calling.
 //
@@ -38,23 +40,46 @@ func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[stri
 }
 
 // stripObject deletes from obj every key whose matching property schema is
-// marked readOnly, then recurses into the surviving values.
+// marked readOnly, then recurses into the surviving values. The matching
+// schema for a key is found via "properties", falling back to
+// "patternProperties" and then "additionalProperties" for keys not named in
+// "properties" - the same precedence JSON Schema itself uses to decide which
+// schema applies to a given property name.
 func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
 	if sch == nil || obj == nil {
 		return
 	}
-	for name, propSchema := range sch.Properties {
-		value, ok := obj[name]
-		if !ok {
+	for name, value := range obj {
+		propSchema := resolveRef(root, propertySchema(sch, name))
+		if propSchema == nil {
 			continue
 		}
-		propSchema = resolveRef(root, propSchema)
-		if propSchema != nil && propSchema.ReadOnly {
+		if propSchema.ReadOnly {
 			delete(obj, name)
 			continue
 		}
 		stripValue(root, propSchema, value)
 	}
+}
+
+// propertySchema returns the schema that applies to instance property name,
+// per JSON Schema's matching precedence: an explicit "properties" entry,
+// else the first matching "patternProperties" regexp, else
+// "additionalProperties" (nil if none of those are present).
+func propertySchema(sch *jsonschema.Schema, name string) *jsonschema.Schema {
+	if propSchema, ok := sch.Properties[name]; ok {
+		return propSchema
+	}
+	for pattern, propSchema := range sch.PatternProperties {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			continue
+		}
+		if re.MatchString(name) {
+			return propSchema
+		}
+	}
+	return sch.AdditionalProperties
 }
 
 // stripValue recurses into value if it's a JSON object or array and sch

@@ -112,6 +112,9 @@ func TestStripReadOnly_ArrayItems(t *testing.T) {
 		if _, ok := line["lockedTotal"]; ok {
 			t.Errorf("StripReadOnly() kept readOnly array item field, got %v", line)
 		}
+		if line["description"] != "a" && line["description"] != "b" {
+			t.Errorf("StripReadOnly() dropped editable array item field, got %v", line)
+		}
 	}
 }
 
@@ -148,6 +151,7 @@ func TestStripReadOnly_RefDefs(t *testing.T) {
 	}
 }
 
+// for old JSON Schema drafts that use "definitions" instead of "$defs"
 func TestStripReadOnly_RefDefinitions(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",
@@ -216,7 +220,7 @@ func TestStripReadOnly_UnsupportedRefIsSkipped(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",
 		"properties": {
-			"inspection": {"$ref": "https://example.com/schema.json#/Inspection"}
+			"inspection": {"$ref": "jsonpath/that/does/not/exist"}
 		}
 	}`)
 	instance := map[string]any{
@@ -230,6 +234,87 @@ func TestStripReadOnly_UnsupportedRefIsSkipped(t *testing.T) {
 	inspection := got["inspection"].(map[string]any)
 	if inspection["officerId"] != "unchanged" {
 		t.Errorf("StripReadOnly() should leave unresolvable $ref subtree untouched, got %v", inspection)
+	}
+}
+
+func TestStripReadOnly_AdditionalProperties(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"comment": {"type": "string"}
+		},
+		"additionalProperties": {
+			"type": "object",
+			"properties": {
+				"lockedTotal": {"type": "number", "readOnly": true},
+				"description": {"type": "string"}
+			}
+		}
+	}`)
+	instance := map[string]any{
+		"comment": "ok",
+		"extra1":  map[string]any{"lockedTotal": float64(999), "description": "a"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	extra := got["extra1"].(map[string]any)
+	if _, ok := extra["lockedTotal"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field behind additionalProperties, got %v", extra)
+	}
+	if extra["description"] != "a" {
+		t.Errorf("StripReadOnly() dropped editable field behind additionalProperties, got %v", extra)
+	}
+}
+
+func TestStripReadOnly_PatternProperties(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"patternProperties": {
+			"^item_": {
+				"type": "object",
+				"properties": {
+					"lockedTotal": {"type": "number", "readOnly": true},
+					"description": {"type": "string"}
+				}
+			}
+		}
+	}`)
+	instance := map[string]any{
+		"item_1": map[string]any{"lockedTotal": float64(999), "description": "a"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	item := got["item_1"].(map[string]any)
+	if _, ok := item["lockedTotal"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field behind patternProperties, got %v", item)
+	}
+	if item["description"] != "a" {
+		t.Errorf("StripReadOnly() dropped editable field behind patternProperties, got %v", item)
+	}
+}
+
+func TestStripReadOnly_PropertiesTakesPrecedenceOverAdditionalProperties(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"comment": {"type": "string"}
+		},
+		"additionalProperties": {"type": "string", "readOnly": true}
+	}`)
+	instance := map[string]any{"comment": "ok"}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	if got["comment"] != "ok" {
+		t.Errorf("StripReadOnly() incorrectly applied additionalProperties to a named property, got %v", got)
 	}
 }
 
