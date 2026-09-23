@@ -370,6 +370,63 @@ func TestStripReadOnly_PropertiesTakesPrecedenceOverAdditionalProperties(t *test
 	}
 }
 
+func TestStripReadOnly_PropertiesAndPatternPropertiesBothApply(t *testing.T) {
+	// "id" matches both the explicit "properties" entry (not readOnly) and
+	// the "^i" patternProperties entry (readOnly): JSON Schema applies both
+	// simultaneously, so the readOnly one must win and strip the field.
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"id": {"type": "string"}
+		},
+		"patternProperties": {
+			"^i": {"type": "string", "readOnly": true}
+		}
+	}`)
+	instance := map[string]any{"id": "abc"}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	if _, ok := got["id"]; ok {
+		t.Errorf("StripReadOnly() kept field readOnly via patternProperties despite also matching properties, got %v", got)
+	}
+}
+
+func TestStripReadOnly_MultiplePatternPropertiesMatchSameName(t *testing.T) {
+	// "item_1" matches two patternProperties regexps; only one marks the
+	// nested field readOnly. Both must be consulted regardless of map
+	// iteration order.
+	schema := []byte(`{
+		"type": "object",
+		"patternProperties": {
+			"^item_": {
+				"type": "object",
+				"properties": {
+					"description": {"type": "string"}
+				}
+			},
+			"_1$": {
+				"type": "object",
+				"properties": {
+					"description": {"type": "string", "readOnly": true}
+				}
+			}
+		}
+	}`)
+	instance := map[string]any{"item_1": map[string]any{"description": "a"}}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	item := got["item_1"].(map[string]any)
+	if _, ok := item["description"]; ok {
+		t.Errorf("StripReadOnly() kept field readOnly via one of several matching patternProperties, got %v", item)
+	}
+}
+
 func TestStripReadOnly_PrefixItems(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",

@@ -33,7 +33,7 @@ func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[stri
 	if instance == nil {
 		instance = map[string]any{}
 	}
-    if len(rawSchema) == 0 {
+	if len(rawSchema) == 0 {
 		return instance, nil
 	}
 	var sch jsonschema.Schema
@@ -41,78 +41,129 @@ func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[stri
 		return nil, fmt.Errorf("%w: parse schema: %w", ErrSchemaLoad, err)
 	}
 
-	stripValue(&sch, &sch, instance)
+	s := &stripper{root: &sch, patternProps: map[*jsonschema.Schema][]compiledPattern{}}
+	s.stripValue(&sch, instance)
 	return instance, nil
 }
 
-// stripObject deletes from obj every key whose matching property schema is
-// marked readOnly, then recurses into the surviving values. The matching
-// schema for a key is found via "properties", falling back to
-// "patternProperties" and then "additionalProperties" for keys not named in
-// "properties" - the same precedence JSON Schema itself uses to decide which
-// schema applies to a given property name.
-func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
+// stripper carries the state shared across one StripReadOnly call: the root
+// schema (for resolving "$ref") and a cache of compiled "patternProperties"
+// regexps keyed by schema node, so a schema visited from multiple instance
+// paths (e.g. via "$ref" or repeated array items) only compiles its patterns
+// once.
+type stripper struct {
+	root         *jsonschema.Schema
+	patternProps map[*jsonschema.Schema][]compiledPattern
+}
+
+// compiledPattern pairs a compiled "patternProperties" regexp with the
+// schema it maps to.
+type compiledPattern struct {
+	re     *regexp.Regexp
+	schema *jsonschema.Schema
+}
+
+// stripObject deletes from obj every key any of whose applicable schemas
+// (see applicableSchemas) marks readOnly, then recurses into the surviving
+// values against every applicable schema.
+func (s *stripper) stripObject(sch *jsonschema.Schema, obj map[string]any) {
 	if sch == nil || obj == nil {
 		return
 	}
 	for name, value := range obj {
-		propSchema := propertySchema(sch, name)
-		// readOnly is checked before resolving $ref: JSON Schema to address the cases like(e.g. {"$ref": "#/$defs/X", "readOnly": true}),
-		// otherwise the readOnly property will be ignored if the $ref is resolved to a schema without readOnly.
-		if propSchema != nil && propSchema.ReadOnly {
+		propSchemas := s.applicableSchemas(sch, name)
+		readOnly := false
+		resolved := make([]*jsonschema.Schema, 0, len(propSchemas))
+		for _, propSchema := range propSchemas {
+			// readOnly is checked before resolving $ref: JSON Schema to address the cases like(e.g. {"$ref": "#/$defs/X", "readOnly": true}),
+			// otherwise the readOnly property will be ignored if the $ref is resolved to a schema without readOnly.
+			if propSchema.ReadOnly {
+				readOnly = true
+				break
+			}
+			r := s.resolveRef(propSchema)
+			if r == nil {
+				continue
+			}
+			if r.ReadOnly {
+				readOnly = true
+				break
+			}
+			resolved = append(resolved, r)
+		}
+		if readOnly {
 			delete(obj, name)
 			continue
 		}
-		resolved := resolveRef(root, propSchema)
-		if resolved == nil {
-			continue
+		for _, r := range resolved {
+			s.stripValue(r, value)
 		}
-		if resolved.ReadOnly {
-			delete(obj, name)
-			continue
-		}
-		stripValue(root, resolved, value)
 	}
 }
 
-// propertySchema returns the schema that applies to instance property name,
-// per JSON Schema's matching precedence: an explicit "properties" entry,
-// else the first matching "patternProperties" regexp, else
-// "additionalProperties" (nil if none of those are present).
-func propertySchema(sch *jsonschema.Schema, name string) *jsonschema.Schema {
+// applicableSchemas returns every schema JSON Schema applies to instance
+// property name: the explicit "properties" entry if present, plus every
+// matching "patternProperties" regexp - both apply simultaneously, they are
+// not mutually exclusive, matching the semantics the underlying
+// jsonschema-go validator itself uses. "additionalProperties" only applies
+// when neither of those matched (nil if nothing applies).
+func (s *stripper) applicableSchemas(sch *jsonschema.Schema, name string) []*jsonschema.Schema {
+	var matched []*jsonschema.Schema
 	if propSchema, ok := sch.Properties[name]; ok {
-		return propSchema
+		matched = append(matched, propSchema)
 	}
+	for _, cp := range s.compiledPatternProperties(sch) {
+		if cp.re.MatchString(name) {
+			matched = append(matched, cp.schema)
+		}
+	}
+	if len(matched) > 0 {
+		return matched
+	}
+	if sch.AdditionalProperties != nil {
+		return []*jsonschema.Schema{sch.AdditionalProperties}
+	}
+	return nil
+}
+
+// compiledPatternProperties returns sch's "patternProperties" regexps,
+// compiled once and cached per schema node. Schemas reach here only after
+// validation, so they're guaranteed valid; a pattern that still fails to
+// compile is skipped rather than treated as an error.
+func (s *stripper) compiledPatternProperties(sch *jsonschema.Schema) []compiledPattern {
+	if cached, ok := s.patternProps[sch]; ok {
+		return cached
+	}
+	compiled := make([]compiledPattern, 0, len(sch.PatternProperties))
 	for pattern, propSchema := range sch.PatternProperties {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			continue
 		}
-		if re.MatchString(name) {
-			return propSchema
-		}
+		compiled = append(compiled, compiledPattern{re: re, schema: propSchema})
 	}
-	return sch.AdditionalProperties
+	s.patternProps[sch] = compiled
+	return compiled
 }
 
 // stripValue recurses into value if it's a JSON object or array and sch
 // describes its shape; anything else (scalars, or no schema to recurse
 // with) is left as-is.
-func stripValue(root, sch *jsonschema.Schema, value any) {
-	sch = resolveRef(root, sch)
+func (s *stripper) stripValue(sch *jsonschema.Schema, value any) {
+	sch = s.resolveRef(sch)
 	if sch == nil {
 		return
 	}
 	switch v := value.(type) {
 	case map[string]any:
-		stripObject(root, sch, v)
+		s.stripObject(sch, v)
 	case []any:
 		for i, item := range v {
 			itemSch := itemSchema(sch, i)
 			if itemSch == nil {
 				continue
 			}
-			stripValue(root, itemSch, item)
+			s.stripValue(itemSch, item)
 		}
 	}
 }
@@ -144,16 +195,16 @@ func itemSchema(sch *jsonschema.Schema, index int) *jsonschema.Schema {
 // $ref against root, one level. Anything else (a nested-path or remote ref)
 // is left unresolved, returning nil so the caller treats it like a schema
 // with no properties/items.
-func resolveRef(root, sch *jsonschema.Schema) *jsonschema.Schema {
+func (s *stripper) resolveRef(sch *jsonschema.Schema) *jsonschema.Schema {
 	if sch == nil || sch.Ref == "" {
 		return sch
 	}
 	name, ok := strings.CutPrefix(sch.Ref, "#/$defs/")
 	if ok {
-		return root.Defs[unescapeJSONPointerToken(name)]
+		return s.root.Defs[unescapeJSONPointerToken(name)]
 	}
 	if name, ok := strings.CutPrefix(sch.Ref, "#/definitions/"); ok {
-		return root.Definitions[unescapeJSONPointerToken(name)]
+		return s.root.Definitions[unescapeJSONPointerToken(name)]
 	}
 	return nil
 }
