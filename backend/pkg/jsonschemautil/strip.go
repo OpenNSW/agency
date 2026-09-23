@@ -10,25 +10,31 @@ import (
 )
 
 // StripReadOnly parses rawSchema as a JSON Schema and deletes every field
-// marked "readOnly": true from instance, in place, recursively through
-// nested objects (via "properties", "patternProperties", and
-// "additionalProperties"), array items (via "items", "prefixItems", and the
-// legacy tuple form of "items"), and local "$ref" pointers into
-// "$defs"/"definitions". It returns instance itself for convenience;
-// callers that need the pre-stripped data for something else (logging,
-// comparison) must copy it before calling.
+// marked "readOnly": true from instance, recursively through nested objects
+// (via "properties", "patternProperties", and "additionalProperties"),
+// array items (via "items", "prefixItems", and the legacy tuple form of
+// "items"), and local "$ref" pointers into "$defs"/"definitions".
+//
+// Callers must always use the returned map, not the instance argument as
+// passed in: for a non-nil instance the two happen to be the same
+// underlying map (mutated in place), but a nil instance returns a distinct, newly
+// allocated empty map instead. Callers that need the pre-stripped data for
+// something else (logging, comparison) must copy it before calling.
 //
 // A nil/empty rawSchema means no schema is configured, so instance is
-// returned unchanged (following the pattern of ValidateInstance). A nil instance
-// returns nil.
+// returned unchanged (following the pattern of ValidateInstance). A nil
+// instance is treated as an empty object (matching ValidateInstance).
 //
 // This is a pure data transform. Other composition keywords (allOf/anyOf/
 // oneOf) and any "$ref" that isn't a direct "#/$defs/<name>" or
 // "#/definitions/<name>" pointer (a nested-path or remote ref) are not
 // followed.
 func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[string]any, error) {
-	if len(rawSchema) == 0 || instance == nil {
+	if len(rawSchema) == 0 {
 		return instance, nil
+	}
+	if instance == nil {
+		instance = map[string]any{}
 	}
 
 	var sch jsonschema.Schema

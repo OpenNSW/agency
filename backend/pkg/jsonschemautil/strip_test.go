@@ -16,14 +16,35 @@ func TestStripReadOnly_NoSchemaIsNoop(t *testing.T) {
 	}
 }
 
-func TestStripReadOnly_NilInstanceReturnsNil(t *testing.T) {
-	schema := []byte(`{"type":"object"}`)
+func TestStripReadOnly_NilInstanceTreatedAsEmptyObject(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"injectedValue": {"type": "string", "readOnly": true}
+		}
+	}`)
 	got, err := StripReadOnly(schema, nil)
 	if err != nil {
 		t.Fatalf("StripReadOnly() error = %v, want nil", err)
 	}
+	if got == nil {
+		t.Fatalf("StripReadOnly(nil instance) = nil, want non-nil empty map (matches ValidateInstance's nil-as-{} treatment)")
+	}
+	if len(got) != 0 {
+		t.Errorf("StripReadOnly(nil instance) = %v, want empty map", got)
+	}
+	// Must be safe to write into, unlike a nil map.
+	got["x"] = 1
+}
+
+func TestStripReadOnly_MalformedSchemaErrorsEvenWithNilInstance(t *testing.T) {
+	schema := []byte(`{not valid json`)
+	got, err := StripReadOnly(schema, nil)
+	if !errors.Is(err, ErrSchemaLoad) {
+		t.Fatalf("StripReadOnly() error = %v, want ErrSchemaLoad", err)
+	}
 	if got != nil {
-		t.Errorf("StripReadOnly(nil instance) = %v, want nil", got)
+		t.Errorf("StripReadOnly() = %v, want nil on error", got)
 	}
 }
 
