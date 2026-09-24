@@ -3,12 +3,33 @@ package jsonschemautil
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
+
+// patternCache memoizes regexp.Compile results for a single StripReadOnly
+// call, keyed by the pattern string.A cached nil records a pattern that failed to compile, so a
+// bad pattern is only attempted (and warned about) once per call, not once
+// per lookup.
+type patternCache map[string]*regexp.Regexp
+
+func (c patternCache) compile(pattern string) *regexp.Regexp {
+	if re, ok := c[pattern]; ok {
+		return re
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		slog.Warn("jsonschemautil: patternProperties pattern failed to compile, skipping",
+			"pattern", pattern, "error", err)
+		re = nil
+	}
+	c[pattern] = re
+	return re
+}
 
 // StripReadOnly parses rawSchema as a JSON Schema and deletes every field
 // marked "readOnly": true from instance, recursively through nested objects
@@ -43,7 +64,7 @@ func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[stri
 		return nil, fmt.Errorf("%w: parse schema: %w", ErrSchemaLoad, err)
 	}
 
-	stripValue(&sch, &sch, instance)
+	stripValue(&sch, &sch, instance, patternCache{})
 	return instance, nil
 }
 
@@ -51,18 +72,18 @@ func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[stri
 // schema is marked readOnly, then recurses into the surviving values with
 // every applicable schema, so a nested readOnly field declared by any of
 // them is stripped.
-func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
+func stripObject(root, sch *jsonschema.Schema, obj map[string]any, cache patternCache) {
 	if sch == nil || obj == nil {
 		return
 	}
 	for name, value := range obj {
-		propSchemas := propertySchemas(sch, name)
+		propSchemas := propertySchemas(sch, name, cache)
 		if slices.ContainsFunc(propSchemas, func(s *jsonschema.Schema) bool { return isReadOnly(root, s) }) {
 			delete(obj, name)
 			continue
 		}
 		for _, propSchema := range propSchemas {
-			stripValue(root, propSchema, value)
+			stripValue(root, propSchema, value, cache)
 		}
 	}
 }
@@ -89,7 +110,7 @@ func isReadOnly(root, sch *jsonschema.Schema) bool {
 // applies only when neither of those matched. Callers resolve "$ref"
 // themselves (via isReadOnly and stripValue) rather than here, so a
 // "readOnly" sibling of "$ref" isn't lost before it can be inspected.
-func propertySchemas(sch *jsonschema.Schema, name string) []*jsonschema.Schema {
+func propertySchemas(sch *jsonschema.Schema, name string, cache patternCache) []*jsonschema.Schema {
 	var matched []*jsonschema.Schema
 	add := func(s *jsonschema.Schema) {
 		if s != nil {
@@ -103,8 +124,8 @@ func propertySchemas(sch *jsonschema.Schema, name string) []*jsonschema.Schema {
 		add(propSchema)
 	}
 	for pattern, propSchema := range sch.PatternProperties {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
+		re := cache.compile(pattern)
+		if re == nil {
 			continue
 		}
 		if re.MatchString(name) {
@@ -121,21 +142,21 @@ func propertySchemas(sch *jsonschema.Schema, name string) []*jsonschema.Schema {
 // stripValue recurses into value if it's a JSON object or array and sch
 // describes its shape; anything else (scalars, or no schema to recurse
 // with) is left as-is.
-func stripValue(root, sch *jsonschema.Schema, value any) {
+func stripValue(root, sch *jsonschema.Schema, value any, cache patternCache) {
 	sch = resolveRef(root, sch)
 	if sch == nil {
 		return
 	}
 	switch v := value.(type) {
 	case map[string]any:
-		stripObject(root, sch, v)
+		stripObject(root, sch, v, cache)
 	case []any:
 		for i, item := range v {
 			itemSch := itemSchema(sch, i)
 			if itemSch == nil {
 				continue
 			}
-			stripValue(root, itemSch, item)
+			stripValue(root, itemSch, item, cache)
 		}
 	}
 }
