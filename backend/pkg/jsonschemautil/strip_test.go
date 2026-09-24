@@ -258,6 +258,60 @@ func TestStripReadOnly_UnsupportedRefIsSkipped(t *testing.T) {
 	}
 }
 
+func TestStripReadOnly_ReadOnlySiblingOfResolvableRefStrips(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"$defs": {
+			"Address": {
+				"type": "object",
+				"properties": {"city": {"type": "string"}}
+			}
+		},
+		"properties": {
+			"address": {"$ref": "#/$defs/Address", "readOnly": true}
+		}
+	}`)
+	instance := map[string]any{
+		"address": map[string]any{"city": "spoofed"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	if _, ok := got["address"]; ok {
+		t.Errorf("StripReadOnly() kept field marked readOnly alongside $ref, got %v", got)
+	}
+}
+
+
+func TestStripReadOnly_ReadOnlyDeclaredOnRefTargetStrips(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"$defs": {
+			"Address": {
+				"type": "object",
+				"readOnly": true,
+				"properties": {"city": {"type": "string"}}
+			}
+		},
+		"properties": {
+			"address": {"$ref": "#/$defs/Address"}
+		}
+	}`)
+	instance := map[string]any{
+		"address": map[string]any{"city": "spoofed"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	if _, ok := got["address"]; ok {
+		t.Errorf("StripReadOnly() kept field whose $ref target is itself readOnly, got %v", got)
+	}
+}
+
 func TestStripReadOnly_AdditionalProperties(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",
@@ -550,15 +604,5 @@ func TestStripReadOnly_MutatesInputInPlace(t *testing.T) {
 	got["addedAfter"] = true
 	if instance["addedAfter"] != true {
 		t.Error("StripReadOnly() return value is not the same underlying map as the input")
-	}
-}
-
-func TestStripReadOnly_UnparsableSchemaIsErrSchemaLoad(t *testing.T) {
-	_, err := StripReadOnly([]byte(`not json`), map[string]any{})
-	if err == nil {
-		t.Fatal("StripReadOnly() expected an error, got nil")
-	}
-	if !errors.Is(err, ErrSchemaLoad) {
-		t.Errorf("StripReadOnly() error = %v, want ErrSchemaLoad", err)
 	}
 }

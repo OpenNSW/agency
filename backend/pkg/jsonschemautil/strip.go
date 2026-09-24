@@ -56,8 +56,8 @@ func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
 		return
 	}
 	for name, value := range obj {
-		propSchemas := propertySchemas(root, sch, name)
-		if slices.ContainsFunc(propSchemas, func(s *jsonschema.Schema) bool { return s.ReadOnly }) {
+		propSchemas := propertySchemas(sch, name)
+		if slices.ContainsFunc(propSchemas, func(s *jsonschema.Schema) bool { return isReadOnly(root, s) }) {
 			delete(obj, name)
 			continue
 		}
@@ -67,15 +67,32 @@ func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
 	}
 }
 
-// propertySchemas returns every (ref-resolved, non-nil) schema that applies
-// to instance property name, per JSON Schema's object applicator rules: the
-// "properties" entry for name and every "patternProperties" entry whose
-// regexp matches name all apply together; "additionalProperties" applies
-// only when neither of those matched.
-func propertySchemas(root, sch *jsonschema.Schema, name string) []*jsonschema.Schema {
+// isReadOnly reports whether sch is marked "readOnly": true, checking both
+// the schema as given and, if it's a "$ref", the schema it resolves to - a
+// "readOnly" sibling of "$ref" and a "readOnly" declared on the referenced
+// definition itself are both valid and must both be honored. 
+func isReadOnly(root, sch *jsonschema.Schema) bool {
+	if sch == nil {
+		return false
+	}
+	if sch.ReadOnly {
+		return true
+	}
+	resolved := resolveRef(root, sch)
+	return resolved != nil && resolved.ReadOnly
+}
+
+// propertySchemas returns every (non-nil, not yet ref-resolved) schema that
+// applies to instance property name, per JSON Schema's object applicator
+// rules: the "properties" entry for name and every "patternProperties"
+// entry whose regexp matches name all apply together; "additionalProperties"
+// applies only when neither of those matched. Callers resolve "$ref"
+// themselves (via isReadOnly and stripValue) rather than here, so a
+// "readOnly" sibling of "$ref" isn't lost before it can be inspected.
+func propertySchemas(sch *jsonschema.Schema, name string) []*jsonschema.Schema {
 	var matched []*jsonschema.Schema
 	add := func(s *jsonschema.Schema) {
-		if s = resolveRef(root, s); s != nil {
+		if s != nil {
 			matched = append(matched, s)
 		}
 	}
