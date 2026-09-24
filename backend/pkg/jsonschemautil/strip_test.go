@@ -284,7 +284,6 @@ func TestStripReadOnly_ReadOnlySiblingOfResolvableRefStrips(t *testing.T) {
 	}
 }
 
-
 func TestStripReadOnly_ReadOnlyDeclaredOnRefTargetStrips(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",
@@ -382,7 +381,7 @@ func TestStripReadOnly_AnyMatchingPatternPropertyReadOnlyStrips(t *testing.T) {
 			"_1$": {"type": "string", "readOnly": true}
 		}
 	}`)
-	for range 50 {  // added this loop to minimise the chance of a "first win" implementation doesnt slip throgh.
+	for range 50 { // added this loop to minimise the chance of a "first win" implementation doesnt slip throgh.
 		got, err := StripReadOnly(schema, map[string]any{"item_1": "x", "item_2": "y"})
 		if err != nil {
 			t.Fatalf("StripReadOnly() error = %v, want nil", err)

@@ -1,5 +1,7 @@
 package jsonschemautil
 
+// Please update docs/jsonschemautil.md if you change the supported subset of JSON Schema.
+
 import (
 	"encoding/json"
 	"fmt"
@@ -12,9 +14,8 @@ import (
 )
 
 // patternCache memoizes regexp.Compile results for a single StripReadOnly
-// call, keyed by the pattern string.A cached nil records a pattern that failed to compile, so a
-// bad pattern is only attempted (and warned about) once per call, not once
-// per lookup.
+// call, keyed by the pattern string. A cached nil marks a pattern that
+// failed to compile, so it's only attempted (and warned about) once.
 type patternCache map[string]*regexp.Regexp
 
 func (c patternCache) compile(pattern string) *regexp.Regexp {
@@ -32,25 +33,15 @@ func (c patternCache) compile(pattern string) *regexp.Regexp {
 }
 
 // StripReadOnly parses rawSchema as a JSON Schema and deletes every field
-// marked "readOnly": true from instance, recursively through nested objects
-// (via "properties", "patternProperties", and "additionalProperties"),
-// array items (via "items", "prefixItems", and the legacy tuple form of
-// "items"), and local "$ref" pointers into "$defs"/"definitions".
+// marked "readOnly": true from instance. See docs/jsonschemautil.md for the
+// supported subset of JSON Schema.
 //
-// Callers must always use the returned map, not the instance argument as
-// passed in: for a non-nil instance the two happen to be the same
-// underlying map (mutated in place), but a nil instance returns a distinct, newly
-// allocated empty map instead. Callers that need the pre-stripped data for
-// something else (logging, comparison) must copy it before calling.
-//
-// A nil/empty rawSchema means no schema is configured, so instance is
-// returned unchanged (following the pattern of ValidateInstance). A nil
-// instance is treated as an empty object (matching ValidateInstance).
-//
-// This is a pure data transform. Other composition keywords (allOf/anyOf/
-// oneOf) and any "$ref" that isn't a direct "#/$defs/<name>" or
-// "#/definitions/<name>" pointer (a nested-path or remote ref) are not
-// followed.
+// Callers must use the returned map, not the instance argument as passed
+// in: for a non-nil instance both refer to the same, now-mutated map, but a
+// nil instance returns a distinct new one - copy instance first if you
+// still need the pre-strip data. A nil/empty rawSchema or a nil instance
+// are each handled the same way ValidateInstance handles them (parse
+// skipped; nil treated as {}).
 func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[string]any, error) {
 	if len(rawSchema) == 0 {
 		return instance, nil
@@ -88,10 +79,9 @@ func stripObject(root, sch *jsonschema.Schema, obj map[string]any, cache pattern
 	}
 }
 
-// isReadOnly reports whether sch is marked "readOnly": true, checking both
-// the schema as given and, if it's a "$ref", the schema it resolves to - a
-// "readOnly" sibling of "$ref" and a "readOnly" declared on the referenced
-// definition itself are both valid and must both be honored. 
+// isReadOnly reports whether sch is readOnly, checking both the schema
+// itself and, if present, what its "$ref" resolves to - a "readOnly"
+// sibling of "$ref" and one declared on the ref target are both honored.
 func isReadOnly(root, sch *jsonschema.Schema) bool {
 	if sch == nil {
 		return false
@@ -104,12 +94,10 @@ func isReadOnly(root, sch *jsonschema.Schema) bool {
 }
 
 // propertySchemas returns every (non-nil, not yet ref-resolved) schema that
-// applies to instance property name, per JSON Schema's object applicator
-// rules: the "properties" entry for name and every "patternProperties"
-// entry whose regexp matches name all apply together; "additionalProperties"
-// applies only when neither of those matched. Callers resolve "$ref"
-// themselves (via isReadOnly and stripValue) rather than here, so a
-// "readOnly" sibling of "$ref" isn't lost before it can be inspected.
+// applies to instance property name across "properties", "patternProperties",
+// and "additionalProperties" (see docs/jsonschemautil.md for precedence).
+// $ref is resolved by the caller (isReadOnly, stripValue) rather than here,
+// so a "readOnly" sibling of "$ref" isn't lost before it can be inspected.
 func propertySchemas(sch *jsonschema.Schema, name string, cache patternCache) []*jsonschema.Schema {
 	var matched []*jsonschema.Schema
 	add := func(s *jsonschema.Schema) {
@@ -161,13 +149,8 @@ func stripValue(root, sch *jsonschema.Schema, value any, cache patternCache) {
 	}
 }
 
-// itemSchema returns the schema that applies to the array item at index,
-// per JSON Schema's positional-array precedence: "prefixItems" (2020-12
-// tuple form) takes priority for its covered indices, falling back to
-// "items" as the overflow schema past the prefix; the legacy tuple form
-// ("items" itself given as an array of schemas, parsed into ItemsArray)
-// falls back to "additionalItems" past the tuple; otherwise "items" applies
-// uniformly to every index (nil if none of those are present).
+// itemSchema returns the schema for the array item at index; see
+// docs/jsonschemautil.md for the prefixItems/items/legacy-tuple precedence.
 func itemSchema(sch *jsonschema.Schema, index int) *jsonschema.Schema {
 	if len(sch.PrefixItems) > 0 {
 		if index < len(sch.PrefixItems) {
@@ -185,9 +168,8 @@ func itemSchema(sch *jsonschema.Schema, index int) *jsonschema.Schema {
 }
 
 // resolveRef follows a direct "#/$defs/<name>" or "#/definitions/<name>"
-// $ref against root, one level. Anything else (a nested-path or remote ref)
-// is left unresolved, returning nil so the caller treats it like a schema
-// with no properties/items.
+// $ref against root, one level; anything else is left unresolved (nil) -
+// see docs/jsonschemautil.md for what's supported.
 func resolveRef(root, sch *jsonschema.Schema) *jsonschema.Schema {
 	if sch == nil || sch.Ref == "" {
 		return sch
