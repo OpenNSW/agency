@@ -203,6 +203,47 @@ func TestStripReadOnly_ReadOnlySiblingOfRef(t *testing.T) {
 	}
 }
 
+// A "properties" entry declared alongside "$ref" applies independently of
+// the $ref's target - not just a bare "readOnly" sibling (already covered by
+// TestStripReadOnly_ReadOnlySiblingOfRef), but a nested readOnly field
+// declared in that sibling "properties".
+func TestStripReadOnly_ReadOnlyInRefSiblingProperties(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"$defs": {
+			"Inspection": {
+				"type": "object",
+				"properties": {
+					"notes": {"type": "string"}
+				}
+			}
+		},
+		"properties": {
+			"inspection": {
+				"$ref": "#/$defs/Inspection",
+				"properties": {
+					"officerId": {"type": "string", "readOnly": true}
+				}
+			}
+		}
+	}`)
+	instance := map[string]any{
+		"inspection": map[string]any{"notes": "keep", "officerId": "spoofed"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	inspection := got["inspection"].(map[string]any)
+	if _, ok := inspection["officerId"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field declared in $ref sibling properties, got %v", inspection)
+	}
+	if inspection["notes"] != "keep" {
+		t.Errorf("StripReadOnly() dropped editable field behind $ref target, got %v", inspection)
+	}
+}
+
 // for old JSON Schema drafts that use "definitions" instead of "$defs"
 func TestStripReadOnly_RefDefinitions(t *testing.T) {
 	schema := []byte(`{

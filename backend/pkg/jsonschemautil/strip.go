@@ -72,33 +72,40 @@ func (s *stripper) stripObject(sch *jsonschema.Schema, obj map[string]any) {
 	}
 	for name, value := range obj {
 		propSchemas := s.applicableSchemas(sch, name)
-		readOnly := false
-		resolved := make([]*jsonschema.Schema, 0, len(propSchemas))
-		for _, propSchema := range propSchemas {
-			// readOnly is checked before resolving $ref: JSON Schema to address the cases like(e.g. {"$ref": "#/$defs/X", "readOnly": true}),
-			// otherwise the readOnly property will be ignored if the $ref is resolved to a schema without readOnly.
-			if propSchema.ReadOnly {
-				readOnly = true
-				break
-			}
-			r := s.resolveRef(propSchema)
-			if r == nil {
-				continue
-			}
-			if r.ReadOnly {
-				readOnly = true
-				break
-			}
-			resolved = append(resolved, r)
-		}
-		if readOnly {
+		if s.anyReadOnly(propSchemas) {
 			delete(obj, name)
 			continue
 		}
-		for _, r := range resolved {
-			s.stripValue(r, value)
+		for _, propSchema := range propSchemas {
+			// "$ref" doesn't replace sibling keywords: JSON Schema
+			// 2020-12 applies "$ref" like any other keyword, so a
+			// "properties"/"patternProperties"/etc. entry declared
+			// alongside "$ref" still describes this same value and must
+			// be walked too, not just whatever the $ref resolves to.
+			if propSchema.Ref != "" {
+				s.walk(propSchema, value)
+			}
+			if r := s.resolveRef(propSchema); r != nil {
+				s.stripValue(r, value)
+			}
 		}
 	}
+}
+
+// anyReadOnly reports whether any of propSchemas, or its one-hop $ref
+// target, is marked readOnly.
+func (s *stripper) anyReadOnly(propSchemas []*jsonschema.Schema) bool {
+	for _, propSchema := range propSchemas {
+		// readOnly is checked before resolving $ref: JSON Schema to address the cases like(e.g. {"$ref": "#/$defs/X", "readOnly": true}),
+		// otherwise the readOnly property will be ignored if the $ref is resolved to a schema without readOnly.
+		if propSchema.ReadOnly {
+			return true
+		}
+		if r := s.resolveRef(propSchema); r != nil && r.ReadOnly {
+			return true
+		}
+	}
+	return false
 }
 
 // applicableSchemas returns every schema JSON Schema applies to instance
@@ -146,14 +153,22 @@ func (s *stripper) compiledPatternProperties(sch *jsonschema.Schema) []compiledP
 	return compiled
 }
 
-// stripValue recurses into value if it's a JSON object or array and sch
-// describes its shape; anything else (scalars, or no schema to recurse
-// with) is left as-is.
+// stripValue resolves sch's own "$ref" (if any) and then walks value
+// against whatever that resolves to; anything unresolvable (or nil) is left
+// as-is.
 func (s *stripper) stripValue(sch *jsonschema.Schema, value any) {
 	sch = s.resolveRef(sch)
 	if sch == nil {
 		return
 	}
+	s.walk(sch, value)
+}
+
+// walk applies sch's own object/array keywords to value without resolving
+// sch's own "$ref" first. Used both by stripValue (after it has already
+// resolved sch) and directly for a schema's "$ref"-sibling keywords, which
+// apply to value independently of whatever that "$ref" itself resolves to.
+func (s *stripper) walk(sch *jsonschema.Schema, value any) {
 	switch v := value.(type) {
 	case map[string]any:
 		s.stripObject(sch, v)
