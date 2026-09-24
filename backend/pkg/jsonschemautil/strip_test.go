@@ -320,6 +320,103 @@ func TestStripReadOnly_PatternProperties(t *testing.T) {
 	}
 }
 
+func TestStripReadOnly_AnyMatchingPatternPropertyReadOnlyStrips(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"patternProperties": {
+			"^item_": {"type": "string"},
+			"_1$": {"type": "string", "readOnly": true}
+		}
+	}`)
+	for range 50 {  // added this loop to minimise the chance of a "first win" implementation doesnt slip throgh.
+		got, err := StripReadOnly(schema, map[string]any{"item_1": "x", "item_2": "y"})
+		if err != nil {
+			t.Fatalf("StripReadOnly() error = %v, want nil", err)
+		}
+		if _, ok := got["item_1"]; ok {
+			t.Fatalf("StripReadOnly() kept field matched by a readOnly patternProperties entry, got %v", got)
+		}
+		if got["item_2"] != "y" {
+			t.Fatalf("StripReadOnly() dropped editable patternProperties field, got %v", got)
+		}
+	}
+}
+
+func TestStripReadOnly_PropertiesAndPatternPropertiesBothApply(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"secret_code": {"type": "string"},
+			"another_field": {"type": "string"}
+		},
+		"patternProperties": {
+			"^secret_": {"type": "string", "readOnly": true}
+		}
+	}`)
+	got, err := StripReadOnly(schema, map[string]any{"secret_code": "x", "another_field": "y"})
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	if _, ok := got["secret_code"]; ok {
+		t.Errorf("StripReadOnly() ignored readOnly patternProperties entry for a named property, got %v", got)
+	}
+	if got["another_field"] != "y" {
+		t.Errorf("StripReadOnly() dropped editable property, got %v", got)
+	}
+}
+
+func TestStripReadOnly_NestedReadOnlyFromAnyMatchingSchema(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"properties": {
+			"item_1": {
+				"type": "object",
+				"properties": {"description": {"type": "string"}}
+			}
+		},
+		"patternProperties": {
+			"^item_": {
+				"type": "object",
+				"properties": {"lockedTotal": {"type": "number", "readOnly": true}}
+			}
+		}
+	}`)
+	instance := map[string]any{
+		"item_1": map[string]any{"lockedTotal": float64(999), "description": "a"},
+	}
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	item := got["item_1"].(map[string]any)
+	if _, ok := item["lockedTotal"]; ok {
+		t.Errorf("StripReadOnly() kept nested readOnly field from a matching patternProperties schema, got %v", item)
+	}
+	if item["description"] != "a" {
+		t.Errorf("StripReadOnly() dropped editable nested field, got %v", item)
+	}
+}
+
+func TestStripReadOnly_PatternPropertiesMatchSuppressesAdditionalProperties(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"patternProperties": {
+			"^item_": {"type": "string"}
+		},
+		"additionalProperties": {"type": "string", "readOnly": true}
+	}`)
+	got, err := StripReadOnly(schema, map[string]any{"item_1": "x", "other": "y"})
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	if got["item_1"] != "x" {
+		t.Errorf("StripReadOnly() applied additionalProperties to a patternProperties match, got %v", got)
+	}
+	if _, ok := got["other"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly additionalProperties field, got %v", got)
+	}
+}
+
 func TestStripReadOnly_PropertiesTakesPrecedenceOverAdditionalProperties(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",

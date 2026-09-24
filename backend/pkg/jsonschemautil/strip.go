@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -46,36 +47,43 @@ func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[stri
 	return instance, nil
 }
 
-// stripObject deletes from obj every key whose matching property schema is
-// marked readOnly, then recurses into the surviving values. The matching
-// schema for a key is found via "properties", falling back to
-// "patternProperties" and then "additionalProperties" for keys not named in
-// "properties" - the same precedence JSON Schema itself uses to decide which
-// schema applies to a given property name.
+// stripObject deletes from obj every key for which any applicable property
+// schema is marked readOnly, then recurses into the surviving values with
+// every applicable schema, so a nested readOnly field declared by any of
+// them is stripped.
 func stripObject(root, sch *jsonschema.Schema, obj map[string]any) {
 	if sch == nil || obj == nil {
 		return
 	}
 	for name, value := range obj {
-		propSchema := resolveRef(root, propertySchema(sch, name))
-		if propSchema == nil {
-			continue
-		}
-		if propSchema.ReadOnly {
+		propSchemas := propertySchemas(root, sch, name)
+		if slices.ContainsFunc(propSchemas, func(s *jsonschema.Schema) bool { return s.ReadOnly }) {
 			delete(obj, name)
 			continue
 		}
-		stripValue(root, propSchema, value)
+		for _, propSchema := range propSchemas {
+			stripValue(root, propSchema, value)
+		}
 	}
 }
 
-// propertySchema returns the schema that applies to instance property name,
-// per JSON Schema's matching precedence: an explicit "properties" entry,
-// else the first matching "patternProperties" regexp, else
-// "additionalProperties" (nil if none of those are present).
-func propertySchema(sch *jsonschema.Schema, name string) *jsonschema.Schema {
+// propertySchemas returns every (ref-resolved, non-nil) schema that applies
+// to instance property name, per JSON Schema's object applicator rules: the
+// "properties" entry for name and every "patternProperties" entry whose
+// regexp matches name all apply together; "additionalProperties" applies
+// only when neither of those matched.
+func propertySchemas(root, sch *jsonschema.Schema, name string) []*jsonschema.Schema {
+	var matched []*jsonschema.Schema
+	add := func(s *jsonschema.Schema) {
+		if s = resolveRef(root, s); s != nil {
+			matched = append(matched, s)
+		}
+	}
+
+	evaluated := false
 	if propSchema, ok := sch.Properties[name]; ok {
-		return propSchema
+		evaluated = true
+		add(propSchema)
 	}
 	for pattern, propSchema := range sch.PatternProperties {
 		re, err := regexp.Compile(pattern)
@@ -83,10 +91,14 @@ func propertySchema(sch *jsonschema.Schema, name string) *jsonschema.Schema {
 			continue
 		}
 		if re.MatchString(name) {
-			return propSchema
+			evaluated = true
+			add(propSchema)
 		}
 	}
-	return sch.AdditionalProperties
+	if !evaluated {
+		add(sch.AdditionalProperties)
+	}
+	return matched
 }
 
 // stripValue recurses into value if it's a JSON object or array and sch
