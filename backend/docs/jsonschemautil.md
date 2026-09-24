@@ -46,7 +46,7 @@ For each key in an object instance, in order:
 
 1. If `properties` has an entry for that key, it applies.
 2. Every `patternProperties` entry whose regex matches the key **also** applies (all of them,
-   not just the first.) So in accordance with the spec, a patternProperty marked `readOnly` can strip a key ofs a non-readOnly `properties` entry which has a key that matches a `patternProperties` pattern.
+   not just the first.) So in accordance with the spec, a patternProperty marked `readOnly` can strip a key of a non-readOnly `properties` entry which has a key that matches a `patternProperties` pattern.
 3. `additionalProperties` applies **only if neither of the above matched**.
 
 The key is deleted if **any** schema that applies to it (from steps 1–3) is `readOnly: true`.
@@ -69,13 +69,18 @@ whole array element because the item schema itself is `readOnly`.
 - Only a direct, local reference — `"$ref": "#/$defs/<name>"` or `"$ref": "#/definitions/<name>"`
   — is followed, and only **one level**: a `$ref` that points at another `$ref` is not chased
   further.
-- Any other form (a remote URL, a nested JSON Pointer path, `$dynamicRef`, etc.) is left
-  unresolved. The field or item it's attached to is then treated as having no schema — nothing
-  under it gets stripped, and it isn't itself `readOnly` unless `readOnly` is also declared
-  directly alongside the unresolved `$ref` (see next section).
+- A schema that has both `$ref` and its own object/array keywords (`properties`,
+  `patternProperties`, `additionalProperties`, `items`, `prefixItems`, or the legacy tuple
+  `items`/`additionalItems`) applies **both**: its own keywords, and — if the `$ref` resolves —
+  the target's keywords, as if the two schemas were merged. This holds even when the `$ref` can't
+  be resolved: the schema's own keywords still apply, only the target's are unavailable.
+- Any other form of `$ref` (a remote URL, a nested JSON Pointer path, `$dynamicRef`, etc.) is left
+  unresolved: nothing from the *target* gets stripped (since there's no target to read), but the
+  field or item's own sibling keywords are still honored — including `readOnly` declared directly
+  alongside the unresolved `$ref` (see next section).
 - An unresolvable `$ref` inside the schema is **not an error** here, unlike `ValidateInstance`'s
   resolve step — `StripReadOnly` has no separate "resolve" phase to fail; it just treats that
-  subtree as unsupported. **So current implementation expects already validated schemas**.
+  target as unsupported. **So current implementation expects already validated schemas**.
 
 ### readOnly and $ref
 

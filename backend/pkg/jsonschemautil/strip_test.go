@@ -237,6 +237,43 @@ func TestStripReadOnly_RefArrayItems(t *testing.T) {
 	}
 }
 
+func TestStripReadOnly_SiblingPropertiesOfRefAreApplied(t *testing.T) {
+	schema := []byte(`{
+		"type": "object",
+		"$defs": {
+			"Base": {
+				"type": "object",
+				"properties": {
+					"name": {"type": "string"}
+				}
+			}
+		},
+		"properties": {
+			"thing": {
+				"$ref": "#/$defs/Base",
+				"properties": {
+					"extra": {"type": "string", "readOnly": true}
+				}
+			}
+		}
+	}`)
+	instance := map[string]any{
+		"thing": map[string]any{"name": "ok", "extra": "spoofed"},
+	}
+
+	got, err := StripReadOnly(schema, instance)
+	if err != nil {
+		t.Fatalf("StripReadOnly() error = %v, want nil", err)
+	}
+	thing := got["thing"].(map[string]any)
+	if _, ok := thing["extra"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field declared as a sibling of $ref, got %v", thing)
+	}
+	if thing["name"] != "ok" {
+		t.Errorf("StripReadOnly() dropped editable field from the $ref target, got %v", thing)
+	}
+}
+
 func TestStripReadOnly_UnsupportedRefIsSkipped(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",

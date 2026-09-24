@@ -43,13 +43,12 @@ func (c patternCache) compile(pattern string) *regexp.Regexp {
 // are each handled the same way ValidateInstance handles them (parse
 // skipped; nil treated as {}).
 func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[string]any, error) {
-	if len(rawSchema) == 0 {
-		return instance, nil
-	}
 	if instance == nil {
 		instance = map[string]any{}
 	}
-
+	if len(rawSchema) == 0 {
+		return instance, nil
+	}
 	var sch jsonschema.Schema
 	if err := json.Unmarshal(rawSchema, &sch); err != nil {
 		return nil, fmt.Errorf("%w: parse schema: %w", ErrSchemaLoad, err)
@@ -131,10 +130,18 @@ func propertySchemas(sch *jsonschema.Schema, name string, cache patternCache) []
 // describes its shape; anything else (scalars, or no schema to recurse
 // with) is left as-is.
 func stripValue(root, sch *jsonschema.Schema, value any, cache patternCache) {
-	sch = resolveRef(root, sch)
 	if sch == nil {
 		return
 	}
+	stripShape(root, sch, value, cache)
+	if sch.Ref != "" {
+		if target := resolveRef(root, sch); target != nil {
+			stripShape(root, target, value, cache)
+		}
+	}
+}
+
+func stripShape(root, sch *jsonschema.Schema, value any, cache patternCache) {
 	switch v := value.(type) {
 	case map[string]any:
 		stripObject(root, sch, v, cache)
