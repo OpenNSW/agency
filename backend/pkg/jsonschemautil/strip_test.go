@@ -278,11 +278,13 @@ func TestStripReadOnly_UnsupportedRefIsSkipped(t *testing.T) {
 	schema := []byte(`{
 		"type": "object",
 		"properties": {
-			"inspection": {"$ref": "jsonpath/that/does/not/exist"}
+			"inspection": {"$ref": "jsonpath/that/does/not/exist"},
+			"stamp": {"$ref": "jsonpath/that/does/not/exist", "readOnly": true}
 		}
 	}`)
 	instance := map[string]any{
 		"inspection": map[string]any{"officerId": "unchanged"},
+		"stamp":      map[string]any{"by": "spoofed"},
 	}
 
 	got, err := StripReadOnly(schema, instance)
@@ -292,6 +294,9 @@ func TestStripReadOnly_UnsupportedRefIsSkipped(t *testing.T) {
 	inspection := got["inspection"].(map[string]any)
 	if inspection["officerId"] != "unchanged" {
 		t.Errorf("StripReadOnly() should leave unresolvable $ref subtree untouched, got %v", inspection)
+	}
+	if _, ok := got["stamp"]; ok {
+		t.Errorf("StripReadOnly() kept readOnly field declared as a sibling of an unresolvable $ref, got %v", got)
 	}
 }
 
@@ -418,7 +423,7 @@ func TestStripReadOnly_AnyMatchingPatternPropertyReadOnlyStrips(t *testing.T) {
 			"_1$": {"type": "string", "readOnly": true}
 		}
 	}`)
-	for range 50 { // added this loop to minimise the chance of a "first win" implementation doesnt slip throgh.
+	for range 50 {
 		got, err := StripReadOnly(schema, map[string]any{"item_1": "x", "item_2": "y"})
 		if err != nil {
 			t.Fatalf("StripReadOnly() error = %v, want nil", err)

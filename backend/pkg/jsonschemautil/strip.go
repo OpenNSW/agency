@@ -1,7 +1,5 @@
 package jsonschemautil
 
-// Please update docs/jsonschemautil.md if you change the supported subset of JSON Schema.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -33,15 +31,11 @@ func (c patternCache) compile(pattern string) *regexp.Regexp {
 }
 
 // StripReadOnly parses rawSchema as a JSON Schema and deletes every field
-// marked "readOnly": true from instance. See docs/jsonschemautil.md for the
-// supported subset of JSON Schema.
+// marked "readOnly": true from instance. See README.md for the supported
+// subset of JSON Schema.
 //
-// Callers must use the returned map, not the instance argument as passed
-// in: for a non-nil instance both refer to the same, now-mutated map, but a
-// nil instance returns a distinct new one - copy instance first if you
-// still need the pre-strip data. A nil/empty rawSchema or a nil instance
-// are each handled the same way ValidateInstance handles them (parse
-// skipped; nil treated as {}).
+// Mutates instance in place and returns it; a nil instance returns a new
+// empty map.
 func StripReadOnly(rawSchema json.RawMessage, instance map[string]any) (map[string]any, error) {
 	if instance == nil {
 		instance = map[string]any{}
@@ -94,7 +88,7 @@ func isReadOnly(root, sch *jsonschema.Schema) bool {
 
 // propertySchemas returns every (non-nil, not yet ref-resolved) schema that
 // applies to instance property name across "properties", "patternProperties",
-// and "additionalProperties" (see docs/jsonschemautil.md for precedence).
+// and "additionalProperties" (see README.md for precedence).
 // $ref is resolved by the caller (isReadOnly, stripValue) rather than here,
 // so a "readOnly" sibling of "$ref" isn't lost before it can be inspected.
 func propertySchemas(sch *jsonschema.Schema, name string, cache patternCache) []*jsonschema.Schema {
@@ -157,7 +151,7 @@ func stripShape(root, sch *jsonschema.Schema, value any, cache patternCache) {
 }
 
 // itemSchema returns the schema for the array item at index; see
-// docs/jsonschemautil.md for the prefixItems/items/legacy-tuple precedence.
+// README.md for the prefixItems/items/legacy-tuple precedence.
 func itemSchema(sch *jsonschema.Schema, index int) *jsonschema.Schema {
 	if len(sch.PrefixItems) > 0 {
 		if index < len(sch.PrefixItems) {
@@ -176,7 +170,7 @@ func itemSchema(sch *jsonschema.Schema, index int) *jsonschema.Schema {
 
 // resolveRef follows a direct "#/$defs/<name>" or "#/definitions/<name>"
 // $ref against root, one level; anything else is left unresolved (nil) -
-// see docs/jsonschemautil.md for what's supported.
+// see README.md for what's supported.
 func resolveRef(root, sch *jsonschema.Schema) *jsonschema.Schema {
 	if sch == nil || sch.Ref == "" {
 		return sch
