@@ -17,7 +17,9 @@ import (
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
 	"github.com/OpenNSW/agency/backend/internal/consignment"
+	"github.com/OpenNSW/agency/backend/internal/database"
 	"github.com/OpenNSW/agency/backend/internal/datascope"
+	"github.com/OpenNSW/agency/backend/internal/engine"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/refidstore"
@@ -30,6 +32,93 @@ import (
 	"github.com/OpenNSW/core/refid"
 	"gorm.io/gorm"
 )
+
+// ---------- engine test fixtures ----------
+//
+// These mirror internal/engine's own test helpers (newTestStore et al. in
+// store_test.go) but are built entirely on engine's public API (including
+// ApplicationStore.DB, exported for exactly this purpose), since a package's
+// internal (white-box) test file can't be imported by another package's
+// tests without an import cycle.
+
+func testEnvOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// newTestStore creates an engine.ApplicationStore for tests. When
+// AGENCY_DB_DRIVER=postgres (set via env), it connects to the configured
+// PostgreSQL instance and truncates the table before each test. Otherwise it
+// falls back to an in-memory SQLite database.
+func newTestStore(t *testing.T) *engine.ApplicationStore {
+	t.Helper()
+
+	var dbCfg database.Config
+	if os.Getenv("AGENCY_DB_DRIVER") == "postgres" {
+		password := os.Getenv("DB_PASSWORD")
+		if password == "" {
+			t.Fatal("DB_PASSWORD is required for postgres driver")
+		}
+		dbCfg = database.Config{
+			Driver: "postgres",
+			Postgres: database.PostgresConfig{
+				Host:     testEnvOrDefault("DB_HOST", "localhost"),
+				Port:     testEnvOrDefault("DB_PORT", "5432"),
+				User:     testEnvOrDefault("DB_USER", "postgres"),
+				Password: password,
+				Name:     testEnvOrDefault("DB_NAME", "nsw_agency_db"),
+				SSLMode:  testEnvOrDefault("DB_SSLMODE", "disable"),
+			},
+		}
+	} else {
+		dbCfg = database.Config{Driver: "sqlite", SQLite: database.SQLiteConfig{Path: ":memory:"}}
+	}
+
+	store, err := engine.NewApplicationStore(dbCfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create store (driver=%s): %v", dbCfg.Driver, err)
+	}
+
+	if err := store.DB().AutoMigrate(&consignment.ConsignmentRecord{}, &engine.ApplicationRecord{}, &rbac.RoleRecord{}, &rbac.UserRoleRecord{}, &user.UserRecord{}); err != nil {
+		t.Fatalf("failed to migrate schema: %v", err)
+	}
+
+	// For persistent backends, clean tables before each test.
+	if dbCfg.Driver != "sqlite" || dbCfg.SQLite.Path != ":memory:" {
+		if err := store.DB().Exec("TRUNCATE TABLE applications").Error; err != nil {
+			t.Fatalf("failed to truncate applications table: %v", err)
+		}
+		if err := store.DB().Exec("TRUNCATE TABLE consignments CASCADE").Error; err != nil {
+			t.Fatalf("failed to truncate consignments table: %v", err)
+		}
+		if err := store.DB().Exec("TRUNCATE TABLE users CASCADE").Error; err != nil {
+			t.Fatalf("failed to truncate users table: %v", err)
+		}
+	}
+
+	return store
+}
+
+// seedUser inserts a minimal user row so claim tests can exercise the
+// claimant name/email lookup by ClaimedBy.
+func seedUser(t *testing.T, store *engine.ApplicationStore, userID, name, email string) {
+	t.Helper()
+	if err := store.DB().Create(&user.UserRecord{UserID: userID, Name: name, Email: email}).Error; err != nil {
+		t.Fatalf("seedUser(%s) failed: %v", userID, err)
+	}
+}
+
+// setConsignmentCustomData directly sets a consignment's custom_data, for
+// exercising List's/GetByTaskID's scope handling without depending on
+// consignment.Store.MergeCustomData's own rules.
+func setConsignmentCustomData(t *testing.T, store *engine.ApplicationStore, consignmentID string, data consignment.JSONB) {
+	t.Helper()
+	if err := store.DB().Model(&consignment.ConsignmentRecord{}).Where("id = ?", consignmentID).Update("custom_data", data).Error; err != nil {
+		t.Fatalf("failed to set custom_data for %s: %v", consignmentID, err)
+	}
+}
 
 // writeTaskConfigFile writes content to <root>/task-configs/<name>.
 func writeTaskConfigFile(t *testing.T, root, name, content string) {
@@ -103,7 +192,7 @@ func newCallbackServer(t *testing.T) (*httptest.Server, *callbackCapture) {
 // Service end-to-end against a stub callback server.
 type serviceHarness struct {
 	t          *testing.T
-	store      *ApplicationStore
+	store      *engine.ApplicationStore
 	httpClient *httpclient.Client
 	capture    *callbackCapture
 	service    Service
@@ -216,16 +305,16 @@ func newServiceHarnessWithRefIDs(t *testing.T, refIDs refid.Registry, writeFn fu
 	}
 }
 
-func newWiredService(t *testing.T, store *ApplicationStore, reg *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService) Service {
+func newWiredService(t *testing.T, store *engine.ApplicationStore, reg *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService) Service {
 	t.Helper()
 	cNSW, ok := nsw.(consignment.NSWClient)
 	if !ok {
 		t.Fatal("nsw client must implement consignment.NSWClient")
 	}
 	if roleService == nil {
-		roleService = rbac.NewRoleService(store.db)
+		roleService = rbac.NewRoleService(store.DB())
 	}
-	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, unrestrictedResolver()), unrestrictedResolver(), unconfiguredRefIDs())
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.DB()), cNSW, unrestrictedResolver()), unrestrictedResolver(), unconfiguredRefIDs())
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc
 }
@@ -270,14 +359,14 @@ func unconfiguredRefIDs() refid.Registry {
 
 // newWiredServiceWithRefIDs is newWiredService with an explicit reference ID
 // registry, for tests exercising generation at inject.
-func newWiredServiceWithRefIDs(t *testing.T, store *ApplicationStore, reg *artifact.Registry, nsw NSWClient, refIDs refid.Registry) Service {
+func newWiredServiceWithRefIDs(t *testing.T, store *engine.ApplicationStore, reg *artifact.Registry, nsw NSWClient, refIDs refid.Registry) Service {
 	t.Helper()
 	cNSW, ok := nsw.(consignment.NSWClient)
 	if !ok {
 		t.Fatal("nsw client must implement consignment.NSWClient")
 	}
-	svc := NewService(store, reg, nsw, rbac.NewRoleService(store.db),
-		consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, unrestrictedResolver()),
+	svc := NewService(store, reg, nsw, rbac.NewRoleService(store.DB()),
+		consignment.NewService(consignment.NewConsignmentStore(store.DB()), cNSW, unrestrictedResolver()),
 		unrestrictedResolver(), refIDs)
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc
@@ -285,16 +374,16 @@ func newWiredServiceWithRefIDs(t *testing.T, store *ApplicationStore, reg *artif
 
 // newWiredServiceWithScope is newWiredService with an explicit data-scope
 // resolver, for tests exercising scoped behavior.
-func newWiredServiceWithScope(t *testing.T, store *ApplicationStore, reg *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, resolver *datascope.Resolver) Service {
+func newWiredServiceWithScope(t *testing.T, store *engine.ApplicationStore, reg *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, resolver *datascope.Resolver) Service {
 	t.Helper()
 	cNSW, ok := nsw.(consignment.NSWClient)
 	if !ok {
 		t.Fatal("nsw client must implement consignment.NSWClient")
 	}
 	if roleService == nil {
-		roleService = rbac.NewRoleService(store.db)
+		roleService = rbac.NewRoleService(store.DB())
 	}
-	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.db), cNSW, resolver), resolver, unconfiguredRefIDs())
+	svc := NewService(store, reg, nsw, roleService, consignment.NewService(consignment.NewConsignmentStore(store.DB()), cNSW, resolver), resolver, unconfiguredRefIDs())
 	t.Cleanup(func() { _ = svc.Close() })
 	return svc
 }
@@ -332,22 +421,22 @@ func newAuthContext(ctx context.Context, userID string) context.Context {
 // looked up live rather than stored on the claim.
 func (h *serviceHarness) claimAs(taskID, userID string) context.Context {
 	h.t.Helper()
-	if err := h.store.db.FirstOrCreate(&user.UserRecord{UserID: userID, Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", userID).Error; err != nil {
+	if err := h.store.DB().FirstOrCreate(&user.UserRecord{UserID: userID, Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", userID).Error; err != nil {
 		h.t.Fatalf("failed to seed user %s: %v", userID, err)
 	}
-	if err := h.store.ClaimApplication(taskID, userID); err != nil {
+	if err := h.store.ClaimApplication(context.Background(), taskID, userID); err != nil {
 		h.t.Fatalf("failed to claim %s for %s: %v", taskID, userID, err)
 	}
 	return newAuthContext(context.Background(), userID)
 }
 
 // seed inserts a PENDING application record.
-func (h *serviceHarness) seed(taskID, taskCode string, data JSONB) {
+func (h *serviceHarness) seed(taskID, taskCode string, data engine.JSONB) {
 	h.t.Helper()
 	if data == nil {
-		data = JSONB{"field": "value"}
+		data = engine.JSONB{"field": "value"}
 	}
-	err := h.store.CreateOrUpdate(&ApplicationRecord{
+	err := h.store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID:        taskID,
 		TaskCode:      taskCode,
 		ConsignmentID: "wf-test",
@@ -362,7 +451,7 @@ func (h *serviceHarness) seed(taskID, taskCode string, data JSONB) {
 // statusOf reads the latest status of the record from the database.
 func (h *serviceHarness) statusOf(taskID string) string {
 	h.t.Helper()
-	rec, err := h.store.GetByTaskID(taskID)
+	rec, err := h.store.GetByTaskID(context.Background(), taskID)
 	if err != nil {
 		h.t.Fatalf("failed to load record: %v", err)
 	}
@@ -383,7 +472,7 @@ func TestCreateApplication_UnknownTaskCode_Rejected(t *testing.T) {
 	if !errors.Is(err, ErrInvalidInjectRequest) {
 		t.Fatalf("expected ErrInvalidInjectRequest, got %v", err)
 	}
-	if _, getErr := h.store.GetByTaskID("t-ghost"); getErr == nil {
+	if _, getErr := h.store.GetByTaskID(context.Background(), "t-ghost"); getErr == nil {
 		t.Errorf("expected no record to be created for an unknown task code")
 	}
 }
@@ -416,7 +505,7 @@ func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
 		if !errors.Is(err, ErrInvalidInjectRequest) {
 			t.Fatalf("expected ErrInvalidInjectRequest, got %v", err)
 		}
-		if _, getErr := h.store.GetByTaskID("t-bad"); getErr == nil {
+		if _, getErr := h.store.GetByTaskID(context.Background(), "t-bad"); getErr == nil {
 			t.Errorf("expected no record to be created when data fails schema validation")
 		}
 	})
@@ -431,7 +520,7 @@ func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateApplication failed: %v", err)
 		}
-		if _, getErr := h.store.GetByTaskID("t-good"); getErr != nil {
+		if _, getErr := h.store.GetByTaskID(context.Background(), "t-good"); getErr != nil {
 			t.Errorf("expected record to be created: %v", getErr)
 		}
 	})
@@ -482,7 +571,7 @@ func TestCreateApplication_ViewFormLoadFailure_FailsClosed(t *testing.T) {
 	if errors.Is(err, ErrInvalidInjectRequest) {
 		t.Errorf("expected a config-drift error, not ErrInvalidInjectRequest: %v", err)
 	}
-	if _, getErr := h.store.GetByTaskID("t-missing-form"); getErr == nil {
+	if _, getErr := h.store.GetByTaskID(context.Background(), "t-missing-form"); getErr == nil {
 		t.Errorf("expected no record to be created when the view form can't be loaded")
 	}
 }
@@ -597,11 +686,11 @@ func (l *succeedThenFailLoader) Load(_ context.Context, _ string) ([]byte, error
 func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 	store := newTestStore(t)
 	srv, capture := newCallbackServer(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID:        "t-load-fail-review",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		Data:          JSONB{"field": "value"},
+		Data:          engine.JSONB{"field": "value"},
 		Status:        "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
@@ -618,12 +707,12 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().WithBaseURL(srv.URL).Build()
-	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.DB()))
 
-	if err := store.db.FirstOrCreate(&user.UserRecord{UserID: "officer-1", Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", "officer-1").Error; err != nil {
+	if err := store.DB().FirstOrCreate(&user.UserRecord{UserID: "officer-1", Name: "Test Officer", Email: "officer@example.com"}, "user_id = ?", "officer-1").Error; err != nil {
 		t.Fatalf("failed to seed user: %v", err)
 	}
-	if err := store.ClaimApplication("t-load-fail-review", "officer-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "t-load-fail-review", "officer-1"); err != nil {
 		t.Fatalf("failed to claim record: %v", err)
 	}
 	ctx := newAuthContext(context.Background(), "officer-1")
@@ -639,7 +728,7 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 		t.Errorf("expected no callback to be sent on load error, got %v", body)
 	}
 
-	rec, getErr := store.GetByTaskID("t-load-fail-review")
+	rec, getErr := store.GetByTaskID(context.Background(), "t-load-fail-review")
 	if getErr != nil {
 		t.Fatalf("failed to load record: %v", getErr)
 	}
@@ -862,7 +951,7 @@ func TestGetApplication_ResolvesFormReferences(t *testing.T) {
 		writeFormFile(t, root, "alpha_view.json", `{"schema":{"type":"object","title":"View"},"uiSchema":{"type":"VerticalLayout"}}`)
 		writeFormFile(t, root, "alpha_review.json", `{"schema":{"type":"object","title":"Review"},"uiSchema":{"type":"VerticalLayout"}}`)
 	})
-	h.seed("t-1", "alpha", JSONB{"submittedField": "submittedValue"})
+	h.seed("t-1", "alpha", engine.JSONB{"submittedField": "submittedValue"})
 
 	app, err := h.service.GetApplication(context.Background(), "t-1")
 	if err != nil {
@@ -1001,11 +1090,11 @@ func (failingLoader) Load(_ context.Context, _ string) ([]byte, error) {
 
 func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID:        "t-load-fail",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		Data:          JSONB{"field": "value"},
+		Data:          engine.JSONB{"field": "value"},
 		Status:        "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
@@ -1018,7 +1107,7 @@ func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().Build()
-	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.DB()))
 
 	app, err := svc.GetApplication(context.Background(), "t-load-fail")
 	if err == nil {
@@ -1066,7 +1155,7 @@ func TestGetApplicationByTaskCode(t *testing.T) {
 			"behavior": {"type": "statusMap", "statusMap": {"approve": "APPROVED"}}
 		}`)
 	})
-	h.seed("t-by-code", "alpha", JSONB{"exporter_name": "ACME"})
+	h.seed("t-by-code", "alpha", engine.JSONB{"exporter_name": "ACME"})
 
 	app, err := h.service.GetApplicationByTaskCode(context.Background(), "wf-test", "alpha")
 	if err != nil {
@@ -1127,7 +1216,7 @@ func TestGetApplications_IncludesAccessibleItems(t *testing.T) {
 	})
 	h.seed("t-open", "open", nil)
 
-	roleService := rbac.NewRoleService(h.store.db)
+	roleService := rbac.NewRoleService(h.store.DB())
 	role, err := roleService.Create("officer")
 	if err != nil {
 		t.Fatalf("failed to create role: %v", err)
@@ -1149,11 +1238,11 @@ func TestGetApplications_IncludesAccessibleItems(t *testing.T) {
 
 func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID:        "t-load-fail",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
-		Data:          JSONB{"field": "value"},
+		Data:          engine.JSONB{"field": "value"},
 		Status:        "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
@@ -1166,7 +1255,7 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 	reg.RegisterArtifact("alpha", taskconfigart.Kind, "", "alpha.json")
 
 	hc := httpclient.NewClientBuilder().Build()
-	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.db))
+	svc := newWiredService(t, store, reg, nswclient.NewWithClient(hc), rbac.NewRoleService(store.DB()))
 
 	result, err := svc.GetApplications(context.Background(), "", "", "", 1, 20)
 	if err == nil {
@@ -1181,9 +1270,9 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 
 func TestGetApplications_UnsatisfiableScope_ReturnsEmptyPageWithoutQuerying(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID: "t-scope-1", TaskCode: "alpha", ConsignmentID: "wf-test",
-		Data: JSONB{"field": "value"}, Status: "PENDING",
+		Data: engine.JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
@@ -1206,9 +1295,9 @@ func TestGetApplications_UnsatisfiableScope_ReturnsEmptyPageWithoutQuerying(t *t
 
 func TestGetApplication_ScopeMismatch_ReturnsNotFound(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID: "t-scope-2", TaskCode: "alpha", ConsignmentID: "wf-test",
-		Data: JSONB{"field": "value"}, Status: "PENDING",
+		Data: engine.JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
@@ -1229,9 +1318,9 @@ func TestGetApplication_ScopeMismatch_ReturnsNotFound(t *testing.T) {
 
 func TestGetApplication_ClientPrincipalBypassesScoping(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID: "t-scope-3", TaskCode: "alpha", ConsignmentID: "wf-test",
-		Data: JSONB{"field": "value"}, Status: "PENDING",
+		Data: engine.JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
@@ -1258,12 +1347,12 @@ func TestGetApplication_ClientPrincipalBypassesScoping(t *testing.T) {
 // scopedTestService builds a service wired with resolver (for the write-path
 // scoping tests below), and seeds a single application on consignment
 // "wf-test" tagged with district. Returns the service and store.
-func scopedTestService(t *testing.T, district string, resolver *datascope.Resolver, taskID string) (*ApplicationStore, Service) {
+func scopedTestService(t *testing.T, district string, resolver *datascope.Resolver, taskID string) (*engine.ApplicationStore, Service) {
 	t.Helper()
 	store := newTestStore(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &engine.ApplicationRecord{
 		TaskID: taskID, TaskCode: "alpha", ConsignmentID: "wf-test",
-		Data: JSONB{"field": "value"}, Status: "PENDING",
+		Data: engine.JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
 	}
@@ -1286,7 +1375,7 @@ func TestClaimApplication_ScopeMismatch_ReturnsNotFoundAndDoesNotClaim(t *testin
 		t.Errorf("ClaimApplication error = %v, want ErrApplicationNotFound for an out-of-scope application", err)
 	}
 
-	app, getErr := store.GetByTaskID("t-scope-claim")
+	app, getErr := store.GetByTaskID(context.Background(), "t-scope-claim")
 	if getErr != nil {
 		t.Fatalf("GetByTaskID failed: %v", getErr)
 	}
@@ -1309,7 +1398,7 @@ func TestReleaseApplication_SucceedsEvenWhenOutOfScope(t *testing.T) {
 
 	// Claim directly via the store, bypassing ClaimApplication's own scope
 	// check, to isolate ReleaseApplication's behavior from Claim's.
-	if err := store.ClaimApplication("t-scope-release", "officer-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "t-scope-release", "officer-1"); err != nil {
 		t.Fatalf("failed to seed a claim: %v", err)
 	}
 
@@ -1317,7 +1406,7 @@ func TestReleaseApplication_SucceedsEvenWhenOutOfScope(t *testing.T) {
 		t.Fatalf("ReleaseApplication failed: %v", err)
 	}
 
-	app, getErr := store.GetByTaskID("t-scope-release")
+	app, getErr := store.GetByTaskID(context.Background(), "t-scope-release")
 	if getErr != nil {
 		t.Fatalf("GetByTaskID failed: %v", getErr)
 	}
@@ -1331,13 +1420,13 @@ func TestReviewApplication_ScopeMismatch_ReturnsNotFoundBeforeClaimCheck(t *test
 	resolver := datascope.NewResolver(rules, stubUserAttributes{data: map[string]any{"assignedDistrict": "Colombo"}})
 	// Deliberately unclaimed: if the ordering bug were still present, an
 	// unclaimed out-of-scope application would surface
-	// ErrApplicationNotClaimedByYou (403) instead of ErrApplicationNotFound
+	// engine.ErrApplicationNotClaimedByYou (403) instead of ErrApplicationNotFound
 	// (404), leaking that the record exists and is unclaimed.
 	_, svc := scopedTestService(t, "Gampaha", resolver, "t-scope-review")
 
 	err := svc.ReviewApplication(newAuthContext(context.Background(), "officer-1"), "t-scope-review", map[string]any{"review_outcome": "approve"})
 	if !errors.Is(err, ErrApplicationNotFound) {
-		t.Errorf("ReviewApplication error = %v, want ErrApplicationNotFound (not ErrApplicationNotClaimedByYou) for an out-of-scope, unclaimed application", err)
+		t.Errorf("ReviewApplication error = %v, want ErrApplicationNotFound (not engine.ErrApplicationNotClaimedByYou) for an out-of-scope, unclaimed application", err)
 	}
 }
 
@@ -1355,7 +1444,7 @@ func TestGetApplication_PopulatesAllowedActions(t *testing.T) {
 	})
 	h.seed("t-actions", "alpha", nil)
 
-	roleService := rbac.NewRoleService(h.store.db)
+	roleService := rbac.NewRoleService(h.store.DB())
 	role, err := roleService.Create("officer")
 	if err != nil {
 		t.Fatalf("failed to create role: %v", err)
@@ -1423,8 +1512,8 @@ func TestClaimApplication_ConflictWithOtherOfficer(t *testing.T) {
 
 	ctx2 := newAuthContext(context.Background(), "officer-2")
 	err := h.service.ClaimApplication(ctx2, "t-claim-conflict")
-	if err != ErrApplicationAlreadyClaimed {
-		t.Errorf("expected ErrApplicationAlreadyClaimed, got %v", err)
+	if err != engine.ErrApplicationAlreadyClaimed {
+		t.Errorf("expected engine.ErrApplicationAlreadyClaimed, got %v", err)
 	}
 }
 
@@ -1469,8 +1558,8 @@ func TestReleaseApplication_NotClaimedByCaller(t *testing.T) {
 
 	ctx2 := newAuthContext(context.Background(), "officer-2")
 	err := h.service.ReleaseApplication(ctx2, "t-release-other")
-	if err != ErrApplicationNotClaimedByYou {
-		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	if err != engine.ErrApplicationNotClaimedByYou {
+		t.Errorf("expected engine.ErrApplicationNotClaimedByYou, got %v", err)
 	}
 }
 
@@ -1482,8 +1571,8 @@ func TestReviewApplication_RejectsWhenUnclaimed(t *testing.T) {
 
 	ctx := newAuthContext(context.Background(), "officer-1")
 	err := h.service.ReviewApplication(ctx, "t-review-unclaimed", map[string]any{"review_outcome": "approve"})
-	if err != ErrApplicationNotClaimedByYou {
-		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	if err != engine.ErrApplicationNotClaimedByYou {
+		t.Errorf("expected engine.ErrApplicationNotClaimedByYou, got %v", err)
 	}
 }
 
@@ -1491,14 +1580,14 @@ func TestReviewApplication_RejectsWhenClaimedByAnotherOfficer(t *testing.T) {
 	h := newServiceHarness(t, nil)
 	h.seed("t-review-other-claim", "no-such-task", nil)
 
-	if err := h.store.ClaimApplication("t-review-other-claim", "officer-1"); err != nil {
+	if err := h.store.ClaimApplication(context.Background(), "t-review-other-claim", "officer-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
 	ctx := newAuthContext(context.Background(), "officer-2")
 	err := h.service.ReviewApplication(ctx, "t-review-other-claim", map[string]any{"review_outcome": "approve"})
-	if err != ErrApplicationNotClaimedByYou {
-		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
+	if err != engine.ErrApplicationNotClaimedByYou {
+		t.Errorf("expected engine.ErrApplicationNotClaimedByYou, got %v", err)
 	}
 }
 
@@ -1526,8 +1615,8 @@ func TestReviewApplication_ConflictOnDoubleSubmit(t *testing.T) {
 	}
 
 	err := h.service.ReviewApplication(ctx, "t-review-double", map[string]any{"review_outcome": "reject"})
-	if !errors.Is(err, ErrApplicationReviewConflict) {
-		t.Errorf("expected ErrApplicationReviewConflict on double submit, got %v", err)
+	if !errors.Is(err, engine.ErrApplicationReviewConflict) {
+		t.Errorf("expected engine.ErrApplicationReviewConflict on double submit, got %v", err)
 	}
 
 	// The first outcome must stick; the second call must not have overwritten it.
@@ -1556,8 +1645,8 @@ func TestReleaseApplication_RejectedOnceReviewed(t *testing.T) {
 	}
 
 	err := h.service.ReleaseApplication(ctx, "t-release-reviewed")
-	if err != ErrApplicationNotPending {
-		t.Errorf("expected ErrApplicationNotPending, got %v", err)
+	if err != engine.ErrApplicationNotPending {
+		t.Errorf("expected engine.ErrApplicationNotPending, got %v", err)
 	}
 
 	app, err := h.service.GetApplication(context.Background(), "t-release-reviewed")
@@ -1628,7 +1717,7 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 			TraderCompanyName: "CEYLON EXPORTS",
 		},
 	}
-	roleService := rbac.NewRoleService(store.db)
+	roleService := rbac.NewRoleService(store.DB())
 	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
@@ -1649,7 +1738,7 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 	}
 
 	// Verify consignment row in DB has traderCompanyName in data
-	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock, unrestrictedResolver()).GetConsignment(ctx, "c-100")
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.DB()), nswMock, unrestrictedResolver()).GetConsignment(ctx, "c-100")
 	if err != nil {
 		t.Fatalf("GetConsignment failed: %v", err)
 	}
@@ -1688,7 +1777,7 @@ func TestCreateApplication_ConsignmentFetchFailureDegradesGracefully(t *testing.
 	nswMock := &mockNSWClient{
 		fetchErr: fmt.Errorf("nsw core timeout"),
 	}
-	roleService := rbac.NewRoleService(store.db)
+	roleService := rbac.NewRoleService(store.DB())
 	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
@@ -1729,7 +1818,7 @@ func TestCreateApplication_DoesNotRetryAgencyFetchOnceConsignmentExists(t *testi
 	nswMock := &mockNSWClient{
 		fetchErr: fmt.Errorf("nsw core timeout"),
 	}
-	roleService := rbac.NewRoleService(store.db)
+	roleService := rbac.NewRoleService(store.DB())
 	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
@@ -1759,7 +1848,7 @@ func TestCreateApplication_DoesNotRetryAgencyFetchOnceConsignmentExists(t *testi
 		t.Errorf("existing consignment must skip NSW, got fetchCount %d", nswMock.fetchCount)
 	}
 
-	got, err := consignment.NewService(consignment.NewConsignmentStore(store.db), nswMock, unrestrictedResolver()).GetConsignment(ctx, "c-300")
+	got, err := consignment.NewService(consignment.NewConsignmentStore(store.DB()), nswMock, unrestrictedResolver()).GetConsignment(ctx, "c-300")
 	if err != nil {
 		t.Fatalf("GetConsignment: %v", err)
 	}
@@ -1777,7 +1866,7 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 			TraderCompanyName: "CEYLON EXPORTS",
 		},
 	}
-	roleService := rbac.NewRoleService(store.db)
+	roleService := rbac.NewRoleService(store.DB())
 	svc := newWiredService(t, store, reg, nswMock, roleService)
 
 	ctx := context.Background()
@@ -1824,7 +1913,7 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 
 func getConsignmentCustomData(t *testing.T, h *serviceHarness, id string) map[string]any {
 	t.Helper()
-	rec, err := consignment.NewConsignmentStore(h.store.db).Get(context.Background(), id)
+	rec, err := consignment.NewConsignmentStore(h.store.DB()).Get(context.Background(), id)
 	if err != nil {
 		t.Fatalf("failed to fetch consignment %s: %v", id, err)
 	}
@@ -1987,7 +2076,7 @@ func TestCreateApplication_RefID_GeneratedAndPersisted(t *testing.T) {
 		t.Fatalf("CreateApplication: %v", err)
 	}
 
-	rec, err := h.store.GetByTaskID("t-refid-1")
+	rec, err := h.store.GetByTaskID(context.Background(), "t-refid-1")
 	if err != nil {
 		t.Fatalf("GetByTaskID: %v", err)
 	}
@@ -2031,7 +2120,7 @@ func TestCreateApplication_RefID_ReinjectKeepsOriginalID(t *testing.T) {
 		t.Fatalf("re-inject: %v", err)
 	}
 
-	rec, err := h.store.GetByTaskID("t-refid-2")
+	rec, err := h.store.GetByTaskID(context.Background(), "t-refid-2")
 	if err != nil {
 		t.Fatalf("GetByTaskID: %v", err)
 	}
@@ -2079,12 +2168,12 @@ func TestCreateApplication_RefID_UnconfiguredDeployment_FailsInject(t *testing.T
 	if errors.Is(err, ErrInvalidInjectRequest) {
 		t.Errorf("error wraps ErrInvalidInjectRequest (400), want an unwrapped 500: %v", err)
 	}
-	if _, err := store.GetByTaskID("t-refid-3"); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := store.GetByTaskID(context.Background(), "t-refid-3"); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Errorf("application row exists after a failed generation, want none (got %v)", err)
 	}
 
 	var consignments int64
-	if err := store.db.Model(&consignment.ConsignmentRecord{}).
+	if err := store.DB().Model(&consignment.ConsignmentRecord{}).
 		Where("id = ?", "c-refid-3").Count(&consignments).Error; err != nil {
 		t.Fatalf("counting consignments: %v", err)
 	}
@@ -2116,7 +2205,7 @@ func TestCreateApplication_NoRefIDBlock_LeavesReviewerResponseEmpty(t *testing.T
 		t.Fatalf("CreateApplication: %v", err)
 	}
 
-	rec, err := h.store.GetByTaskID("t-plain")
+	rec, err := h.store.GetByTaskID(context.Background(), "t-plain")
 	if err != nil {
 		t.Fatalf("GetByTaskID: %v", err)
 	}
@@ -2135,7 +2224,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	store := newTestStore(t)
 	mustCreateRefIDSequences(t, store)
 
-	stores, err := refidstore.New(store.db)
+	stores, err := refidstore.New(store.DB())
 	if err != nil {
 		t.Fatalf("refidstore.New: %v", err)
 	}
@@ -2178,7 +2267,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	}
 	refIDOf := func(taskID string) any {
 		t.Helper()
-		rec, err := store.GetByTaskID(taskID)
+		rec, err := store.GetByTaskID(context.Background(), taskID)
 		if err != nil {
 			t.Fatalf("GetByTaskID(%s): %v", taskID, err)
 		}
@@ -2210,7 +2299,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	if !errors.Is(err, ErrInvalidInjectRequest) {
 		t.Fatalf("inject with an unlisted office returned %v, want ErrInvalidInjectRequest", err)
 	}
-	if _, err := store.GetByTaskID("t-e2e-bad"); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := store.GetByTaskID(context.Background(), "t-e2e-bad"); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Errorf("application row exists after a rejected office code, want none (got %v)", err)
 	}
 
@@ -2226,7 +2315,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	if !errors.Is(err, ErrInvalidInjectRequest) {
 		t.Fatalf("inject with no officeCode returned %v, want ErrInvalidInjectRequest", err)
 	}
-	if _, err := store.GetByTaskID("t-e2e-missing"); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := store.GetByTaskID(context.Background(), "t-e2e-missing"); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Errorf("application row exists after a missing required param, want none (got %v)", err)
 	}
 }
@@ -2241,7 +2330,7 @@ func TestCreateApplication_RefID_RandomFormat_EndToEnd(t *testing.T) {
 	store := newTestStore(t)
 	mustCreateRefIDRandom(t, store)
 
-	stores, err := refidstore.New(store.db)
+	stores, err := refidstore.New(store.DB())
 	if err != nil {
 		t.Fatalf("refidstore.New: %v", err)
 	}
@@ -2284,7 +2373,7 @@ func TestCreateApplication_RefID_RandomFormat_EndToEnd(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("inject %s: %v", taskID, err)
 		}
-		rec, err := store.GetByTaskID(taskID)
+		rec, err := store.GetByTaskID(context.Background(), taskID)
 		if err != nil {
 			t.Fatalf("GetByTaskID(%s): %v", taskID, err)
 		}
@@ -2301,7 +2390,7 @@ func TestCreateApplication_RefID_RandomFormat_EndToEnd(t *testing.T) {
 	// Every issued value is reserved, which is what lets a later draw detect
 	// the collision instead of reissuing it.
 	var reserved int64
-	if err := store.db.Raw("SELECT COUNT(*) FROM refid_random").Scan(&reserved).Error; err != nil {
+	if err := store.DB().Raw("SELECT COUNT(*) FROM refid_random").Scan(&reserved).Error; err != nil {
 		t.Fatalf("counting refid_random: %v", err)
 	}
 	if reserved != 2 {
@@ -2312,11 +2401,11 @@ func TestCreateApplication_RefID_RandomFormat_EndToEnd(t *testing.T) {
 // mustCreateRefIDRandom creates the issued-value table a random segment
 // reserves into, picking DDL for the store's dialect. Mirrors the
 // random-table migration; keep the two in step.
-func mustCreateRefIDRandom(t *testing.T, store *ApplicationStore) {
+func mustCreateRefIDRandom(t *testing.T, store *engine.ApplicationStore) {
 	t.Helper()
 
 	var ddl string
-	switch name := store.db.Name(); name {
+	switch name := store.DB().Name(); name {
 	case "postgres":
 		ddl = `
 			CREATE TABLE IF NOT EXISTS refid_random (
@@ -2337,13 +2426,13 @@ func mustCreateRefIDRandom(t *testing.T, store *ApplicationStore) {
 		t.Fatalf("no refid_random DDL for driver %q", name)
 	}
 
-	if err := store.db.Exec(ddl).Error; err != nil {
+	if err := store.DB().Exec(ddl).Error; err != nil {
 		t.Fatalf("failed to create refid_random: %v", err)
 	}
 	// Persistent backends keep the table between tests, so reservations would
 	// carry over and break the row count above.
-	if store.db.Name() != "sqlite" {
-		if err := store.db.Exec("TRUNCATE TABLE refid_random").Error; err != nil {
+	if store.DB().Name() != "sqlite" {
+		if err := store.DB().Exec("TRUNCATE TABLE refid_random").Error; err != nil {
 			t.Fatalf("failed to truncate refid_random: %v", err)
 		}
 	}
@@ -2353,11 +2442,11 @@ func mustCreateRefIDRandom(t *testing.T, store *ApplicationStore) {
 // picking DDL for the store's dialect — newTestStore runs against PostgreSQL
 // when AGENCY_DB_DRIVER=postgres, which has no datetime('now'). Mirrors the
 // counter-table migration; keep the two in step.
-func mustCreateRefIDSequences(t *testing.T, store *ApplicationStore) {
+func mustCreateRefIDSequences(t *testing.T, store *engine.ApplicationStore) {
 	t.Helper()
 
 	var ddl string
-	switch name := store.db.Name(); name {
+	switch name := store.DB().Name(); name {
 	case "postgres":
 		ddl = `
 			CREATE TABLE IF NOT EXISTS refid_sequences (
@@ -2376,13 +2465,13 @@ func mustCreateRefIDSequences(t *testing.T, store *ApplicationStore) {
 		t.Fatalf("no refid_sequences DDL for driver %q", name)
 	}
 
-	if err := store.db.Exec(ddl).Error; err != nil {
+	if err := store.DB().Exec(ddl).Error; err != nil {
 		t.Fatalf("failed to create refid_sequences: %v", err)
 	}
 	// Persistent backends keep the table between tests, so counters would
 	// carry over and break the per-office assertions below.
-	if store.db.Name() != "sqlite" {
-		if err := store.db.Exec("TRUNCATE TABLE refid_sequences").Error; err != nil {
+	if store.DB().Name() != "sqlite" {
+		if err := store.DB().Exec("TRUNCATE TABLE refid_sequences").Error; err != nil {
 			t.Fatalf("failed to truncate refid_sequences: %v", err)
 		}
 	}
@@ -2422,7 +2511,7 @@ func TestCreateApplication_RefID_UnusedParamNotResolved_StillGenerates(t *testin
 		t.Fatalf("a declared-but-unused param with no value must not fail the inject: %v", err)
 	}
 
-	rec, err := h.store.GetByTaskID("t-refid-extra")
+	rec, err := h.store.GetByTaskID(context.Background(), "t-refid-extra")
 	if err != nil {
 		t.Fatalf("GetByTaskID: %v", err)
 	}
