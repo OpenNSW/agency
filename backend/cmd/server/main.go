@@ -18,6 +18,7 @@ import (
 	"github.com/OpenNSW/agency/backend/internal/certificate"
 	"github.com/OpenNSW/agency/backend/internal/consignment"
 	"github.com/OpenNSW/agency/backend/internal/datascope"
+	"github.com/OpenNSW/agency/backend/internal/engine"
 	"github.com/OpenNSW/agency/backend/internal/feedback"
 	"github.com/OpenNSW/agency/backend/internal/logging"
 	"github.com/OpenNSW/agency/backend/internal/nswclient"
@@ -69,7 +70,7 @@ func main() {
 	}
 
 	// Initialize database store
-	store, err := application.NewApplicationStore(cfg.DB, consignmentCustomDataSchema)
+	store, err := engine.NewApplicationStore(cfg.DB, consignmentCustomDataSchema)
 	if err != nil {
 		log.Fatalf("failed to create application store: %v", err)
 	}

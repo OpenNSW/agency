@@ -1,4 +1,4 @@
-package application
+package engine
 
 import (
 	"context"
@@ -92,7 +92,7 @@ func seedRecord(t *testing.T, store *ApplicationStore, taskID string, data JSONB
 	if data == nil {
 		data = JSONB{"key": "value"}
 	}
-	err := store.CreateOrUpdate(&ApplicationRecord{
+	err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{
 		TaskID:        taskID,
 		TaskCode:      "verification:123",
 		ConsignmentID: "wf-seed",
@@ -127,7 +127,7 @@ func TestApplicationStore_CreateAndRetrieve(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-crud-1", JSONB{"key": "value"})
 
-	fetched, err := store.GetByTaskID("task-crud-1")
+	fetched, err := store.GetByTaskID(context.Background(), "task-crud-1")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestApplicationStore_CreateAndRetrieve(t *testing.T) {
 
 func TestApplicationStore_GetByTaskID_NotFound(t *testing.T) {
 	store := newTestStore(t)
-	_, err := store.GetByTaskID("nonexistent")
+	_, err := store.GetByTaskID(context.Background(), "nonexistent")
 	if err == nil {
 		t.Error("expected error for non-existent task ID")
 	}
@@ -152,7 +152,7 @@ func TestApplicationStore_GetByTaskID_NotFound(t *testing.T) {
 
 func TestApplicationStore_GetByConsignmentAndTaskCode(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{
 		TaskID:        "task-by-code-1",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-by-code",
@@ -162,7 +162,7 @@ func TestApplicationStore_GetByConsignmentAndTaskCode(t *testing.T) {
 		t.Fatalf("failed to seed record: %v", err)
 	}
 
-	fetched, err := store.GetByConsignmentAndTaskCode("wf-by-code", "alpha")
+	fetched, err := store.GetByConsignmentAndTaskCode(context.Background(), "wf-by-code", "alpha")
 	if err != nil {
 		t.Fatalf("GetByConsignmentAndTaskCode failed: %v", err)
 	}
@@ -179,11 +179,11 @@ func TestApplicationStore_GetByConsignmentAndTaskCode_NotFound(t *testing.T) {
 	seedRecord(t, store, "task-by-code-2", nil)
 
 	// Right consignment, wrong task code.
-	if _, err := store.GetByConsignmentAndTaskCode("wf-seed", "no-such-code"); err == nil {
+	if _, err := store.GetByConsignmentAndTaskCode(context.Background(), "wf-seed", "no-such-code"); err == nil {
 		t.Error("expected error for non-matching task code")
 	}
 	// Right task code, wrong consignment.
-	if _, err := store.GetByConsignmentAndTaskCode("wf-other", "verification:123"); err == nil {
+	if _, err := store.GetByConsignmentAndTaskCode(context.Background(), "wf-other", "verification:123"); err == nil {
 		t.Error("expected error for non-matching consignment")
 	}
 }
@@ -196,7 +196,7 @@ func TestApplicationStore_UpdateStatus(t *testing.T) {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-status-1")
+	app, _ := store.GetByTaskID(context.Background(), "task-status-1")
 	if app.Status != "APPROVED" {
 		t.Errorf("expected Status 'APPROVED', got %q", app.Status)
 	}
@@ -217,14 +217,14 @@ func TestApplicationStore_FinalizeReview(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-finalize-1", nil)
 
-	if err := store.ClaimApplication("task-finalize-1", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-finalize-1", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
-	if err := store.FinalizeReview("task-finalize-1", "user-1", "APPROVED", map[string]any{"reason": "ok"}); err != nil {
+	if err := store.FinalizeReview(context.Background(), "task-finalize-1", "user-1", "APPROVED", map[string]any{"reason": "ok"}); err != nil {
 		t.Fatalf("FinalizeReview failed: %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-finalize-1")
+	app, _ := store.GetByTaskID(context.Background(), "task-finalize-1")
 	if app.Status != "APPROVED" {
 		t.Errorf("expected Status 'APPROVED', got %q", app.Status)
 	}
@@ -237,16 +237,16 @@ func TestApplicationStore_FinalizeReview_ConflictWhenNotClaimedByCaller(t *testi
 	store := newTestStore(t)
 	seedRecord(t, store, "task-finalize-2", nil)
 
-	if err := store.ClaimApplication("task-finalize-2", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-finalize-2", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
-	err := store.FinalizeReview("task-finalize-2", "user-2", "APPROVED", map[string]any{})
+	err := store.FinalizeReview(context.Background(), "task-finalize-2", "user-2", "APPROVED", map[string]any{})
 	if !errors.Is(err, ErrApplicationReviewConflict) {
 		t.Errorf("expected ErrApplicationReviewConflict, got %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-finalize-2")
+	app, _ := store.GetByTaskID(context.Background(), "task-finalize-2")
 	if app.Status != "PENDING" {
 		t.Errorf("expected status to remain 'PENDING', got %q", app.Status)
 	}
@@ -260,20 +260,20 @@ func TestApplicationStore_FinalizeReview_ConflictOnDoubleSubmit(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-finalize-3", nil)
 
-	if err := store.ClaimApplication("task-finalize-3", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-finalize-3", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
-	if err := store.FinalizeReview("task-finalize-3", "user-1", "APPROVED", map[string]any{"outcome": "first"}); err != nil {
+	if err := store.FinalizeReview(context.Background(), "task-finalize-3", "user-1", "APPROVED", map[string]any{"outcome": "first"}); err != nil {
 		t.Fatalf("first FinalizeReview failed: %v", err)
 	}
 
-	err := store.FinalizeReview("task-finalize-3", "user-1", "REJECTED", map[string]any{"outcome": "second"})
+	err := store.FinalizeReview(context.Background(), "task-finalize-3", "user-1", "REJECTED", map[string]any{"outcome": "second"})
 	if !errors.Is(err, ErrApplicationReviewConflict) {
 		t.Errorf("expected ErrApplicationReviewConflict on double submit, got %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-finalize-3")
+	app, _ := store.GetByTaskID(context.Background(), "task-finalize-3")
 	if app.Status != "APPROVED" {
 		t.Errorf("expected the first outcome 'APPROVED' to stick, got %q", app.Status)
 	}
@@ -286,7 +286,7 @@ func TestApplicationStore_Delete(t *testing.T) {
 	if err := store.Delete("task-delete-1"); err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
-	_, err := store.GetByTaskID("task-delete-1")
+	_, err := store.GetByTaskID(context.Background(), "task-delete-1")
 	if err == nil {
 		t.Error("expected error after deleting task")
 	}
@@ -310,7 +310,7 @@ func TestApplicationStore_JSONB_DeepNesting(t *testing.T) {
 
 	seedRecord(t, store, "task-jsonb-1", deepData)
 
-	fetched, err := store.GetByTaskID("task-jsonb-1")
+	fetched, err := store.GetByTaskID(context.Background(), "task-jsonb-1")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestApplicationStore_JSONB_DeepNesting(t *testing.T) {
 func TestApplicationStore_JSONB_NilData(t *testing.T) {
 	store := newTestStore(t)
 
-	err := store.CreateOrUpdate(&ApplicationRecord{
+	err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{
 		TaskID:        "task-nil-data",
 		TaskCode:      "verification:123",
 		ConsignmentID: "wf-1",
@@ -361,7 +361,7 @@ func TestApplicationStore_JSONB_NilData(t *testing.T) {
 		t.Fatalf("CreateOrUpdate with nil JSONB failed: %v", err)
 	}
 
-	fetched, _ := store.GetByTaskID("task-nil-data")
+	fetched, _ := store.GetByTaskID(context.Background(), "task-nil-data")
 	if fetched.Data != nil {
 		t.Errorf("expected nil Data, got %v", fetched.Data)
 	}
@@ -428,9 +428,9 @@ func TestApplicationStore_List_OrderingPriority(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed records out of order
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-done", TaskCode: "test", ConsignmentID: "wf-order", Status: "DONE"}, nil)
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", Status: "FEEDBACK_REQUESTED"}, nil)
-	_ = store.CreateOrUpdate(&ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", Status: "PENDING"}, nil)
+	_ = store.CreateOrUpdate(context.Background(), &ApplicationRecord{TaskID: "task-done", TaskCode: "test", ConsignmentID: "wf-order", Status: "DONE"}, nil)
+	_ = store.CreateOrUpdate(context.Background(), &ApplicationRecord{TaskID: "task-feedback", TaskCode: "test", ConsignmentID: "wf-order", Status: "FEEDBACK_REQUESTED"}, nil)
+	_ = store.CreateOrUpdate(context.Background(), &ApplicationRecord{TaskID: "task-pending", TaskCode: "test", ConsignmentID: "wf-order", Status: "PENDING"}, nil)
 
 	apps, _, err := store.List(ctx, "", "wf-order", "", nil, 0, 10)
 	if err != nil {
@@ -456,10 +456,10 @@ func TestApplicationStore_List_ScopedByConsignmentCustomData(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	if err := store.CreateOrUpdate(&ApplicationRecord{TaskID: "t-colombo", TaskCode: "test", ConsignmentID: "c-colombo", Status: "PENDING"}, nil); err != nil {
+	if err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{TaskID: "t-colombo", TaskCode: "test", ConsignmentID: "c-colombo", Status: "PENDING"}, nil); err != nil {
 		t.Fatalf("failed to seed c-colombo: %v", err)
 	}
-	if err := store.CreateOrUpdate(&ApplicationRecord{TaskID: "t-gampaha", TaskCode: "test", ConsignmentID: "c-gampaha", Status: "PENDING"}, nil); err != nil {
+	if err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{TaskID: "t-gampaha", TaskCode: "test", ConsignmentID: "c-gampaha", Status: "PENDING"}, nil); err != nil {
 		t.Fatalf("failed to seed c-gampaha: %v", err)
 	}
 	setConsignmentCustomData(t, store, "c-colombo", consignment.JSONB{"location": consignment.JSONB{"district": "Colombo"}})
@@ -501,12 +501,12 @@ func setConsignmentCustomData(t *testing.T, store *ApplicationStore, consignment
 func TestApplicationStore_GetByTaskID_PreloadsConsignment(t *testing.T) {
 	store := newTestStore(t)
 
-	if err := store.CreateOrUpdate(&ApplicationRecord{TaskID: "t-preload", TaskCode: "test", ConsignmentID: "c-preload", Status: "PENDING"}, nil); err != nil {
+	if err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{TaskID: "t-preload", TaskCode: "test", ConsignmentID: "c-preload", Status: "PENDING"}, nil); err != nil {
 		t.Fatalf("failed to seed: %v", err)
 	}
 	setConsignmentCustomData(t, store, "c-preload", consignment.JSONB{"location": consignment.JSONB{"district": "Colombo"}})
 
-	app, err := store.GetByTaskID("t-preload")
+	app, err := store.GetByTaskID(context.Background(), "t-preload")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestApplicationStore_List_ConsignmentFilter(t *testing.T) {
 	seedRecord(t, store, "t2", nil)
 
 	// Create another consignment
-	err := store.CreateOrUpdate(&ApplicationRecord{
+	err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{
 		TaskID:        "t3",
 		ConsignmentID: "wf-custom",
 		Status:        "PENDING",
@@ -564,11 +564,11 @@ func TestApplicationStore_AppendFeedback(t *testing.T) {
 	seedRecord(t, store, "task-fb-1", nil)
 
 	feedback1 := feedback.Entry{Content: map[string]any{"comment": "needs revision"}, Round: 1}
-	if err := store.AppendFeedback("task-fb-1", feedback1); err != nil {
+	if err := store.AppendFeedback(context.Background(), "task-fb-1", feedback1); err != nil {
 		t.Fatalf("AppendFeedback round 1 failed: %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-fb-1")
+	app, _ := store.GetByTaskID(context.Background(), "task-fb-1")
 	if app.Status != "FEEDBACK_REQUESTED" {
 		t.Errorf("expected FEEDBACK_REQUESTED after feedback, got %q", app.Status)
 	}
@@ -578,11 +578,11 @@ func TestApplicationStore_AppendFeedback(t *testing.T) {
 
 	// Append a second round
 	feedback2 := feedback.Entry{Content: map[string]any{"comment": "still needs work"}, Round: 2}
-	if err := store.AppendFeedback("task-fb-1", feedback2); err != nil {
+	if err := store.AppendFeedback(context.Background(), "task-fb-1", feedback2); err != nil {
 		t.Fatalf("AppendFeedback round 2 failed: %v", err)
 	}
 
-	app, _ = store.GetByTaskID("task-fb-1")
+	app, _ = store.GetByTaskID(context.Background(), "task-fb-1")
 	if len(app.AgencyFeedbackHistory) != 2 {
 		t.Errorf("expected 2 feedback entries, got %d", len(app.AgencyFeedbackHistory))
 	}
@@ -594,7 +594,7 @@ func TestApplicationStore_AppendFeedback(t *testing.T) {
 func TestApplicationStore_AppendFeedback_NonExistent(t *testing.T) {
 	store := newTestStore(t)
 
-	err := store.AppendFeedback("nonexistent", feedback.Entry{Content: map[string]any{"comment": "nope"}})
+	err := store.AppendFeedback(context.Background(), "nonexistent", feedback.Entry{Content: map[string]any{"comment": "nope"}})
 	if err == nil {
 		t.Error("expected error for feedback on non-existent task")
 	}
@@ -607,20 +607,20 @@ func TestApplicationStore_UpdateDataAndResetStatus(t *testing.T) {
 	seedRecord(t, store, "task-resub-1", JSONB{"old": "data"})
 
 	// Simulate Agency requesting feedback
-	_ = store.AppendFeedback("task-resub-1", feedback.Entry{Content: map[string]any{"comment": "fix it"}})
+	_ = store.AppendFeedback(context.Background(), "task-resub-1", feedback.Entry{Content: map[string]any{"comment": "fix it"}})
 
-	app, _ := store.GetByTaskID("task-resub-1")
+	app, _ := store.GetByTaskID(context.Background(), "task-resub-1")
 	if app.Status != "FEEDBACK_REQUESTED" {
 		t.Fatalf("expected FEEDBACK_REQUESTED, got %q", app.Status)
 	}
 
 	// Simulate trader resubmission
 	newData := map[string]any{"new": "data", "updated": true}
-	if err := store.UpdateDataAndResetStatus("task-resub-1", newData, nil); err != nil {
+	if err := store.UpdateDataAndResetStatus(context.Background(), "task-resub-1", newData, nil); err != nil {
 		t.Fatalf("UpdateDataAndResetStatus failed: %v", err)
 	}
 
-	app, _ = store.GetByTaskID("task-resub-1")
+	app, _ = store.GetByTaskID(context.Background(), "task-resub-1")
 	if app.Status != "PENDING" {
 		t.Errorf("expected PENDING after resubmission, got %q", app.Status)
 	}
@@ -635,7 +635,7 @@ func TestApplicationStore_ConsignmentUpsert(t *testing.T) {
 	store := newTestStore(t)
 
 	// Two CreateOrUpdate calls with the same consignment_id should result in one consignment row.
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{
 		TaskID:        "dup-t1",
 		TaskCode:      "test",
 		ConsignmentID: "dup-wf",
@@ -643,7 +643,7 @@ func TestApplicationStore_ConsignmentUpsert(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatalf("first CreateOrUpdate failed: %v", err)
 	}
-	if err := store.CreateOrUpdate(&ApplicationRecord{
+	if err := store.CreateOrUpdate(context.Background(), &ApplicationRecord{
 		TaskID:        "dup-t2",
 		TaskCode:      "test",
 		ConsignmentID: "dup-wf",
@@ -685,11 +685,11 @@ func TestApplicationStore_ClaimApplication_Unclaimed(t *testing.T) {
 	seedRecord(t, store, "task-claim-1", nil)
 	seedUser(t, store, "user-1", "Officer One", "one@example.com")
 
-	if err := store.ClaimApplication("task-claim-1", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-claim-1", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-claim-1")
+	app, _ := store.GetByTaskID(context.Background(), "task-claim-1")
 	if app.ClaimedBy == nil || *app.ClaimedBy != "user-1" {
 		t.Errorf("expected ClaimedBy 'user-1', got %v", app.ClaimedBy)
 	}
@@ -708,22 +708,22 @@ func TestApplicationStore_ClaimApplication_IdempotentForSameUser(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-claim-2", nil)
 
-	if err := store.ClaimApplication("task-claim-2", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-claim-2", "user-1"); err != nil {
 		t.Fatalf("first ClaimApplication failed: %v", err)
 	}
-	app, err := store.GetByTaskID("task-claim-2")
+	app, err := store.GetByTaskID(context.Background(), "task-claim-2")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
 	firstClaimedAt := app.ClaimedAt
 
-	if err := store.ClaimApplication("task-claim-2", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-claim-2", "user-1"); err != nil {
 		t.Fatalf("re-claim by same user should succeed, got: %v", err)
 	}
 
 	// Re-claiming by the same user must be a no-op: claimed_at should not
 	// be refreshed.
-	app, err = store.GetByTaskID("task-claim-2")
+	app, err = store.GetByTaskID(context.Background(), "task-claim-2")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
@@ -736,16 +736,16 @@ func TestApplicationStore_ClaimApplication_ConflictWithOtherUser(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-claim-3", nil)
 
-	if err := store.ClaimApplication("task-claim-3", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-claim-3", "user-1"); err != nil {
 		t.Fatalf("first ClaimApplication failed: %v", err)
 	}
-	err := store.ClaimApplication("task-claim-3", "user-2")
+	err := store.ClaimApplication(context.Background(), "task-claim-3", "user-2")
 	if !errors.Is(err, ErrApplicationAlreadyClaimed) {
 		t.Errorf("expected ErrApplicationAlreadyClaimed, got %v", err)
 	}
 
 	// Claim must remain with the original claimant.
-	app, _ := store.GetByTaskID("task-claim-3")
+	app, _ := store.GetByTaskID(context.Background(), "task-claim-3")
 	if app.ClaimedBy == nil || *app.ClaimedBy != "user-1" {
 		t.Errorf("expected claim to remain with 'user-1', got %v", app.ClaimedBy)
 	}
@@ -753,7 +753,7 @@ func TestApplicationStore_ClaimApplication_ConflictWithOtherUser(t *testing.T) {
 
 func TestApplicationStore_ClaimApplication_NotFound(t *testing.T) {
 	store := newTestStore(t)
-	if err := store.ClaimApplication("nonexistent", "user-1"); err == nil {
+	if err := store.ClaimApplication(context.Background(), "nonexistent", "user-1"); err == nil {
 		t.Error("expected error when claiming a non-existent task")
 	}
 }
@@ -770,12 +770,12 @@ func TestApplicationStore_ClaimApplication_RejectedWhenNotPending(t *testing.T) 
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 
-	err := store.ClaimApplication("task-claim-reviewed", "user-1")
+	err := store.ClaimApplication(context.Background(), "task-claim-reviewed", "user-1")
 	if !errors.Is(err, ErrApplicationNotPending) {
 		t.Errorf("expected ErrApplicationNotPending, got %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-claim-reviewed")
+	app, _ := store.GetByTaskID(context.Background(), "task-claim-reviewed")
 	if app.ClaimedBy != nil {
 		t.Errorf("expected ClaimedBy to remain unset, got %v", app.ClaimedBy)
 	}
@@ -791,11 +791,11 @@ func TestApplicationStore_ClaimantIdentity_NotDenormalized(t *testing.T) {
 	seedRecord(t, store, "task-claimant-identity", nil)
 	seedUser(t, store, "user-1", "Officer One", "one@example.com")
 
-	if err := store.ClaimApplication("task-claimant-identity", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-claimant-identity", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
-	app, err := store.GetByTaskID("task-claimant-identity")
+	app, err := store.GetByTaskID(context.Background(), "task-claimant-identity")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
@@ -810,7 +810,7 @@ func TestApplicationStore_ClaimantIdentity_NotDenormalized(t *testing.T) {
 		t.Fatalf("failed to delete user: %v", err)
 	}
 
-	app, err = store.GetByTaskID("task-claimant-identity")
+	app, err = store.GetByTaskID(context.Background(), "task-claimant-identity")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
@@ -828,7 +828,7 @@ func TestApplicationStore_ClaimedAt_ClearedWhenClaimedByIsNil(t *testing.T) {
 	seedRecord(t, store, "task-orphaned-claimed-at", nil)
 	seedUser(t, store, "user-1", "Officer One", "one@example.com")
 
-	if err := store.ClaimApplication("task-orphaned-claimed-at", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-orphaned-claimed-at", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 
@@ -838,7 +838,7 @@ func TestApplicationStore_ClaimedAt_ClearedWhenClaimedByIsNil(t *testing.T) {
 		t.Fatalf("failed to null claimed_by: %v", err)
 	}
 
-	app, err := store.GetByTaskID("task-orphaned-claimed-at")
+	app, err := store.GetByTaskID(context.Background(), "task-orphaned-claimed-at")
 	if err != nil {
 		t.Fatalf("GetByTaskID failed: %v", err)
 	}
@@ -851,14 +851,14 @@ func TestApplicationStore_ReleaseApplication(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-1", nil)
 
-	if err := store.ClaimApplication("task-release-1", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-release-1", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
-	if err := store.ReleaseApplication("task-release-1", "user-1"); err != nil {
+	if err := store.ReleaseApplication(context.Background(), "task-release-1", "user-1"); err != nil {
 		t.Fatalf("ReleaseApplication failed: %v", err)
 	}
 
-	app, _ := store.GetByTaskID("task-release-1")
+	app, _ := store.GetByTaskID(context.Background(), "task-release-1")
 	if app.ClaimedBy != nil {
 		t.Errorf("expected ClaimedBy to be cleared, got %v", app.ClaimedBy)
 	}
@@ -871,10 +871,10 @@ func TestApplicationStore_ReleaseApplication_NotClaimedByCaller(t *testing.T) {
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-2", nil)
 
-	if err := store.ClaimApplication("task-release-2", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-release-2", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
-	err := store.ReleaseApplication("task-release-2", "user-2")
+	err := store.ReleaseApplication(context.Background(), "task-release-2", "user-2")
 	if !errors.Is(err, ErrApplicationNotClaimedByYou) {
 		t.Errorf("expected ErrApplicationNotClaimedByYou, got %v", err)
 	}
@@ -884,20 +884,20 @@ func TestApplicationStore_ReleaseApplication_RejectedOnceReviewed(t *testing.T) 
 	store := newTestStore(t)
 	seedRecord(t, store, "task-release-reviewed", nil)
 
-	if err := store.ClaimApplication("task-release-reviewed", "user-1"); err != nil {
+	if err := store.ClaimApplication(context.Background(), "task-release-reviewed", "user-1"); err != nil {
 		t.Fatalf("ClaimApplication failed: %v", err)
 	}
 	if err := store.UpdateStatus("task-release-reviewed", "DONE", map[string]any{}); err != nil {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 
-	err := store.ReleaseApplication("task-release-reviewed", "user-1")
+	err := store.ReleaseApplication(context.Background(), "task-release-reviewed", "user-1")
 	if !errors.Is(err, ErrApplicationNotPending) {
 		t.Errorf("expected ErrApplicationNotPending, got %v", err)
 	}
 
 	// Claim must remain in place.
-	app, _ := store.GetByTaskID("task-release-reviewed")
+	app, _ := store.GetByTaskID(context.Background(), "task-release-reviewed")
 	if app.ClaimedBy == nil || *app.ClaimedBy != "user-1" {
 		t.Errorf("expected claim to remain with 'user-1', got %v", app.ClaimedBy)
 	}

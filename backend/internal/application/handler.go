@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/OpenNSW/agency/backend/internal/engine"
 	"github.com/OpenNSW/agency/backend/internal/version"
 	"github.com/OpenNSW/core/httputil"
 )
@@ -189,9 +190,9 @@ func (h *Handler) HandleReviewApplication(w http.ResponseWriter, r *http.Request
 		switch {
 		case errors.Is(err, ErrApplicationNotFound):
 			httputil.Error(w, r, http.StatusNotFound, "Application not found")
-		case errors.Is(err, ErrApplicationNotClaimedByYou):
+		case errors.Is(err, engine.ErrApplicationNotClaimedByYou):
 			httputil.Error(w, r, http.StatusForbidden, "You must claim this application before reviewing it")
-		case errors.Is(err, ErrApplicationReviewConflict):
+		case errors.Is(err, engine.ErrApplicationReviewConflict):
 			httputil.Error(w, r, http.StatusConflict, "This application was already reviewed or your claim has changed; please refresh and try again")
 		default:
 			httputil.InternalServerError(w, r, "failed to review application", err, "taskID", taskID)
@@ -229,9 +230,9 @@ func (h *Handler) HandleClaimApplication(w http.ResponseWriter, r *http.Request)
 		switch {
 		case errors.Is(err, ErrApplicationNotFound):
 			httputil.Error(w, r, http.StatusNotFound, "Application not found")
-		case errors.Is(err, ErrApplicationAlreadyClaimed):
+		case errors.Is(err, engine.ErrApplicationAlreadyClaimed):
 			httputil.Error(w, r, http.StatusConflict, "Application already claimed by another officer")
-		case errors.Is(err, ErrApplicationNotPending):
+		case errors.Is(err, engine.ErrApplicationNotPending):
 			httputil.Error(w, r, http.StatusConflict, "Application has already been reviewed and can no longer be claimed")
 		default:
 			httputil.InternalServerError(w, r, "failed to claim application", err, "taskID", taskID)
@@ -266,9 +267,9 @@ func (h *Handler) HandleReleaseApplication(w http.ResponseWriter, r *http.Reques
 		switch {
 		case errors.Is(err, ErrApplicationNotFound):
 			httputil.Error(w, r, http.StatusNotFound, "Application not found")
-		case errors.Is(err, ErrApplicationNotClaimedByYou):
+		case errors.Is(err, engine.ErrApplicationNotClaimedByYou):
 			httputil.Error(w, r, http.StatusForbidden, "Application is not claimed by you")
-		case errors.Is(err, ErrApplicationNotPending):
+		case errors.Is(err, engine.ErrApplicationNotPending):
 			httputil.Error(w, r, http.StatusConflict, "Application has already been reviewed and its claim can no longer be released")
 		default:
 			httputil.InternalServerError(w, r, "failed to release application", err, "taskID", taskID)

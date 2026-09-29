@@ -11,6 +11,7 @@ import (
 
 	"github.com/OpenNSW/agency/backend/internal/authn"
 	"github.com/OpenNSW/agency/backend/internal/datascope"
+	"github.com/OpenNSW/agency/backend/internal/engine"
 	"github.com/OpenNSW/agency/backend/internal/feedback"
 	"github.com/OpenNSW/agency/backend/internal/rbac"
 	"github.com/OpenNSW/agency/backend/internal/taskconfig"
@@ -25,25 +26,6 @@ import (
 
 // ErrApplicationNotFound is returned when an application is not found
 var ErrApplicationNotFound = errors.New("application not found")
-
-// ErrApplicationAlreadyClaimed is returned when a claim attempt conflicts
-// with an existing claim held by a different officer.
-var ErrApplicationAlreadyClaimed = errors.New("application already claimed by another officer")
-
-// ErrApplicationNotClaimedByYou is returned when an action that requires a
-// claim (reviewing, releasing) is attempted by someone other than the
-// current claimant.
-var ErrApplicationNotClaimedByYou = errors.New("application must be claimed by you first")
-
-// ErrApplicationNotPending is returned when claiming or releasing an
-// application that has already been reviewed (i.e. is no longer PENDING).
-var ErrApplicationNotPending = errors.New("application has already been reviewed and is no longer pending")
-
-// ErrApplicationReviewConflict is returned when a review outcome can no
-// longer be persisted because the caller's claim or the application's
-// PENDING status changed since the review was validated (e.g. a concurrent
-// review already completed, or the claim was released and re-claimed).
-var ErrApplicationReviewConflict = errors.New("application was already reviewed or your claim has changed")
 
 // ErrInvalidInjectRequest is returned when an inject request is malformed:
 // missing required fields, references a task code with no task
@@ -149,7 +131,7 @@ type ConsignmentService interface {
 }
 
 type service struct {
-	store              *ApplicationStore
+	engine             engine.Engine
 	artifactRegistry   *artifact.Registry
 	nsw                NSWClient
 	roleService        *rbac.RoleService
@@ -158,18 +140,20 @@ type service struct {
 	refIDs             refid.Registry
 }
 
-// NewService creates a new Agency service instance with database storage
+// NewService creates a new Agency service instance backed by engine, which
+// owns application state from submission through review/resubmission. See
+// the Engine interface for what it's responsible for.
 // refIDs must be non-nil even where no deployment format is configured: pass
 // a registry built from an empty refid.Config, whose Generate returns
 // ErrUnknownIssuer. A task declaring refid against an unconfigured deployment
 // then fails its inject loudly, instead of a nil check quietly making the
 // feature a no-op.
-func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver, refIDs refid.Registry) Service {
-	if store == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil || refIDs == nil {
+func NewService(engine engine.Engine, artifactRegistry *artifact.Registry, nsw NSWClient, roleService *rbac.RoleService, consignmentService ConsignmentService, dataScope *datascope.Resolver, refIDs refid.Registry) Service {
+	if engine == nil || artifactRegistry == nil || nsw == nil || roleService == nil || consignmentService == nil || dataScope == nil || refIDs == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
-		store:              store,
+		engine:             engine,
 		artifactRegistry:   artifactRegistry,
 		nsw:                nsw,
 		roleService:        roleService,
@@ -204,7 +188,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 	// declared, so this is nil/free in the common case.
 	pushedFields := resolvePushedFields(config.ConsignmentFields, req.Data)
 
-	existing, err := s.store.GetByTaskID(req.TaskID)
+	existing, err := s.engine.GetByTaskID(ctx, req.TaskID)
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("failed to query existing application: %w", err)
@@ -212,10 +196,10 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		// Record doesn't exist — fall through to create.
 	} else if existing.Status == "FEEDBACK_REQUESTED" {
 		slog.InfoContext(ctx, "trader resubmitted after feedback, resetting to PENDING", "taskID", req.TaskID)
-		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data, pushedFields)
+		return s.engine.UpdateDataAndResetStatus(ctx, req.TaskID, req.Data, pushedFields)
 	}
 
-	appRecord := &ApplicationRecord{
+	appRecord := &engine.ApplicationRecord{
 		TaskID:        req.TaskID,
 		TaskCode:      req.TaskCode,
 		ConsignmentID: req.ConsignmentID,
@@ -238,7 +222,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 			if err != nil {
 				return err
 			}
-			appRecord.ReviewerResponse = JSONB{}
+			appRecord.ReviewerResponse = engine.JSONB{}
 			if !jsonpointer.Set(appRecord.ReviewerResponse, config.RefID.Path, id) {
 				// Unreachable — Validate already checked Path. Still an error:
 				// dropping an issued ID would be silent loss.
@@ -253,7 +237,7 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		}
 	}
 
-	return s.store.CreateOrUpdate(appRecord, pushedFields)
+	return s.engine.CreateOrUpdate(ctx, appRecord, pushedFields)
 }
 
 // GetApplications returns a paginated list of applications. List items are
@@ -277,7 +261,7 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 		}, nil
 	}
 
-	records, total, err := s.store.List(ctx, status, consignmentID, search, res.Filter, offset, pageSize)
+	records, total, err := s.engine.List(ctx, status, consignmentID, search, res.Filter, offset, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +323,7 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 
 // GetApplication returns a specific application by task ID
 func (s *service) GetApplication(ctx context.Context, taskID string) (*Application, error) {
-	record, err := s.store.GetByTaskID(taskID)
+	record, err := s.engine.GetByTaskID(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrApplicationNotFound
@@ -350,10 +334,10 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 }
 
 // GetApplicationByTaskCode returns the application within a consignment whose
-// TaskCode matches, resolved directly against the store rather than through a
+// TaskCode matches, resolved directly against the engine rather than through a
 // paginated list lookup.
 func (s *service) GetApplicationByTaskCode(ctx context.Context, consignmentID string, taskCode string) (*Application, error) {
-	record, err := s.store.GetByConsignmentAndTaskCode(consignmentID, taskCode)
+	record, err := s.engine.GetByConsignmentAndTaskCode(ctx, consignmentID, taskCode)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrApplicationNotFound
@@ -371,7 +355,7 @@ func (s *service) GetApplicationByTaskCode(ctx context.Context, consignmentID st
 // application by taskID must run this before any other check (claim
 // ownership, status, etc.) that could otherwise leak the record's existence
 // via a different error/status (e.g. "must claim first" instead of 404).
-func (s *service) checkScope(ctx context.Context, record *ApplicationRecord) error {
+func (s *service) checkScope(ctx context.Context, record *engine.ApplicationRecord) error {
 	res, err := s.dataScope.Resolve(ctx)
 	if err != nil {
 		return err
@@ -394,7 +378,7 @@ func (s *service) checkScope(ctx context.Context, record *ApplicationRecord) err
 // buildApplication assembles the API-facing Application DTO from a stored
 // record: resolving the caller's roles and attaching task config metadata,
 // permissions, and forms.
-func (s *service) buildApplication(ctx context.Context, record *ApplicationRecord) (*Application, error) {
+func (s *service) buildApplication(ctx context.Context, record *engine.ApplicationRecord) (*Application, error) {
 	if err := s.checkScope(ctx, record); err != nil {
 		return nil, err
 	}
@@ -472,7 +456,7 @@ func (s *service) buildApplication(ctx context.Context, record *ApplicationRecor
 // ReviewApplication approves or rejects an application. The caller must
 // currently hold the claim on the application.
 func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewerResponse map[string]any) error {
-	record, err := s.store.GetByTaskID(taskID)
+	record, err := s.engine.GetByTaskID(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrApplicationNotFound
@@ -490,7 +474,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 
 	principal, authenticated := authn.FromContext(ctx)
 	if !authenticated || principal.Kind != authn.KindUser || record.ClaimedBy == nil || *record.ClaimedBy != principal.UserID {
-		return ErrApplicationNotClaimedByYou
+		return engine.ErrApplicationNotClaimedByYou
 	}
 	userID := principal.UserID
 
@@ -544,8 +528,8 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 	// request (duplicate submission, or a claim released and re-claimed by
 	// another officer while this call was in flight) fails here instead of
 	// silently recording a second, conflicting outcome.
-	if err := s.store.FinalizeReview(taskID, userID, status, reviewerResponse); err != nil {
-		if errors.Is(err, ErrApplicationReviewConflict) {
+	if err := s.engine.FinalizeReview(ctx, taskID, userID, status, reviewerResponse); err != nil {
+		if errors.Is(err, engine.ErrApplicationReviewConflict) {
 			return err
 		}
 		return fmt.Errorf("failed to finalize review: %w", err)
@@ -570,7 +554,7 @@ func (s *service) FeedbackApplication(ctx context.Context, taskID string, conten
 		return fmt.Errorf("failed to send feedback to service: %w", err)
 	}
 
-	return s.store.AppendFeedback(taskID, entry)
+	return s.engine.AppendFeedback(ctx, taskID, entry)
 }
 
 // ClaimApplication marks the application as claimed by the calling officer.
@@ -583,7 +567,7 @@ func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
 	// Resolve scope before the claim itself: an out-of-scope caller must get
 	// the same 404 a GET would give them, not a successful (or conflicting)
 	// claim on a record they shouldn't even be able to tell exists.
-	record, err := s.store.GetByTaskID(taskID)
+	record, err := s.engine.GetByTaskID(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrApplicationNotFound
@@ -594,7 +578,7 @@ func (s *service) ClaimApplication(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	if err := s.store.ClaimApplication(taskID, principal.UserID); err != nil {
+	if err := s.engine.ClaimApplication(ctx, taskID, principal.UserID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrApplicationNotFound
 		}
@@ -622,7 +606,7 @@ func (s *service) ReleaseApplication(ctx context.Context, taskID string) error {
 		return fmt.Errorf("releasing an application requires an authenticated user")
 	}
 
-	if err := s.store.ReleaseApplication(taskID, principal.UserID); err != nil {
+	if err := s.engine.ReleaseApplication(ctx, taskID, principal.UserID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrApplicationNotFound
 		}
@@ -632,8 +616,8 @@ func (s *service) ReleaseApplication(ctx context.Context, taskID string) error {
 }
 
 func (s *service) Close() error {
-	if s.store != nil {
-		return s.store.Close()
+	if s.engine != nil {
+		return s.engine.Close()
 	}
 	return nil
 }
