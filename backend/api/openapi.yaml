@@ -191,8 +191,9 @@ paths:
         - BearerAuth: []
       description: |
         Submit a review decision for an application. The reviewer response is
-        forwarded as a callback POST to the NSW task endpoint derived from
-        `NSW_API_BASE_URL`,
+        forwarded as a callback POST to the NSW callback endpoint
+        (`{NSW_API_BASE_URL}/api/v1/callbacks/{callbackToken}`, with the token
+        the inject carried),
         and the application status is updated to `DONE` (or a configured mapped
         status based on the outcome field value).
       tags:
@@ -251,8 +252,8 @@ paths:
       description: |
         Send a change-request feedback message to the trader. The application
         status is set to `FEEDBACK_REQUESTED` and the feedback is forwarded as
-        a callback POST (action: `NSW_AGENCY_VERIFICATION_FEEDBACK`) to the
-        NSW task endpoint derived from `NSW_API_BASE_URL`.
+        a callback POST (command: `request-amendment`) to the NSW callback
+        endpoint (`{NSW_API_BASE_URL}/api/v1/callbacks/{callbackToken}`).
       tags:
         - Applications
       parameters:
@@ -711,6 +712,7 @@ components:
       type: object
       required:
         - taskId
+        - callbackToken
         - taskCode
         - consignmentId
       properties:
@@ -718,6 +720,14 @@ components:
           type: string
           description: Unique task identifier from the workflow engine
           example: 927adaaa-b959-4648-880a-16508acafc12
+        callbackToken:
+          type: string
+          description: |
+            Opaque token naming the NSW workflow step this inject is for. The
+            review outcome or feedback is sent back to
+            `{NSW_API_BASE_URL}/api/v1/callbacks/{callbackToken}`. A re-inject
+            of the same task (e.g. after an amendment) carries a new one.
+          example: 1mq-vSNmKRc6aKXmHSpHvBDTBvHKEn0BBl8wJ_E6WfOI
         taskCode:
           type: string
           description: Code identifying the task/verification type, used to select forms and config

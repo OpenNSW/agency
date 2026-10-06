@@ -616,7 +616,7 @@ func TestApplicationStore_UpdateDataAndResetStatus(t *testing.T) {
 
 	// Simulate trader resubmission
 	newData := map[string]any{"new": "data", "updated": true}
-	if err := store.UpdateDataAndResetStatus("task-resub-1", newData, nil); err != nil {
+	if err := store.UpdateDataAndResetStatus("task-resub-1", "token-resub-2", newData, nil); err != nil {
 		t.Fatalf("UpdateDataAndResetStatus failed: %v", err)
 	}
 
@@ -626,6 +626,9 @@ func TestApplicationStore_UpdateDataAndResetStatus(t *testing.T) {
 	}
 	if app.Data["new"] != "data" {
 		t.Errorf("expected updated data, got %v", app.Data)
+	} // The resubmission is a new NSW step, so the outcome must go to the new token.
+	if app.CallbackToken != "token-resub-2" {
+		t.Errorf("expected the resubmission's callback token, got %q", app.CallbackToken)
 	}
 }
 

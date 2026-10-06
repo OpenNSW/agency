@@ -24,6 +24,7 @@ type JSONB = dbtype.JSONB
 // ApplicationRecord represents an application (task) in the Agency database
 type ApplicationRecord struct {
 	TaskID                string                        `gorm:"type:text;primaryKey"`
+	CallbackToken         string                        `gorm:"type:text;not null;default:''"` // Addresses the NSW step this inject is for; refreshed on every re-inject
 	TaskCode              string                        `gorm:"type:varchar(100);not null"`
 	ConsignmentID         string                        `gorm:"type:text;index;not null;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	Consignment           consignment.ConsignmentRecord `gorm:"foreignKey:ConsignmentID;references:ID"`
@@ -320,12 +321,14 @@ func (s *ApplicationStore) AppendFeedback(taskID string, entry feedback.Entry) e
 	})
 }
 
-// UpdateDataAndResetStatus updates the submitted data and resets status to
-// PENDING, called when a trader resubmits after receiving feedback.
+// UpdateDataAndResetStatus updates the submitted data and callback token (the
+// re-inject is for a new NSW step, so the old token no longer addresses it) and
+// resets status to PENDING, called when a trader resubmits after receiving
+// feedback.
 // pushedFields is merged onto the consignment's custom_data in the same
 // transaction, same as CreateOrUpdate — the resubmitted data may carry new
 // values for previously-pushed fields.
-func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[string]any, pushedFields map[string]any) error {
+func (s *ApplicationStore) UpdateDataAndResetStatus(taskID, callbackToken string, data map[string]any, pushedFields map[string]any) error {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
@@ -342,9 +345,10 @@ func (s *ApplicationStore) UpdateDataAndResetStatus(taskID string, data map[stri
 		if err := tx.Model(&ApplicationRecord{}).
 			Where("task_id = ?", taskID).
 			Updates(map[string]any{
-				"data":       string(dataJSON),
-				"status":     "PENDING",
-				"updated_at": now,
+				"data":           string(dataJSON),
+				"callback_token": callbackToken,
+				"status":         "PENDING",
+				"updated_at":     now,
 			}).Error; err != nil {
 			return err
 		}

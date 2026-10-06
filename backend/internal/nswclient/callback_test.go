@@ -44,13 +44,13 @@ func TestClient_SendOutcome(t *testing.T) {
 
 	client := newTestClient(srv)
 	const sensitiveResponse = "sensitive reviewer response"
-	err := client.SendOutcome(context.Background(), "task-123", CommandApprove, map[string]any{"comment": sensitiveResponse})
+	err := client.SendOutcome(context.Background(), "token-123", CommandApprove, map[string]any{"comment": sensitiveResponse})
 	if err != nil {
 		t.Fatalf("SendOutcome failed: %v", err)
 	}
 
-	if capture.path != "/api/v1/tasks/task-123" {
-		t.Errorf("callback path: got %q, want %q", capture.path, "/api/v1/tasks/task-123")
+	if capture.path != "/api/v1/callbacks/token-123" {
+		t.Errorf("callback path: got %q, want %q", capture.path, "/api/v1/callbacks/token-123")
 	}
 	if capture.body["command"] != CommandApprove {
 		t.Errorf("command: got %v, want %v", capture.body["command"], CommandApprove)
@@ -61,27 +61,41 @@ func TestClient_SendOutcome(t *testing.T) {
 	}
 
 	logOutput := logs.String()
-	if !strings.Contains(logOutput, `"taskID":"task-123"`) {
-		t.Errorf("log does not contain task identifier: %s", logOutput)
+	if !strings.Contains(logOutput, `"callbackToken":"token-123"`) {
+		t.Errorf("log does not contain the callback token: %s", logOutput)
 	}
 	if strings.Contains(logOutput, sensitiveResponse) {
 		t.Errorf("log contains reviewer response: %s", logOutput)
 	}
 }
 
-// A task ID containing a slash must stay within one path segment rather than
-// being split into two.
-func TestClient_SendOutcome_EscapesTaskID(t *testing.T) {
+// The token is opaque, so one containing a slash must stay within one path
+// segment rather than being split into two.
+func TestClient_SendOutcome_EscapesCallbackToken(t *testing.T) {
 	var capture callbackCapture
 	srv := newCaptureServer(t, &capture)
 
 	client := newTestClient(srv)
-	if err := client.SendOutcome(context.Background(), "tenant/task-123", CommandApprove, nil); err != nil {
+	if err := client.SendOutcome(context.Background(), "tenant/token-123", CommandApprove, nil); err != nil {
 		t.Fatalf("SendOutcome failed: %v", err)
 	}
 
-	if capture.path != "/api/v1/tasks/tenant%2Ftask-123" {
-		t.Errorf("callback path: got %q, want %q", capture.path, "/api/v1/tasks/tenant%2Ftask-123")
+	if capture.path != "/api/v1/callbacks/tenant%2Ftoken-123" {
+		t.Errorf("callback path: got %q, want %q", capture.path, "/api/v1/callbacks/tenant%2Ftoken-123")
+	}
+}
+
+// Without a token there is no step to address, so nothing is sent.
+func TestClient_SendOutcome_RequiresCallbackToken(t *testing.T) {
+	var capture callbackCapture
+	srv := newCaptureServer(t, &capture)
+
+	client := newTestClient(srv)
+	if err := client.SendOutcome(context.Background(), "", CommandApprove, nil); err == nil {
+		t.Fatal("expected an error for an empty callback token, got nil")
+	}
+	if capture.path != "" {
+		t.Errorf("a request was sent without a callback token: %q", capture.path)
 	}
 }
 
@@ -90,13 +104,13 @@ func TestClient_RequestAmendment(t *testing.T) {
 	srv := newCaptureServer(t, &capture)
 
 	client := newTestClient(srv)
-	err := client.RequestAmendment(context.Background(), "task-abc", map[string]any{"feedback": "fix it"})
+	err := client.RequestAmendment(context.Background(), "token-abc", map[string]any{"feedback": "fix it"})
 	if err != nil {
 		t.Fatalf("RequestAmendment failed: %v", err)
 	}
 
-	if capture.path != "/api/v1/tasks/task-abc" {
-		t.Errorf("callback path: got %q, want %q", capture.path, "/api/v1/tasks/task-abc")
+	if capture.path != "/api/v1/callbacks/token-abc" {
+		t.Errorf("callback path: got %q, want %q", capture.path, "/api/v1/callbacks/token-abc")
 	}
 	if capture.body["command"] != CommandRequestAmendment {
 		t.Errorf("command: got %v, want %v", capture.body["command"], CommandRequestAmendment)
@@ -110,7 +124,7 @@ func TestClient_SendOutcome_Non2xx(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient(srv)
-	if err := client.SendOutcome(context.Background(), "task-123", CommandApprove, nil); err == nil {
+	if err := client.SendOutcome(context.Background(), "token-123", CommandApprove, nil); err == nil {
 		t.Fatal("expected error on non-2xx response, got nil")
 	}
 }
