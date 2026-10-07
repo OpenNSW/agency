@@ -129,7 +129,7 @@ Officer UI ──POST──▶ HandleReviewApplication ──▶ ReviewApplicati
                                                  validate decision field
                                                  update status in DB
                                                  build TaskResponse payload
-                                                 POST callback to /api/v1/tasks/{id}
+                                                 POST callback to /api/v1/callbacks/{token}
                                                       │
                                                 ◀── 200 OK
                                                       │

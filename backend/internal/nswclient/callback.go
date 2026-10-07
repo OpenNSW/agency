@@ -14,9 +14,9 @@ const (
 	CommandRequestAmendment = "request-amendment"
 )
 
-// taskCallbackPath is the NSW API's task callback endpoint. The task ID is
-// appended as a single path segment.
-const taskCallbackPath = "api/v1/tasks"
+// callbackPath is the NSW API's callback endpoint. The callback token from the
+// inject is appended as a single path segment.
+const callbackPath = "api/v1/callbacks"
 
 // taskResponse is the callback envelope sent to the NSW service: a command and
 // its nested payload.
@@ -25,24 +25,29 @@ type taskResponse struct {
 	Payload any    `json:"payload"`
 }
 
-// SendOutcome sends a review outcome (command + payload) for a task back to the
-// NSW service.
-func (c *Client) SendOutcome(ctx context.Context, taskID, command string, payload any) error {
-	// JoinPath treats its arguments as already-escaped path elements, so escape
-	// taskID first to keep a slash-containing ID within one segment.
-	path, err := url.JoinPath(taskCallbackPath, url.PathEscape(taskID))
-	if err != nil {
-		return fmt.Errorf("build task callback path: %w", err)
+// SendOutcome sends a review outcome (command + payload) back to the NSW service
+// for the step the inject was for. callbackToken is the opaque token the inject
+// carried: it names that one step, so NSW rejects (409) an outcome sent after the
+// task has moved on rather than applying it to a later step.
+func (c *Client) SendOutcome(ctx context.Context, callbackToken, command string, payload any) error {
+	if callbackToken == "" {
+		return fmt.Errorf("send outcome to NSW service: no callback token")
 	}
-	if err := c.postEnvelope(ctx, path, taskID, taskResponse{Command: command, Payload: payload}); err != nil {
+	// JoinPath treats its arguments as already-escaped path elements, so escape
+	// the token first to keep it within one segment whatever it contains.
+	path, err := url.JoinPath(callbackPath, url.PathEscape(callbackToken))
+	if err != nil {
+		return fmt.Errorf("build callback path: %w", err)
+	}
+	if err := c.postEnvelope(ctx, path, callbackToken, taskResponse{Command: command, Payload: payload}); err != nil {
 		return fmt.Errorf("send outcome to NSW service: %w", err)
 	}
 	return nil
 }
 
 // RequestAmendment asks the trader (via the NSW service) to amend a submission.
-func (c *Client) RequestAmendment(ctx context.Context, taskID string, payload any) error {
-	if err := c.SendOutcome(ctx, taskID, CommandRequestAmendment, payload); err != nil {
+func (c *Client) RequestAmendment(ctx context.Context, callbackToken string, payload any) error {
+	if err := c.SendOutcome(ctx, callbackToken, CommandRequestAmendment, payload); err != nil {
 		return fmt.Errorf("request amendment via NSW service: %w", err)
 	}
 	return nil

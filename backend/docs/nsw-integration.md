@@ -84,34 +84,23 @@ Key fields:
 
 ## Callback Contract
 
-When an Agency officer reviews an application, the Agency service POSTs a callback to the NSW task endpoint it derives from its own `NSW_API_BASE_URL` -- `{NSW_API_BASE_URL}/api/v1/tasks/{taskId}` (typically `http://localhost:8080/api/v1/tasks/{taskId}`):
+Each inject carries an opaque `callbackToken` naming the NSW workflow step it is for. The Agency service stores it with the application, replaces it on every re-inject of the same task (e.g. after an amendment), and uses it to address the callback.
+
+When an Agency officer reviews an application (or requests an amendment), the Agency service POSTs a callback to the NSW callback endpoint it derives from its own `NSW_API_BASE_URL` -- `{NSW_API_BASE_URL}/api/v1/callbacks/{callbackToken}` (typically `http://localhost:8080/api/v1/callbacks/{callbackToken}`):
 
 ```json
 {
-  "task_id": "927adaaa-b959-4648-880a-16508acafc12",
-  "consignment_id": "cefda05e-3071-4e94-b001-328094e570a7",
+  "command": "approve",
   "payload": {
-    "action": "AGENCY_VERIFICATION",
-    "content": {
-      "decision": "APPROVED",
-      "phytosanitaryClearance": "CLEARED",
-      "inspectionReference": "NPQS/2024/001",
-      "remarks": "OK"
-    }
+    "decision": "APPROVED",
+    "phytosanitaryClearance": "CLEARED",
+    "inspectionReference": "NPQS/2024/001",
+    "remarks": "OK"
   }
 }
 ```
 
-The NSW backend processes this callback:
-
-1. Looks up the task by `task_id`
-2. Validates that `consignment_id` matches
-3. Passes the payload to `plugin.Execute()` with action `AGENCY_VERIFICATION`
-4. The SimpleForm plugin stores the Agency response in its local state
-5. Based on the `decision` field:
-   - `"APPROVED"` -- task state set to `Completed`
-   - Anything else -- task state set to `Failed`
-6. Mapped fields are written to the workflow's global context
+`command` is the review outcome (`request-amendment` for feedback) and `payload` the reviewer response. NSW completes exactly the step the token names: a callback for a step the task has already left gets `409` and changes nothing, so a late or repeated callback can never complete a later step.
 
 ## End-to-End Example: Desiccated Coconut Export
 

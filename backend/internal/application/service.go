@@ -89,7 +89,12 @@ type Service interface {
 
 // InjectRequest represents the incoming data from services
 type InjectRequest struct {
-	TaskID                string           `json:"taskId"`
+	TaskID string `json:"taskId"`
+	// CallbackToken is the opaque token NSW sends with each dispatch. It names the one
+	// workflow step this inject is for; the review outcome or feedback for it is sent
+	// back on {NSW}/api/v1/callbacks/{callbackToken}. A re-inject of the same task
+	// (e.g. after an amendment) carries a new one.
+	CallbackToken         string           `json:"callbackToken"`
 	TaskCode              string           `json:"taskCode"`
 	ConsignmentID         string           `json:"consignmentId"`
 	Data                  map[string]any   `json:"data"`
@@ -98,7 +103,10 @@ type InjectRequest struct {
 
 // Application represents an application for display in the UI
 type Application struct {
-	TaskID           string         `json:"taskId"`
+	TaskID string `json:"taskId"`
+	// CallbackToken addresses the NSW step this application answers. Internal: it
+	// is never sent to the UI.
+	CallbackToken    string         `json:"-"`
 	TaskCode         string         `json:"taskCode"`
 	ConsignmentID    string         `json:"consignmentId"`
 	Data             map[string]any `json:"data,omitempty"`             // Data from NSW service to be rendered in the UI
@@ -132,10 +140,12 @@ type Application struct {
 // NSWClient sends task outcomes and amendment requests back to the originating
 // NSW service.
 type NSWClient interface {
-	// SendOutcome sends a review outcome (command + payload) for a task.
-	SendOutcome(ctx context.Context, taskID, command string, payload any) error
-	// RequestAmendment asks the trader to amend a submission.
-	RequestAmendment(ctx context.Context, taskID string, payload any) error
+	// SendOutcome sends a review outcome (command + payload) for the step the
+	// application's callback token names.
+	SendOutcome(ctx context.Context, callbackToken, command string, payload any) error
+	// RequestAmendment asks the trader to amend a submission, for the step the
+	// application's callback token names.
+	RequestAmendment(ctx context.Context, callbackToken string, payload any) error
 }
 
 // ConsignmentService is the subset of the consignment domain used when injecting
@@ -181,7 +191,7 @@ func NewService(store *ApplicationStore, artifactRegistry *artifact.Registry, ns
 
 // CreateApplication creates a new application from injected data.
 func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) error {
-	if req.TaskID == "" || req.TaskCode == "" || req.ConsignmentID == "" {
+	if req.TaskID == "" || req.TaskCode == "" || req.ConsignmentID == "" || req.CallbackToken == "" {
 		return fmt.Errorf("%w: missing required fields in InjectRequest", ErrInvalidInjectRequest)
 	}
 
@@ -212,11 +222,12 @@ func (s *service) CreateApplication(ctx context.Context, req *InjectRequest) err
 		// Record doesn't exist — fall through to create.
 	} else if existing.Status == "FEEDBACK_REQUESTED" {
 		slog.InfoContext(ctx, "trader resubmitted after feedback, resetting to PENDING", "taskID", req.TaskID)
-		return s.store.UpdateDataAndResetStatus(req.TaskID, req.Data, pushedFields)
+		return s.store.UpdateDataAndResetStatus(req.TaskID, req.CallbackToken, req.Data, pushedFields)
 	}
 
 	appRecord := &ApplicationRecord{
 		TaskID:        req.TaskID,
+		CallbackToken: req.CallbackToken,
 		TaskCode:      req.TaskCode,
 		ConsignmentID: req.ConsignmentID,
 		Data:          req.Data,
@@ -411,6 +422,7 @@ func (s *service) buildApplication(ctx context.Context, record *ApplicationRecor
 
 	app := &Application{
 		TaskID:           record.TaskID,
+		CallbackToken:    record.CallbackToken,
 		TaskCode:         record.TaskCode,
 		ConsignmentID:    record.ConsignmentID,
 		Data:             record.Data,
@@ -534,7 +546,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 		}
 	}
 
-	if err := s.nsw.SendOutcome(ctx, app.TaskID, command, reviewerResponse); err != nil {
+	if err := s.nsw.SendOutcome(ctx, record.CallbackToken, command, reviewerResponse); err != nil {
 		return fmt.Errorf("failed to send response to service: %w", err)
 	}
 
@@ -566,7 +578,7 @@ func (s *service) FeedbackApplication(ctx context.Context, taskID string, conten
 		Round:     len(app.FeedbackHistory) + 1,
 	}
 
-	if err := s.nsw.RequestAmendment(ctx, app.TaskID, content); err != nil {
+	if err := s.nsw.RequestAmendment(ctx, app.CallbackToken, content); err != nil {
 		return fmt.Errorf("failed to send feedback to service: %w", err)
 	}
 

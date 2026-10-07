@@ -70,7 +70,7 @@ To add a brand-new NSW Agency, add a new `backend/config/<name>/config.yaml` (se
 
 ### 1. NSW backend reachable
 
-NSW Agency calls the NSW core backend's `/api/v1/tasks` endpoint to return review results. Set `NSW_API_BASE_URL` in [backend/.env](backend/.env) accordingly (default: `http://localhost:8080`).
+NSW Agency calls the NSW core backend's `/api/v1/callbacks/{callbackToken}` endpoint to return review results, using the token each inject carries. Set `NSW_API_BASE_URL` in [backend/.env](backend/.env) accordingly (default: `http://localhost:8080`).
 
 ### 2. M2M OAuth2 client
 
@@ -83,7 +83,7 @@ NSW Agency is decoupled from the NSW core monorepo — it communicates over HTTP
 ```
 trader-app → nsw-backend → (POST /api/v1/inject) → NSW Agency-backend ← NSW Agency-app
                   ▲                                       │
-                  └────── (POST /api/v1/tasks, OAuth2 M2M)┘
+                  └── (POST /api/v1/callbacks, OAuth2 M2M)┘
 ```
 
 - Own database (SQLite or PostgreSQL, per `DB_*` env vars) — not shared with NSW.

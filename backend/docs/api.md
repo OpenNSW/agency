@@ -30,6 +30,7 @@ POST /api/v1/inject
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `taskId` | string | Yes | Task identifier from the workflow |
+| `callbackToken` | string | Yes | Opaque token naming the NSW workflow step this inject is for. Stored and used to send the review outcome back (see Callback Payload). A re-inject of the same task carries a new one. |
 | `consignmentId` | string | Yes | Parent consignment identifier |
 | `data` | object | No | Trader-submitted data to display during review |
 | `meta` | object | No | Metadata for form selection (see [Dynamic Forms](dynamic-forms.md)) |
@@ -43,6 +44,7 @@ curl -X POST http://localhost:8081/api/v1/inject \
   -H "Content-Type: application/json" \
   -d '{
     "taskId": "927adaaa-b959-4648-880a-16508acafc12",
+    "callbackToken": "1mq-vSNmKRc6aKXmHSpHvBDTBvHKEn0BBl8wJ_E6WfOI",
     "consignmentId": "cefda05e-3071-4e94-b001-328094e570a7",
     "data": {
       "countryOfOrigin": "LK",
@@ -242,24 +244,26 @@ curl -X POST http://localhost:8081/api/v1/applications/927adaaa-b959-4648-880a-1
 
 **Callback Payload**
 
-After a successful review, the service POSTs the following to the NSW task
-endpoint (`{NSW_API_BASE_URL}/api/v1/tasks/{taskId}`):
+After a successful review, the service POSTs the following to the NSW callback
+endpoint, addressed by the application's callback token
+(`{NSW_API_BASE_URL}/api/v1/callbacks/{callbackToken}`):
 
 ```json
 {
-  "task_id": "927adaaa-b959-4648-880a-16508acafc12",
-  "consignment_id": "cefda05e-3071-4e94-b001-328094e570a7",
+  "command": "approve",
   "payload": {
-    "action": "AGENCY_VERIFICATION",
-    "content": {
-      "decision": "APPROVED",
-      "phytosanitaryClearance": "CLEARED",
-      "inspectionReference": "NPQS/2024/001",
-      "remarks": "Fumigation records acceptable"
-    }
+    "decision": "APPROVED",
+    "phytosanitaryClearance": "CLEARED",
+    "inspectionReference": "NPQS/2024/001",
+    "remarks": "Fumigation records acceptable"
   }
 }
 ```
+
+`command` is the outcome read from the reviewer response's outcome field
+(`behavior.outcomeField` in the task config), or `approve` when there is none, and
+`payload` is the reviewer response. NSW answers `409` if the step the
+token names is no longer active (the task has moved on), and the review fails.
 
 The `content` field contains the entire review body as submitted by the officer.
 

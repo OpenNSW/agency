@@ -349,6 +349,7 @@ func (h *serviceHarness) seed(taskID, taskCode string, data JSONB) {
 	}
 	err := h.store.CreateOrUpdate(&ApplicationRecord{
 		TaskID:        taskID,
+		CallbackToken: "token-" + taskID,
 		TaskCode:      taskCode,
 		ConsignmentID: "wf-test",
 		Data:          data,
@@ -376,6 +377,7 @@ func TestCreateApplication_UnknownTaskCode_Rejected(t *testing.T) {
 
 	err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-ghost",
+		CallbackToken: "token-t-ghost",
 		TaskCode:      "ghost",
 		ConsignmentID: "wf-test",
 		Data:          map[string]any{},
@@ -385,6 +387,25 @@ func TestCreateApplication_UnknownTaskCode_Rejected(t *testing.T) {
 	}
 	if _, getErr := h.store.GetByTaskID("t-ghost"); getErr == nil {
 		t.Errorf("expected no record to be created for an unknown task code")
+	}
+}
+
+// Without a callback token the review outcome could never be sent back, so the
+// inject is rejected up front rather than accepted into an officer's queue.
+func TestCreateApplication_MissingCallbackToken_Rejected(t *testing.T) {
+	h := newServiceHarness(t, nil)
+
+	err := h.service.CreateApplication(context.Background(), &InjectRequest{
+		TaskID:        "t-no-token",
+		TaskCode:      "ghost",
+		ConsignmentID: "wf-test",
+		Data:          map[string]any{},
+	})
+	if !errors.Is(err, ErrInvalidInjectRequest) {
+		t.Fatalf("expected ErrInvalidInjectRequest, got %v", err)
+	}
+	if _, getErr := h.store.GetByTaskID("t-no-token"); getErr == nil {
+		t.Errorf("expected no record to be created without a callback token")
 	}
 }
 
@@ -409,6 +430,7 @@ func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
 	t.Run("data missing a required field is rejected", func(t *testing.T) {
 		err := h.service.CreateApplication(context.Background(), &InjectRequest{
 			TaskID:        "t-bad",
+			CallbackToken: "token-t-bad",
 			TaskCode:      "alpha",
 			ConsignmentID: "wf-test",
 			Data:          map[string]any{},
@@ -424,6 +446,7 @@ func TestCreateApplication_ValidatesAgainstViewFormSchema(t *testing.T) {
 	t.Run("data satisfying the schema is accepted", func(t *testing.T) {
 		err := h.service.CreateApplication(context.Background(), &InjectRequest{
 			TaskID:        "t-good",
+			CallbackToken: "token-t-good",
 			TaskCode:      "alpha",
 			ConsignmentID: "wf-test",
 			Data:          map[string]any{"consignee_name": "Acme Traders"},
@@ -450,6 +473,7 @@ func TestCreateApplication_NoViewForm_SkipsDataValidation(t *testing.T) {
 
 	err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-no-view",
+		CallbackToken: "token-t-no-view",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
 		Data:          map[string]any{"anything": "goes"},
@@ -472,6 +496,7 @@ func TestCreateApplication_ViewFormLoadFailure_FailsClosed(t *testing.T) {
 
 	err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-missing-form",
+		CallbackToken: "token-t-missing-form",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
 		Data:          map[string]any{},
@@ -599,6 +624,7 @@ func TestReviewApplication_ConfigLoadErrorOnReview_FailsClosed(t *testing.T) {
 	srv, capture := newCallbackServer(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{
 		TaskID:        "t-load-fail-review",
+		CallbackToken: "token-t-load-fail-review",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
 		Data:          JSONB{"field": "value"},
@@ -794,7 +820,7 @@ func TestReviewApplication_SendsCallback(t *testing.T) {
 	}
 
 	lastPath := h.capture.lastPath()
-	expectedPath := "/api/v1/tasks/t-callback"
+	expectedPath := "/api/v1/callbacks/token-t-callback"
 	if lastPath != expectedPath {
 		t.Errorf("callback URL path: got %q, want %q", lastPath, expectedPath)
 	}
@@ -827,7 +853,7 @@ func TestFeedbackApplication_SendsCallback(t *testing.T) {
 	}
 
 	lastPath := h.capture.lastPath()
-	expectedPath := "/api/v1/tasks/t-feedback-cb"
+	expectedPath := "/api/v1/callbacks/token-t-feedback-cb"
 	if lastPath != expectedPath {
 		t.Errorf("callback URL path: got %q, want %q", lastPath, expectedPath)
 	}
@@ -1003,6 +1029,7 @@ func TestGetApplication_ConfigLoadError_FailsClosed(t *testing.T) {
 	store := newTestStore(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{
 		TaskID:        "t-load-fail",
+		CallbackToken: "token-t-load-fail",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
 		Data:          JSONB{"field": "value"},
@@ -1151,6 +1178,7 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 	store := newTestStore(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{
 		TaskID:        "t-load-fail",
+		CallbackToken: "token-t-load-fail",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-test",
 		Data:          JSONB{"field": "value"},
@@ -1182,7 +1210,7 @@ func TestGetApplications_ConfigLoadError_FailsClosed(t *testing.T) {
 func TestGetApplications_UnsatisfiableScope_ReturnsEmptyPageWithoutQuerying(t *testing.T) {
 	store := newTestStore(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{
-		TaskID: "t-scope-1", TaskCode: "alpha", ConsignmentID: "wf-test",
+		TaskID: "t-scope-1", CallbackToken: "token-t-scope-1", TaskCode: "alpha", ConsignmentID: "wf-test",
 		Data: JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
@@ -1207,7 +1235,7 @@ func TestGetApplications_UnsatisfiableScope_ReturnsEmptyPageWithoutQuerying(t *t
 func TestGetApplication_ScopeMismatch_ReturnsNotFound(t *testing.T) {
 	store := newTestStore(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{
-		TaskID: "t-scope-2", TaskCode: "alpha", ConsignmentID: "wf-test",
+		TaskID: "t-scope-2", CallbackToken: "token-t-scope-2", TaskCode: "alpha", ConsignmentID: "wf-test",
 		Data: JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
@@ -1230,7 +1258,7 @@ func TestGetApplication_ScopeMismatch_ReturnsNotFound(t *testing.T) {
 func TestGetApplication_ClientPrincipalBypassesScoping(t *testing.T) {
 	store := newTestStore(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{
-		TaskID: "t-scope-3", TaskCode: "alpha", ConsignmentID: "wf-test",
+		TaskID: "t-scope-3", CallbackToken: "token-t-scope-3", TaskCode: "alpha", ConsignmentID: "wf-test",
 		Data: JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
@@ -1262,7 +1290,7 @@ func scopedTestService(t *testing.T, district string, resolver *datascope.Resolv
 	t.Helper()
 	store := newTestStore(t)
 	if err := store.CreateOrUpdate(&ApplicationRecord{
-		TaskID: taskID, TaskCode: "alpha", ConsignmentID: "wf-test",
+		TaskID: taskID, CallbackToken: "token-" + taskID, TaskCode: "alpha", ConsignmentID: "wf-test",
 		Data: JSONB{"field": "value"}, Status: "PENDING",
 	}, nil); err != nil {
 		t.Fatalf("failed to seed record: %v", err)
@@ -1636,6 +1664,7 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 	// 1. First injection for c-100
 	err := svc.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-101",
+		CallbackToken: "token-t-101",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-100",
 		Data:          map[string]any{"field": "v1"},
@@ -1660,6 +1689,7 @@ func TestCreateApplication_ConsignmentMetadataCaching(t *testing.T) {
 	// 2. Second injection for the SAME consignment c-100
 	err = svc.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-102",
+		CallbackToken: "token-t-102",
 		TaskCode:      "task-b",
 		ConsignmentID: "c-100",
 		Data:          map[string]any{"field": "v2"},
@@ -1696,6 +1726,7 @@ func TestCreateApplication_ConsignmentFetchFailureDegradesGracefully(t *testing.
 	// Injection should still succeed despite NSW error
 	err := svc.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-201",
+		CallbackToken: "token-t-201",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-200",
 		Data:          map[string]any{"field": "v1"},
@@ -1735,6 +1766,7 @@ func TestCreateApplication_DoesNotRetryAgencyFetchOnceConsignmentExists(t *testi
 	ctx := context.Background()
 	if err := svc.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-301",
+		CallbackToken: "token-t-301",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-300",
 		Data:          map[string]any{"field": "v1"},
@@ -1749,6 +1781,7 @@ func TestCreateApplication_DoesNotRetryAgencyFetchOnceConsignmentExists(t *testi
 	}
 	if err := svc.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-302",
+		CallbackToken: "token-t-302",
 		TaskCode:      "task-b",
 		ConsignmentID: "c-300",
 		Data:          map[string]any{"field": "v2"},
@@ -1783,6 +1816,7 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 	ctx := context.Background()
 	if err := svc.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-fb",
+		CallbackToken: "token-t-fb",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-fb",
 		Data:          map[string]any{"field": "original"},
@@ -1798,6 +1832,7 @@ func TestCreateApplication_FeedbackResubmitSkipsAgencyFetch(t *testing.T) {
 
 	if err := svc.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-fb",
+		CallbackToken: "token-t-fb",
 		TaskCode:      "task-a",
 		ConsignmentID: "c-fb",
 		Data:          map[string]any{"field": "resubmitted"},
@@ -1850,6 +1885,7 @@ func TestCreateApplication_PushesConsignmentFields(t *testing.T) {
 
 	err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-push-1",
+		CallbackToken: "token-t-push-1",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-push",
 		Data: map[string]any{
@@ -1890,6 +1926,7 @@ func TestCreateApplication_ConsignmentFieldsAccumulateAcrossTasks(t *testing.T) 
 
 	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-acc-1",
+		CallbackToken: "token-t-acc-1",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-acc",
 		Data:          map[string]any{"district": "Colombo"},
@@ -1898,6 +1935,7 @@ func TestCreateApplication_ConsignmentFieldsAccumulateAcrossTasks(t *testing.T) 
 	}
 	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-acc-2",
+		CallbackToken: "token-t-acc-2",
 		TaskCode:      "beta",
 		ConsignmentID: "wf-acc",
 		Data:          map[string]any{"portOfEntry": "BIA"},
@@ -1929,6 +1967,7 @@ func TestCreateApplication_ConsignmentFieldsPushedOnResubmission(t *testing.T) {
 	ctx := context.Background()
 	if err := h.service.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-resub",
+		CallbackToken: "token-t-resub",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-resub",
 		Data:          map[string]any{"district": "Colombo"},
@@ -1942,6 +1981,7 @@ func TestCreateApplication_ConsignmentFieldsPushedOnResubmission(t *testing.T) {
 	// Resubmission with a new value for the same pushed field.
 	if err := h.service.CreateApplication(ctx, &InjectRequest{
 		TaskID:        "t-resub",
+		CallbackToken: "token-t-resub",
 		TaskCode:      "alpha",
 		ConsignmentID: "wf-resub",
 		Data:          map[string]any{"district": "Gampaha"},
@@ -1980,6 +2020,7 @@ func TestCreateApplication_RefID_GeneratedAndPersisted(t *testing.T) {
 
 	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-refid-1",
+		CallbackToken: "token-t-refid-1",
 		TaskCode:      "refid_task",
 		ConsignmentID: "c-refid-1",
 		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
@@ -2016,6 +2057,7 @@ func TestCreateApplication_RefID_ReinjectKeepsOriginalID(t *testing.T) {
 
 	req := &InjectRequest{
 		TaskID:        "t-refid-2",
+		CallbackToken: "token-t-refid-2",
 		TaskCode:      "refid_task",
 		ConsignmentID: "c-refid-2",
 		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
@@ -2068,6 +2110,7 @@ func TestCreateApplication_RefID_UnconfiguredDeployment_FailsInject(t *testing.T
 
 	err := svc.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-refid-3",
+		CallbackToken: "token-t-refid-3",
 		TaskCode:      "refid_task",
 		ConsignmentID: "c-refid-3",
 		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
@@ -2109,6 +2152,7 @@ func TestCreateApplication_NoRefIDBlock_LeavesReviewerResponseEmpty(t *testing.T
 
 	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-plain",
+		CallbackToken: "token-t-plain",
 		TaskCode:      "plain",
 		ConsignmentID: "c-plain",
 		Data:          map[string]any{"anything": "goes"},
@@ -2171,6 +2215,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	inject := func(taskID, office string) error {
 		return svc.CreateApplication(context.Background(), &InjectRequest{
 			TaskID:        taskID,
+			CallbackToken: "token-" + taskID,
 			TaskCode:      "refid_task",
 			ConsignmentID: "c-" + taskID,
 			Data:          map[string]any{"nppo_office_location": office},
@@ -2219,6 +2264,7 @@ func TestCreateApplication_RefID_RealRegistry_EndToEnd(t *testing.T) {
 	// rejects it, which is the contract the skip-unresolved behaviour relies on.
 	err = svc.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-e2e-missing",
+		CallbackToken: "token-t-e2e-missing",
 		TaskCode:      "refid_task",
 		ConsignmentID: "c-t-e2e-missing",
 		Data:          map[string]any{"something_else": "x"},
@@ -2278,6 +2324,7 @@ func TestCreateApplication_RefID_RandomFormat_EndToEnd(t *testing.T) {
 		taskID := fmt.Sprintf("t-rand-%d", i)
 		if err := svc.CreateApplication(context.Background(), &InjectRequest{
 			TaskID:        taskID,
+			CallbackToken: "token-" + taskID,
 			TaskCode:      "refid_task",
 			ConsignmentID: "c-" + taskID,
 			Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
@@ -2415,6 +2462,7 @@ func TestCreateApplication_RefID_UnusedParamNotResolved_StillGenerates(t *testin
 
 	if err := h.service.CreateApplication(context.Background(), &InjectRequest{
 		TaskID:        "t-refid-extra",
+		CallbackToken: "token-t-refid-extra",
 		TaskCode:      "refid_task",
 		ConsignmentID: "c-refid-extra",
 		Data:          map[string]any{"nppo_office_location": "NPQS-KAT"},
