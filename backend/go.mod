@@ -4,11 +4,11 @@ go 1.27
 
 require (
 	github.com/OpenNSW/core v0.0.0-20260826052619-ad95c114ba56
-	github.com/OpenNSW/core/authn v0.3.0
+	github.com/OpenNSW/core/authn v0.4.0
 	github.com/OpenNSW/core/authz v0.1.0
 	github.com/OpenNSW/core/httputil v0.1.0
 	github.com/OpenNSW/core/json v0.0.0-20260917101529-36df0ddf30e0
-	github.com/OpenNSW/core/refid v0.2.0
+	github.com/OpenNSW/core/refid v0.3.0
 	github.com/OpenNSW/core/secret v0.2.0
 	github.com/OpenNSW/core/trace v0.2.0
 	github.com/glebarez/sqlite v1.11.0
