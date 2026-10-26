@@ -4,11 +4,11 @@ go 1.27
 
 require (
 	github.com/OpenNSW/core v0.0.0-20260826052619-ad95c114ba56
-	github.com/OpenNSW/core/authn v0.3.0
+	github.com/OpenNSW/core/authn v0.4.0
 	github.com/OpenNSW/core/authz v0.1.0
 	github.com/OpenNSW/core/httputil v0.1.0
 	github.com/OpenNSW/core/json v0.0.0-20260917101529-36df0ddf30e0
-	github.com/OpenNSW/core/refid v0.2.0
+	github.com/OpenNSW/core/refid v0.3.0
 	github.com/OpenNSW/core/secret v0.2.0
 	github.com/OpenNSW/core/trace v0.2.0
 	github.com/glebarez/sqlite v1.11.0
@@ -20,7 +20,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
-	modernc.org/sqlite v1.60.1
+	modernc.org/sqlite v1.61.0
 )
 
 require (
@@ -43,7 +43,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.40.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.47.1 // indirect
 	github.com/aws/smithy-go v1.28.1 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/glebarez/go-sqlite v1.23.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -52,12 +52,12 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-sqlite3 v1.14.44 // indirect
-	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	modernc.org/libc v1.77.1 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
